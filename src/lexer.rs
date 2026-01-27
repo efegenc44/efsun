@@ -77,6 +77,7 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
             ch if ch.is_alphabetic() => self.identifier(),
             '(' => self.single(Token::LeftParenthesis),
             ')' => self.single(Token::RightParenthesis),
+            '\\' => self.single(Token::Backslash),
             unknown => {
                 let location = self.location;
                 let error = Located::new(
@@ -92,7 +93,7 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum LexError {
     UnknownStartOfAToken(char)
 }

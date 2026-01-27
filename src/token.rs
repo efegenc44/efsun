@@ -2,11 +2,12 @@ use std::fmt::Display;
 
 use crate::interner::InternId;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Token {
     Identifier(InternId),
     LeftParenthesis,
     RightParenthesis,
+    Backslash,
 }
 
 impl Display for Token {
@@ -15,6 +16,7 @@ impl Display for Token {
             Self::Identifier(id) => write!(f, "identifier: {id}"),
             Self::LeftParenthesis => write!(f, "("),
             Self::RightParenthesis => write!(f, ")"),
+            Self::Backslash => write!(f, "\\"),
         }
     }
 }

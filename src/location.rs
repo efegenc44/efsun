@@ -14,6 +14,13 @@ impl SourceLocation {
         }
     }
 
+    pub fn eof() -> Self {
+        Self {
+            row: 0,
+            column: 0,
+        }
+    }
+
     pub fn increment(&mut self) {
         self.column += 1;
     }
@@ -30,7 +37,7 @@ impl Display for SourceLocation {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Located<T> {
     data: T,
     location: SourceLocation
@@ -39,6 +46,18 @@ pub struct Located<T> {
 impl<T> Located<T> {
     pub fn new(data: T, location: SourceLocation) -> Self {
         Self { data, location }
+    }
+
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+
+    pub fn to_data(self) -> T {
+        self.data
+    }
+
+    pub fn location(&self) -> SourceLocation {
+        self.location
     }
 }
 
