@@ -1,6 +1,10 @@
 use std::{iter::Peekable, str::Chars};
 
-use crate::{interner::Interner, token::Token, location::{Located, SourceLocation}};
+use crate::{
+    interner::Interner,
+    token::Token,
+    location::{Located, SourceLocation}
+};
 
 pub struct Lexer<'source, 'interner> {
     chars: Peekable<Chars<'source>>,

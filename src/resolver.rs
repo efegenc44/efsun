@@ -1,6 +1,13 @@
 use std::fmt::Display;
 
-use crate::{expression::{ApplicationExpression, Expression, IdentifierExpression, LambdaExpression}, interner::InternId, location::Located};
+use crate::{
+    expression::{
+        ApplicationExpression, Expression, IdentifierExpression,
+        LambdaExpression
+    },
+    interner::InternId,
+    location::Located
+};
 
 pub struct Resolver {
     locals: Vec<InternId>

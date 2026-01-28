@@ -1,6 +1,12 @@
 use std::iter::Peekable;
 
-use crate::{expression::Expression, interner::InternId, lexer::{LexError, Lexer}, location::{Located, SourceLocation}, token::Token};
+use crate::{
+    expression::Expression,
+    interner::InternId,
+    lexer::{LexError, Lexer},
+    location::{Located, SourceLocation},
+    token::Token
+};
 
 pub struct Parser<'source, 'interner> {
     tokens: Peekable<Lexer<'source, 'interner>>

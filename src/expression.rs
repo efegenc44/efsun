@@ -1,6 +1,10 @@
 use std::cell::OnceCell;
 
-use crate::{interner::{InternId, Interner}, location::Located, resolver::Bound};
+use crate::{
+    interner::{InternId, Interner},
+    location::Located,
+    resolver::Bound
+};
 
 pub enum Expression {
     Application(ApplicationExpression),
