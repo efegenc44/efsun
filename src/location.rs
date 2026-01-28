@@ -56,7 +56,7 @@ impl<T> Located<T> {
         &mut self.data
     }
 
-    pub fn to_data(self) -> T {
+    pub fn into_data(self) -> T {
         self.data
     }
 

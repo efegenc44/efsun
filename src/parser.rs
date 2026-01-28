@@ -17,14 +17,14 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         self
             .tokens
             .peek()
-            .and_then(|result| Some(result.map_err(Into::into)))
+            .map(|result| result.map_err(Into::into))
     }
 
     fn next(&mut self) -> Option<ParseResult<Token>> {
         self
             .tokens
             .next()
-            .and_then(|result| Some(result.map_err(Into::into)))
+            .map(|result| result.map_err(Into::into))
     }
 
     fn peek_some(&mut self) -> ParseResult<Token> {
@@ -126,7 +126,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let expression = self.expression()?;
         self.expect(Token::RightParenthesis)?;
         let expression = Located::new(
-            expression.to_data(),
+            expression.into_data(),
             location
         );
 
@@ -164,6 +164,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 }
 
+#[allow(unused)]
 #[derive(Clone, Copy, Debug)]
 pub enum ParseError {
     LexError(LexError),

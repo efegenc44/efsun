@@ -64,6 +64,7 @@ impl Display for Bound {
     }
 }
 
+#[allow(unused)]
 #[derive(Debug)]
 pub enum ResolutionError {
     UnboundIdentifier(InternId)

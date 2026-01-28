@@ -93,6 +93,7 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
     }
 }
 
+#[allow(unused)]
 #[derive(Clone, Copy, Debug)]
 pub enum LexError {
     UnknownStartOfAToken(char)
