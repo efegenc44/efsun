@@ -110,10 +110,12 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 
     fn identifier(&mut self) -> ParseResult<Expression> {
-        let id = self.expect_identifier()?;
+        let identifier = self.expect_identifier()?;
+        let location = identifier.location();
+        let identifier = Expression::identifier(identifier);
         let expression = Located::new(
-            Expression::Identifier(*id.data()),
-            id.location()
+            identifier,
+            location
         );
 
         Ok(expression)

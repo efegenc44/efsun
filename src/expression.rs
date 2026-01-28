@@ -1,17 +1,23 @@
-use crate::{interner::{InternId, Interner}, location::Located};
+use std::cell::OnceCell;
+
+use crate::{interner::{InternId, Interner}, location::Located, resolver::Bound};
 
 pub enum Expression {
-    Identifier(InternId),
-    Lambda(LambdaExpression),
     Application(ApplicationExpression),
+    Lambda(LambdaExpression),
+    Identifier(IdentifierExpression),
 }
 
 impl Expression {
-    pub fn application(function: Box<Located<Expression>>, argument: Box<Located<Expression>>) -> Self {
+    pub fn identifier(identifier: Located<InternId>) -> Self {
+        Self::Identifier(IdentifierExpression { identifier, bound: OnceCell::new() })
+    }
+
+    pub fn application(function: Box<Located<Self>>, argument: Box<Located<Self>>) -> Self {
         Self::Application(ApplicationExpression { function, argument })
     }
 
-    pub fn lambda(variable: Located<InternId>, expression: Box<Located<Expression>>) -> Self {
+    pub fn lambda(variable: Located<InternId>, expression: Box<Located<Self>>) -> Self {
         Self::Lambda(LambdaExpression { variable, expression })
     }
 
@@ -19,8 +25,12 @@ impl Expression {
         let indent = depth*2;
 
         match self {
-            Self::Identifier(id) => {
-                println!("{:indent$}Identifier: {}", "", interner.lookup(*id))
+            Self::Identifier(identifier) => {
+                println!(
+                    "{:indent$}Identifier: {}#{}", "",
+                    interner.lookup(*identifier.identifier.data()),
+                    identifier.bound()
+                )
             },
             Self::Lambda(lambda) => {
                 println!("{:indent$}Lambda:", "");
@@ -36,12 +46,51 @@ impl Expression {
     }
 }
 
+pub struct IdentifierExpression {
+    identifier: Located<InternId>,
+    bound: OnceCell<Bound>,
+}
+
+impl IdentifierExpression {
+    pub fn identifier(&self) -> Located<InternId> {
+        self.identifier
+    }
+
+    pub fn set_bound(&mut self, bound: Bound) {
+        self.bound.set(bound).unwrap();
+    }
+
+    pub fn bound(&self) -> Bound {
+        *self.bound.get().unwrap()
+    }
+}
+
 pub struct ApplicationExpression {
     function: Box<Located<Expression>>,
-    argument: Box<Located<Expression>>
+    argument: Box<Located<Expression>>,
+}
+
+impl ApplicationExpression {
+    pub fn function_mut(&mut self) -> &mut Located<Expression> {
+        &mut self.function
+    }
+
+    pub fn argument_mut(&mut self) -> &mut Located<Expression> {
+        &mut self.argument
+    }
 }
 
 pub struct LambdaExpression {
     variable: Located<InternId>,
-    expression: Box<Located<Expression>>
+    expression: Box<Located<Expression>>,
+}
+
+impl LambdaExpression {
+    pub fn variable(&self) -> Located<InternId> {
+        self.variable
+    }
+
+    pub fn expression_mut(&mut self) -> &mut Located<Expression> {
+        &mut self.expression
+    }
 }
