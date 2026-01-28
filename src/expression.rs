@@ -7,9 +7,9 @@ use crate::{
 };
 
 pub enum Expression {
+    Identifier(IdentifierExpression),
     Application(ApplicationExpression),
     Lambda(LambdaExpression),
-    Identifier(IdentifierExpression),
 }
 
 impl Expression {
@@ -25,6 +25,7 @@ impl Expression {
         Self::Lambda(LambdaExpression { variable, expression })
     }
 
+    #[allow(unused)]
     pub fn print(&self, interner: &Interner, depth: usize) {
         let indent = depth*2;
 
@@ -75,8 +76,16 @@ pub struct ApplicationExpression {
 }
 
 impl ApplicationExpression {
+    pub fn function(&self) -> &Located<Expression> {
+        &self.function
+    }
+
     pub fn function_mut(&mut self) -> &mut Located<Expression> {
         &mut self.function
+    }
+
+    pub fn argument(&self) -> &Located<Expression> {
+        &self.argument
     }
 
     pub fn argument_mut(&mut self) -> &mut Located<Expression> {
@@ -92,6 +101,10 @@ pub struct LambdaExpression {
 impl LambdaExpression {
     pub fn variable(&self) -> Located<InternId> {
         self.variable
+    }
+
+    pub fn expression(&self) -> &Located<Expression> {
+        &self.expression
     }
 
     pub fn expression_mut(&mut self) -> &mut Located<Expression> {
