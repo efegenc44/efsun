@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{
     expression::{
         ApplicationExpression, Expression, IdentifierExpression,
-        LambdaExpression
+        LambdaExpression, Unresolved, Resolved
     },
     interner::InternId,
     location::Located
@@ -18,19 +18,22 @@ impl Resolver {
         Resolver { locals: Vec::default() }
     }
 
-    pub fn expression(&mut self, expression: &mut Located<Expression>) -> ResolutionResult {
-        match expression.data_mut() {
-            Expression::Identifier(identifier) => self.identifier(identifier),
-            Expression::Lambda(lambda) => self.lambda(lambda),
-            Expression::Application(application) => self.application(application),
-        }
+    pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> ResolutionResult<Located<Expression<Resolved>>> {
+        let (expression, location) = expression.destruct();
+
+        let expression = match expression {
+            Expression::Identifier(identifier) => Expression::Identifier(self.identifier(identifier)?),
+            Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
+            Expression::Application(application) => Expression::Application(self.application(application)?),
+        };
+
+        Ok(Located::new(expression, location))
     }
 
-    fn identifier(&mut self, identifier: &mut IdentifierExpression) -> ResolutionResult {
+    fn identifier(&mut self, identifier: IdentifierExpression<Unresolved>) -> ResolutionResult<IdentifierExpression<Resolved>> {
         for (index, intern_id) in self.locals.iter().rev().enumerate() {
             if intern_id == identifier.identifier().data() {
-                identifier.set_bound(Bound::Local(BoundId(index)));
-                return Ok(())
+                return Ok(identifier.resolve(Bound::Local(BoundId(index))))
             }
         }
 
@@ -42,16 +45,23 @@ impl Resolver {
         Err(error)
     }
 
-    fn lambda(&mut self, lambda: &mut LambdaExpression) -> ResolutionResult {
-        self.locals.push(*lambda.variable().data());
-        self.expression(lambda.expression_mut())?;
+    fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> ResolutionResult<LambdaExpression<Resolved>> {
+        let (variable, expression) = lambda.desturct();
+
+        self.locals.push(*variable.data());
+        let expression = self.expression(*expression)?;
         self.locals.pop();
-        Ok(())
+
+        Ok(LambdaExpression::new(variable, expression))
     }
 
-    fn application(&mut self, application: &mut ApplicationExpression) -> ResolutionResult {
-        self.expression(application.function_mut())?;
-        self.expression(application.argument_mut())
+    fn application(&mut self, application: ApplicationExpression<Unresolved>) -> ResolutionResult<ApplicationExpression<Resolved>> {
+        let (function, argument) = application.desturct();
+
+        let function = self.expression(*function)?;
+        let argument = self.expression(*argument)?;
+
+        Ok(ApplicationExpression::new(function, argument))
     }
 }
 
@@ -83,4 +93,4 @@ pub enum ResolutionError {
     UnboundIdentifier(InternId)
 }
 
-type ResolutionResult = Result<(), Located<ResolutionError>>;
+type ResolutionResult<T> = Result<T, Located<ResolutionError>>;

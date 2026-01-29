@@ -1,7 +1,10 @@
 use std::iter::Peekable;
 
 use crate::{
-    expression::Expression,
+    expression::{
+        ApplicationExpression, Expression, Unresolved,
+        LambdaExpression, IdentifierExpression
+    },
     interner::InternId,
     lexer::{LexError, Lexer},
     location::{Located, SourceLocation},
@@ -72,7 +75,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(Located::new(*id, token.location()))
     }
 
-    pub fn expression(&mut self) -> ParseResult<Expression> {
+    pub fn expression(&mut self) -> ParseResult<Expression<Unresolved>> {
         // TODO: Check if all tokens are consumed
         let token = self.peek_some()?;
 
@@ -82,23 +85,18 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
     }
 
-    fn lambda(&mut self) -> ParseResult<Expression> {
+    fn lambda(&mut self) -> ParseResult<Expression<Unresolved>> {
         let location = self.expect(Token::Backslash)?.location();
         let variable = self.expect_identifier()?;
         let expression = self.expression()?;
-        let lambda = Expression::lambda(
-            variable,
-            Box::new(expression)
-        );
-        let expression = Located::new(
-            lambda,
-            location
-        );
+
+        let lambda = LambdaExpression::new(variable, expression);
+        let expression = Located::new(Expression::Lambda(lambda), location);
 
         Ok(expression)
     }
 
-    fn primary(&mut self) -> ParseResult<Expression> {
+    fn primary(&mut self) -> ParseResult<Expression<Unresolved>> {
         let token = self.peek_some()?;
 
         match token.data() {
@@ -115,31 +113,26 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
     }
 
-    fn identifier(&mut self) -> ParseResult<Expression> {
+    fn identifier(&mut self) -> ParseResult<Expression<Unresolved>> {
         let identifier = self.expect_identifier()?;
         let location = identifier.location();
-        let identifier = Expression::identifier(identifier);
-        let expression = Located::new(
-            identifier,
-            location
-        );
+
+        let identifier = IdentifierExpression::new(identifier);
+        let expression = Located::new(Expression::Identifier(identifier), location);
 
         Ok(expression)
     }
 
-    fn grouping(&mut self) -> ParseResult<Expression> {
+    fn grouping(&mut self) -> ParseResult<Expression<Unresolved>> {
         let location = self.expect(Token::LeftParenthesis)?.location();
         let expression = self.expression()?;
         self.expect(Token::RightParenthesis)?;
-        let expression = Located::new(
-            expression.into_data(),
-            location
-        );
+        let expression = Located::new(expression.destruct().0, location);
 
         Ok(expression)
     }
 
-    fn application(&mut self) -> ParseResult<Expression> {
+    fn application(&mut self) -> ParseResult<Expression<Unresolved>> {
         let mut function = self.primary()?;
         let location = function.location();
 
@@ -155,15 +148,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 }
             };
 
-            let application = Expression::application(
-                Box::new(function),
-                Box::new(argument)
-            );
-
-            function = Located::new(
-                application,
-                location
-            );
+            let application = ApplicationExpression::new(function, argument);
+            function = Located::new(Expression::Application(application), location);
         }
 
         Ok(function)

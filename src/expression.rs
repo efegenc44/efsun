@@ -1,4 +1,4 @@
-use std::cell::OnceCell;
+use std::marker::PhantomData;
 
 use crate::{
     interner::{InternId, Interner},
@@ -6,25 +6,16 @@ use crate::{
     resolver::Bound
 };
 
-pub enum Expression {
-    Identifier(IdentifierExpression),
-    Application(ApplicationExpression),
-    Lambda(LambdaExpression),
+pub struct Resolved;
+pub struct Unresolved;
+
+pub enum Expression<State> {
+    Identifier(IdentifierExpression<State>),
+    Application(ApplicationExpression<State>),
+    Lambda(LambdaExpression<State>),
 }
 
-impl Expression {
-    pub fn identifier(identifier: Located<InternId>) -> Self {
-        Self::Identifier(IdentifierExpression { identifier, bound: OnceCell::new() })
-    }
-
-    pub fn application(function: Box<Located<Self>>, argument: Box<Located<Self>>) -> Self {
-        Self::Application(ApplicationExpression { function, argument })
-    }
-
-    pub fn lambda(variable: Located<InternId>, expression: Box<Located<Self>>) -> Self {
-        Self::Lambda(LambdaExpression { variable, expression })
-    }
-
+impl<T> Expression<T> {
     #[allow(unused)]
     pub fn print(&self, interner: &Interner, depth: usize) {
         let indent = depth*2;
@@ -32,9 +23,9 @@ impl Expression {
         match self {
             Self::Identifier(identifier) => {
                 println!(
-                    "{:indent$}Identifier: {}#{}", "",
+                    "{:indent$}Identifier: {}{}", "",
                     interner.lookup(*identifier.identifier.data()),
-                    identifier.bound()
+                    if let Some(bound) = identifier.bound { format!("#{}", bound) } else { "".to_string() }
                 )
             },
             Self::Lambda(lambda) => {
@@ -51,63 +42,81 @@ impl Expression {
     }
 }
 
-pub struct IdentifierExpression {
+pub struct IdentifierExpression<State> {
     identifier: Located<InternId>,
-    bound: OnceCell<Bound>,
+    bound: Option<Bound>,
+    state: PhantomData<State>
 }
 
-impl IdentifierExpression {
+impl<T> IdentifierExpression<T> {
     pub fn identifier(&self) -> Located<InternId> {
         self.identifier
     }
+}
 
-    pub fn set_bound(&mut self, bound: Bound) {
-        self.bound.set(bound).unwrap();
+impl IdentifierExpression<Unresolved> {
+    pub fn new(identifier: Located<InternId>) -> Self {
+        Self { identifier, bound: Option::None, state: PhantomData }
     }
 
+    pub fn resolve(self, bound: Bound) -> IdentifierExpression<Resolved> {
+        IdentifierExpression {
+            identifier: self.identifier,
+            bound: Some(bound),
+            state: PhantomData
+        }
+    }
+}
+
+impl IdentifierExpression<Resolved> {
     pub fn bound(&self) -> Bound {
-        *self.bound.get().unwrap()
+        self.bound.unwrap()
     }
 }
 
-pub struct ApplicationExpression {
-    function: Box<Located<Expression>>,
-    argument: Box<Located<Expression>>,
+pub struct ApplicationExpression<T> {
+    function: Box<Located<Expression<T>>>,
+    argument: Box<Located<Expression<T>>>,
 }
 
-impl ApplicationExpression {
-    pub fn function(&self) -> &Located<Expression> {
+impl<T> ApplicationExpression<T> {
+    pub fn new(function: Located<Expression<T>>, argument: Located<Expression<T>>) -> Self {
+        Self { function: Box::new(function), argument: Box::new(argument) }
+    }
+
+    pub fn desturct(self) -> (Box<Located<Expression<T>>>, Box<Located<Expression<T>>>) {
+        (self.function, self.argument)
+    }
+
+    pub fn function(&self) -> &Located<Expression<T>> {
         &self.function
     }
 
-    pub fn function_mut(&mut self) -> &mut Located<Expression> {
-        &mut self.function
-    }
-
-    pub fn argument(&self) -> &Located<Expression> {
+    pub fn argument(&self) -> &Located<Expression<T>> {
         &self.argument
     }
-
-    pub fn argument_mut(&mut self) -> &mut Located<Expression> {
-        &mut self.argument
-    }
 }
 
-pub struct LambdaExpression {
+pub struct LambdaExpression<T> {
     variable: Located<InternId>,
-    expression: Box<Located<Expression>>,
+    expression: Box<Located<Expression<T>>>,
 }
 
-impl LambdaExpression {
+impl<T> LambdaExpression<T> {
+    pub fn new(variable: Located<InternId>, expression: Located<Expression<T>>) -> Self {
+        Self { variable, expression: Box::new(expression) }
+    }
+
+    pub fn desturct(self) -> (Located<InternId>, Box<Located<Expression<T>>>) {
+        (self.variable, self.expression)
+    }
+
+    #[allow(unused)]
     pub fn variable(&self) -> Located<InternId> {
         self.variable
     }
 
-    pub fn expression(&self) -> &Located<Expression> {
+    pub fn expression(&self) -> &Located<Expression<T>> {
         &self.expression
-    }
-
-    pub fn expression_mut(&mut self) -> &mut Located<Expression> {
-        &mut self.expression
     }
 }

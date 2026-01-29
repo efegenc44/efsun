@@ -48,16 +48,12 @@ impl<T> Located<T> {
         Self { data, location }
     }
 
+    pub fn destruct(self) -> (T, SourceLocation) {
+        (self.data, self.location)
+    }
+
     pub fn data(&self) -> &T {
         &self.data
-    }
-
-    pub fn data_mut(&mut self) -> &mut T {
-        &mut self.data
-    }
-
-    pub fn into_data(self) -> T {
-        self.data
     }
 
     pub fn location(&self) -> SourceLocation {

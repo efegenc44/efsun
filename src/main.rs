@@ -16,8 +16,8 @@ fn main() {
     let mut resolver = resolver::Resolver::new();
     let mut checker = checker::TypeChecker::new();
 
-    let mut expression = parser.expression().unwrap();
-    resolver.expression(&mut expression).unwrap();
+    let expression = parser.expression().unwrap();
+    let expression = resolver.expression(expression).unwrap();
     expression.data().print(&interner, 0);
     let t = checker.infer(&expression);
     println!("{t}");

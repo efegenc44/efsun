@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     expression::{
         ApplicationExpression, Expression, IdentifierExpression,
-        LambdaExpression
+        LambdaExpression, Resolved
     },
     location::Located,
     resolver::Bound,
@@ -31,7 +31,7 @@ impl TypeChecker {
         variable
     }
 
-    pub fn infer(&mut self, expression: &Located<Expression>) -> MonoType {
+    pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> MonoType {
         match expression.data() {
             Expression::Identifier(identifier) => self.identifier(identifier),
             Expression::Application(application) => self.application(application),
@@ -66,7 +66,7 @@ impl TypeChecker {
         }
     }
 
-    fn identifier(&mut self, identifier: &IdentifierExpression) -> MonoType {
+    fn identifier(&mut self, identifier: &IdentifierExpression<Resolved>) -> MonoType {
         match identifier.bound() {
             Bound::Local(id) => {
                 let index = self.locals.len() - 1 - id.value();
@@ -76,7 +76,7 @@ impl TypeChecker {
         }
     }
 
-    fn application(&mut self, application: &ApplicationExpression) -> MonoType {
+    fn application(&mut self, application: &ApplicationExpression<Resolved>) -> MonoType {
         let return_type = self.newvar();
         let function = self.infer(application.function());
         let argument = self.infer(application.argument());
@@ -89,7 +89,7 @@ impl TypeChecker {
         self.substitute(return_type)
     }
 
-    fn lambda(&mut self, lambda: &LambdaExpression) -> MonoType {
+    fn lambda(&mut self, lambda: &LambdaExpression<Resolved>) -> MonoType {
         let argument = self.newvar();
         self.locals.push(argument.clone());
         let return_type = self.infer(lambda.expression());
