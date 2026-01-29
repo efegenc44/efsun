@@ -8,10 +8,52 @@ mod resolver;
 mod checker;
 mod typ;
 
+use std::{env, fs, io::{Write, stdin, stdout}};
+
 fn main() {
-    let source = r"\x \y \z y (z x)";
+    let args: Vec<String> = env::args().collect();
+    match &args[1..] {
+        [] => repl(),
+        [file_path] => from_file(file_path),
+        _ => panic!()
+    }
+}
+
+fn repl() {
     let mut interner = interner::Interner::new();
-    let lexer = lexer::Lexer::new(source, &mut interner);
+
+    loop {
+        let mut input = String::new();
+        print!("> ");
+        stdout().flush().unwrap();
+        stdin().read_line(&mut input).unwrap();
+        let input = input.trim();
+
+        if input == "" {
+            continue;
+        }
+
+        if input == "q" {
+            break;
+        }
+
+        let lexer = lexer::Lexer::new(input, &mut interner);
+        let mut parser = parser::Parser::new(lexer);
+        let mut resolver = resolver::Resolver::new();
+        let mut checker = checker::TypeChecker::new();
+
+        let expression = parser.expression().unwrap();
+        let expression = resolver.expression(expression).unwrap();
+        expression.data().print(&interner, 0);
+        let t = checker.infer(&expression);
+        println!("= {t}");
+    }
+}
+
+fn from_file(file_path: &str) {
+    let source = fs::read_to_string(file_path).unwrap();
+    let mut interner = interner::Interner::new();
+    let lexer = lexer::Lexer::new(&source, &mut interner);
     let mut parser = parser::Parser::new(lexer);
     let mut resolver = resolver::Resolver::new();
     let mut checker = checker::TypeChecker::new();
