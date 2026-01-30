@@ -47,18 +47,29 @@ impl TypeChecker {
     fn unify(&mut self, t1: &MonoType, t2: &MonoType) -> result::Result<(), (MonoType, MonoType)> {
         match (t1, t2) {
             (MonoType::Variable(id1), MonoType::Variable(id2)) => {
-                self.unification_table.insert(*id1, MonoType::Variable(*id2));
-                self.unification_table.insert(*id2, MonoType::Variable(*id1));
-                Ok(())
+                match (self.unification_table.get(id1), self.unification_table.get(id2)) {
+                    (None, None) => {
+                        self.unification_table.insert(*id1, MonoType::Variable(*id2));
+                        self.unification_table.insert(*id2, MonoType::Variable(*id1));
+                        Ok(())
+                    },
+                    (None, Some(t)) => self.unify(t1, &t.clone()),
+                    (Some(t), None) => self.unify(&t.clone(), t2),
+                    (Some(t1), Some(t2)) => self.unify(&t1.clone(), &t2.clone()),
+                }
             },
-            (MonoType::Variable(id), t) |
-            (t, MonoType::Variable(id)) => {
+            (MonoType::Variable(id), t) | (t, MonoType::Variable(id)) => {
                 if t.includes(*id) {
                     return Err((t1.clone(), t2.clone()));
                 }
 
-                self.unification_table.insert(*id, t.clone());
-                Ok(())
+                match self.unification_table.get(id) {
+                    Some(k) => self.unify(t, &k.clone()),
+                    None => {
+                        self.unification_table.insert(*id, t.clone());
+                        Ok(())
+                    },
+                }
             },
             (MonoType::Arrow(arrow1), MonoType::Arrow(arrow2)) => {
                 self.unify(arrow1.from(), arrow2.from())?;
