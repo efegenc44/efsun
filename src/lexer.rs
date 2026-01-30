@@ -4,7 +4,7 @@ use crate::{
     interner::Interner,
     token::Token,
     location::{Located, SourceLocation},
-    error::{Error, Result}
+    error::{Result, located_error}
 };
 
 pub struct Lexer<'source, 'interner> {
@@ -89,10 +89,8 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
                 self.next();
                 let end = self.location;
 
-                let error: Error = LexError::UnknownStartOfAToken(unknown).into();
-                let error = Located::new(error, start, end);
-
-                return Some(Err(error))
+                let error = LexError::UnknownStartOfAToken(unknown);
+                return Some(Err(located_error(error, start, end)));
             }
         };
 

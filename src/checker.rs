@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, result};
 
 use crate::{
     expression::{
@@ -8,7 +8,7 @@ use crate::{
     location::{Located, SourceLocation},
     resolver::Bound,
     typ::{MonoType, ArrowType},
-    error::{Error, Result}
+    error::{Result, located_error}
 };
 
 pub struct TypeChecker {
@@ -44,7 +44,7 @@ impl TypeChecker {
         t.substitute(&self.unification_table)
     }
 
-    fn unify(&mut self, t1: &MonoType, t2: &MonoType) -> std::result::Result<(), (MonoType, MonoType)> {
+    fn unify(&mut self, t1: &MonoType, t2: &MonoType) -> result::Result<(), (MonoType, MonoType)> {
         match (t1, t2) {
             (MonoType::Variable(id1), MonoType::Variable(id2)) => {
                 self.unification_table.insert(*id1, MonoType::Variable(*id2));
@@ -90,10 +90,8 @@ impl TypeChecker {
         let arrow = MonoType::Arrow(arrow);
 
         if let Err((first, second)) = self.unify(&function, &arrow) {
-            let error: Error = TypeCheckError::TypeMismatch { first, second }.into();
-            let error = Located::new(error, start, end);
-
-            Err(error)
+            let error = TypeCheckError::TypeMismatch { first, second };
+            Err(located_error(error, start, end))
         } else {
             Ok(self.substitute(return_type))
         }

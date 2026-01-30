@@ -4,7 +4,7 @@ use crate::{
     lexer::LexError,
     parser::ParseError,
     resolver::ResolutionError,
-    location::Located
+    location::{Located, SourceLocation}
 };
 
 #[derive(Clone)]
@@ -68,6 +68,10 @@ impl From<TypeCheckError> for Error {
     fn from(value: TypeCheckError) -> Self {
         Self::Check(value)
     }
+}
+
+pub fn located_error<T: Into<Error>>(error: T, start: SourceLocation, end: SourceLocation) -> Located<Error> {
+    Located::new(error.into(), start, end)
 }
 
 impl Located<Error> {

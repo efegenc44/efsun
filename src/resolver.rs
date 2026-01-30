@@ -7,7 +7,7 @@ use crate::{
     },
     interner::{InternId},
     location::{Located, SourceLocation},
-    error::{Error, Result}
+    error::{Result, located_error}
 };
 
 pub struct Resolver {
@@ -43,10 +43,8 @@ impl Resolver {
             }
         }
 
-        let error: Error = ResolutionError::UnboundIdentifier(*identifier.identifier().data()).into();
-        let error = Located::new(error, start, end);
-
-        Err(error)
+        let error = ResolutionError::UnboundIdentifier(*identifier.identifier().data());
+        Err(located_error(error, start, end))
     }
 
     fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> Result<LambdaExpression<Resolved>> {

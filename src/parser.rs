@@ -9,7 +9,7 @@ use crate::{
     lexer::{LexError, Lexer},
     location::{Located, SourceLocation},
     token::Token,
-    error::{Error, Result}
+    error::{Error, Result, located_error}
 };
 
 pub struct Parser<'source, 'interner> {
@@ -33,14 +33,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         self
             .peek()
             .unwrap_or_else(|| {
-                let error: Error = ParseError::UnexpectedEOF.into();
-                let error = Located::new(
-                    error,
+                Err(located_error(
+                    ParseError::UnexpectedEOF,
                     SourceLocation::eof(),
                     SourceLocation::eof()
-                );
-
-                Err(error)
+                ))
             })
     }
 
@@ -55,10 +52,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         if std::mem::discriminant(&expected) == std::mem::discriminant(token.data()) {
             Ok(token)
         } else {
-            let error: Error = ParseError::UnexpectedToken(*token.data()).into();
-            let error = Located::new(error, token.start(), token.end());
-
-            Err(error)
+            let error = ParseError::UnexpectedToken(*token.data());
+            Err(located_error(error, token.start(), token.end()))
         }
     }
 
@@ -97,10 +92,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Token::Identifier(_) => self.identifier(),
             Token::LeftParenthesis => self.grouping(),
             unexpected => {
-                let error: Error = ParseError::UnexpectedToken(*unexpected).into();
-                let error = Located::new(error, token.start(), token.end());
-
-                Err(error)
+                let error = ParseError::UnexpectedToken(*unexpected);
+                Err(located_error(error, token.start(), token.end()))
             }
         }
     }
