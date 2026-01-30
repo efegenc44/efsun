@@ -34,7 +34,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             .peek()
             .unwrap_or_else(|| {
                 let error: Error = ParseError::UnexpectedEOF.into();
-                let error = error.span(
+                let error = Located::new(
+                    error,
                     SourceLocation::eof(),
                     SourceLocation::eof()
                 );
@@ -54,20 +55,17 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         if std::mem::discriminant(&expected) == std::mem::discriminant(token.data()) {
             Ok(token)
         } else {
-            let start = token.location();
-            let end = start.add(token.data().length());
-
             let error: Error = ParseError::UnexpectedToken(*token.data()).into();
-            let error = error.span(start, end);
+            let error = Located::new(error, token.start(), token.end());
 
             Err(error)
         }
     }
 
-    fn expect_identifier(&mut self) -> Result<(Located<InternId>, usize)> {
-        let token = self.expect(Token::Identifier(InternId::dummy(), 0))?;
-        let Token::Identifier(id, length) = token.data() else { unreachable!() };
-        Ok((Located::new(*id, token.location()), *length))
+    fn expect_identifier(&mut self) -> Result<Located<InternId>> {
+        let token = self.expect(Token::Identifier(InternId::dummy()))?;
+        let Token::Identifier(id) = token.data() else { unreachable!() };
+        Ok(Located::new(*id, token.start(), token.end()))
     }
 
     pub fn expression(&mut self) -> Result<Located<Expression<Unresolved>>> {
@@ -81,12 +79,13 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 
     fn lambda(&mut self) -> Result<Located<Expression<Unresolved>>> {
-        let location = self.expect(Token::Backslash)?.location();
-        let (variable, _) = self.expect_identifier()?;
+        let start = self.expect(Token::Backslash)?.start();
+        let variable = self.expect_identifier()?;
         let expression = self.expression()?;
+        let end = expression.end();
 
         let lambda = LambdaExpression::new(variable, expression);
-        let expression = Located::new(Expression::Lambda(lambda), location);
+        let expression = Located::new(Expression::Lambda(lambda), start, end);
 
         Ok(expression)
     }
@@ -95,14 +94,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let token = self.peek_some()?;
 
         match token.data() {
-            Token::Identifier(_, _) => self.identifier(),
+            Token::Identifier(_) => self.identifier(),
             Token::LeftParenthesis => self.grouping(),
             unexpected => {
-                let start = token.location();
-                let end = start.add(token.data().length());
-
                 let error: Error = ParseError::UnexpectedToken(*unexpected).into();
-                let error = error.span(start, end);
+                let error = Located::new(error, token.start(), token.end());
 
                 Err(error)
             }
@@ -110,33 +106,34 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 
     fn identifier(&mut self) -> Result<Located<Expression<Unresolved>>> {
-        let (identifier, length) = self.expect_identifier()?;
-        let location = identifier.location();
+        let identifier = self.expect_identifier()?;
+        let start = identifier.start();
+        let end = identifier.end();
 
-        let identifier = IdentifierExpression::new(identifier, length);
-        let expression = Located::new(Expression::Identifier(identifier), location);
+        let identifier = IdentifierExpression::new(identifier);
+        let expression = Located::new(Expression::Identifier(identifier), start, end);
 
         Ok(expression)
     }
 
     fn grouping(&mut self) -> Result<Located<Expression<Unresolved>>> {
-        let location = self.expect(Token::LeftParenthesis)?.location();
+        let start = self.expect(Token::LeftParenthesis)?.start();
         let expression = self.expression()?;
-        self.expect(Token::RightParenthesis)?;
-        let expression = Located::new(expression.destruct().0, location);
+        let end = self.expect(Token::RightParenthesis)?.end();
+        let expression = Located::new(expression.destruct().0, start, end);
 
         Ok(expression)
     }
 
     fn application(&mut self) -> Result<Located<Expression<Unresolved>>> {
         let mut function = self.primary()?;
-        let location = function.location();
+        let start = function.start();
 
         loop {
             let argument = match self.primary() {
                 Ok(expression) => expression,
                 Err(error) => {
-                    match error.error() {
+                    match error.data() {
                         Error::Parse(ParseError::UnexpectedEOF) |
                         Error::Parse(ParseError::UnexpectedToken(_)) => break,
                         _ => return Err(error),
@@ -144,8 +141,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 }
             };
 
+            let end = argument.end();
             let application = ApplicationExpression::new(function, argument);
-            function = Located::new(Expression::Application(application), location);
+            function = Located::new(Expression::Application(application), start, end);
         }
 
         Ok(function)
@@ -163,7 +161,8 @@ impl From<Located<LexError>> for Located<ParseError> {
     fn from(value: Located<LexError>) -> Self {
         Located::new(
             ParseError::LexError(*value.data()),
-            value.location()
+            value.start(),
+            value.end()
         )
     }
 }

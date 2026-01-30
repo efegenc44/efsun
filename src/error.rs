@@ -2,9 +2,9 @@ use crate::{
     checker::TypeCheckError,
     interner::Interner,
     lexer::LexError,
-    location::SourceLocation,
     parser::ParseError,
-    resolver::ResolutionError
+    resolver::ResolutionError,
+    location::Located
 };
 
 #[derive(Clone)]
@@ -44,10 +44,6 @@ impl Error {
             },
         }
     }
-
-    pub fn span(self, start: SourceLocation, end: SourceLocation) -> SpannedError {
-        SpannedError { error: self, start, end }
-    }
 }
 
 impl From<LexError> for Error {
@@ -74,52 +70,41 @@ impl From<TypeCheckError> for Error {
     }
 }
 
-#[derive(Clone)]
-pub struct SpannedError {
-    error: Error,
-    start: SourceLocation,
-    end: SourceLocation
-}
-
-impl SpannedError {
-    pub fn error(&self) -> &Error {
-        &self.error
-    }
-
+impl Located<Error> {
     pub fn report<'source, 'interner>(&self, source_name: &str, source: &'source str, interner: &'interner Interner) {
         let mut lines = source.lines();
 
-        if self.start.is_eof() {
+        if self.start().is_eof() {
             eprintln!();
             eprintln!("        | [{source_name}]");
             eprintln!("        |");
-            eprintln!("        | {}", self.error.description(interner));
+            eprintln!("        | {}", self.data().description(interner));
             return;
         }
 
-        let first_line_number = self.start.row();
+        let first_line_number = self.start().row();
 
         eprintln!("");
-        eprintln!("        | [{source_name}:{first_line_number}:{}] ", self.start.column());
+        eprintln!("        | [{source_name}:{first_line_number}:{}] ", self.start().column());
         eprintln!("        |");
 
-        if self.start.row() == self.end.row() {
+        if self.start().row() == self.end().row() {
             let first_line = lines.nth(first_line_number - 1).unwrap();
             eprintln!("  {first_line_number:>5} | {first_line}");
             eprintln!("        | {:spaces$}{:^^carrots$}", "", "",
-                spaces = (1..self.start.column()).len(),
-                carrots = (self.start.column()..self.end.column()).len()
+                spaces = (1..self.start().column()).len(),
+                carrots = (self.start().column()..self.end().column()).len()
             );
-            eprintln!("        | {}", self.error.description(interner))
+            eprintln!("        | {}", self.data().description(interner))
         } else {
             let first_line = lines.nth(first_line_number - 1).unwrap();
             eprintln!("  {first_line_number:>5} | {first_line}");
             eprintln!("        | {:spaces$}{:^^carrots$}", "", "",
-                spaces = (1..self.start.column()).len(),
-                carrots = (self.start.column()..first_line.chars().count() + 1).len()
+                spaces = (1..self.start().column()).len(),
+                carrots = (self.start().column()..first_line.chars().count() + 1).len()
             );
 
-            for line_number in (first_line_number + 1)..self.end.row() {
+            for line_number in (first_line_number + 1)..self.end().row() {
                 let line = lines.next().unwrap();
                 eprintln!("  {line_number:>5} | {line}");
                 eprintln!("        | {:^^carrots$}", "",
@@ -128,14 +113,14 @@ impl SpannedError {
             }
 
             let last_line = lines.next().unwrap();
-            eprintln!("  {:>5} | {last_line}", self.end.row());
+            eprintln!("  {:>5} | {last_line}", self.end().row());
             eprintln!("        | {:^^carrots$}", "",
-                carrots = (1..self.end.column()).len()
+                carrots = (1..self.end().column()).len()
             );
-            eprintln!("        | {}", self.error.description(interner))
+            eprintln!("        | {}", self.data().description(interner))
         }
     }
 }
 
-pub type Result<T> = std::result::Result<T, SpannedError>;
+pub type Result<T> = std::result::Result<T, Located<Error>>;
 

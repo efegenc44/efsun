@@ -5,7 +5,7 @@ use crate::{
         ApplicationExpression, Expression, IdentifierExpression,
         LambdaExpression, Resolved
     },
-    location::Located,
+    location::{Located, SourceLocation},
     resolver::Bound,
     typ::{MonoType, ArrowType},
     error::{Error, Result}
@@ -35,7 +35,7 @@ impl TypeChecker {
     pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> Result<MonoType> {
         match expression.data() {
             Expression::Identifier(identifier) => self.identifier(identifier),
-            Expression::Application(application) => self.application(application),
+            Expression::Application(application) => self.application(application, expression.start(), expression.end()),
             Expression::Lambda(lambda) => self.lambda(lambda),
         }
     }
@@ -77,7 +77,12 @@ impl TypeChecker {
         }
     }
 
-    fn application(&mut self, application: &ApplicationExpression<Resolved>) -> Result<MonoType> {
+    fn application(
+        &mut self,
+        application: &ApplicationExpression<Resolved>,
+        start: SourceLocation,
+        end: SourceLocation
+    ) -> Result<MonoType> {
         let return_type = self.newvar();
         let function = self.infer(application.function())?;
         let argument = self.infer(application.argument())?;
@@ -86,7 +91,7 @@ impl TypeChecker {
 
         if let Err((first, second)) = self.unify(&function, &arrow) {
             let error: Error = TypeCheckError::TypeMismatch { first, second }.into();
-            let error = error.span(application.argument().location(), application.end());
+            let error = Located::new(error, start, end);
 
             Err(error)
         } else {

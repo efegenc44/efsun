@@ -39,8 +39,7 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
     }
 
     fn identifier(&mut self) -> Located<Token> {
-        let location = self.location;
-
+        let start = self.location;
         let mut lexeme = String::new();
         while let Some(ch) = self.peek() {
             if ch.is_alphanumeric() {
@@ -49,17 +48,18 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
                 break;
             }
         }
+        let end = self.location;
 
-        let length = lexeme.len();
         let id = self.interner.intern(lexeme);
-        Located::new(Token::Identifier(id, length), location)
+        Located::new(Token::Identifier(id), start, end)
     }
 
     fn single(&mut self, token: Token) -> Located<Token> {
-        let location = self.location;
-
+        let start = self.location;
         self.next();
-        Located::new(token, location)
+        let end = self.location;
+
+        Located::new(token, start, end)
     }
 
     fn skip_whitespace(&mut self) {
@@ -90,7 +90,7 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
                 let end = self.location;
 
                 let error: Error = LexError::UnknownStartOfAToken(unknown).into();
-                let error = error.span(start, end);
+                let error = Located::new(error, start, end);
 
                 return Some(Err(error))
             }

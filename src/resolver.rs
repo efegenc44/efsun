@@ -6,7 +6,7 @@ use crate::{
         LambdaExpression, Unresolved, Resolved
     },
     interner::{InternId},
-    location::Located,
+    location::{Located, SourceLocation},
     error::{Error, Result}
 };
 
@@ -20,18 +20,23 @@ impl Resolver {
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
-        let (expression, location) = expression.destruct();
+        let (expression, start, end) = expression.destruct();
 
         let expression = match expression {
-            Expression::Identifier(identifier) => Expression::Identifier(self.identifier(identifier)?),
+            Expression::Identifier(identifier) => Expression::Identifier(self.identifier(identifier, start, end)?),
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
             Expression::Application(application) => Expression::Application(self.application(application)?),
         };
 
-        Ok(Located::new(expression, location))
+        Ok(Located::new(expression, start, end))
     }
 
-    fn identifier(&mut self, identifier: IdentifierExpression<Unresolved>) -> Result<IdentifierExpression<Resolved>> {
+    fn identifier(
+        &mut self,
+        identifier: IdentifierExpression<Unresolved>,
+        start: SourceLocation,
+        end: SourceLocation
+    ) -> Result<IdentifierExpression<Resolved>> {
         for (index, intern_id) in self.locals.iter().rev().enumerate() {
             if intern_id == identifier.identifier().data() {
                 return Ok(identifier.resolve(Bound::Local(BoundId(index))))
@@ -39,10 +44,7 @@ impl Resolver {
         }
 
         let error: Error = ResolutionError::UnboundIdentifier(*identifier.identifier().data()).into();
-        let error = error.span(
-            identifier.identifier().location(),
-            identifier.end()
-        );
+        let error = Located::new(error, start, end);
 
         Err(error)
     }

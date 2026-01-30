@@ -2,7 +2,7 @@ use std::marker::PhantomData;
 
 use crate::{
     interner::{InternId, Interner},
-    location::{Located, SourceLocation},
+    location::Located,
     resolver::Bound
 };
 
@@ -40,39 +40,23 @@ impl<T> Expression<T> {
             },
         }
     }
-
-    pub fn end(&self) -> SourceLocation {
-        match self {
-            Expression::Identifier(identifier) => identifier.end(),
-            Expression::Application(application) => {
-                application.argument().data().end()
-            },
-            Expression::Lambda(lambda) => {
-                lambda.expression().data().end()
-            },
-        }
-    }
 }
 
 pub struct IdentifierExpression<State> {
-    identifier: (Located<InternId>, usize),
+    identifier: Located<InternId>,
     bound: Option<Bound>,
     state: PhantomData<State>
 }
 
 impl<T> IdentifierExpression<T> {
     pub fn identifier(&self) -> Located<InternId> {
-        self.identifier.0
-    }
-
-    pub fn end(&self) -> SourceLocation {
-        self.identifier().location().add(self.identifier.1)
+        self.identifier
     }
 }
 
 impl IdentifierExpression<Unresolved> {
-    pub fn new(identifier: Located<InternId>, length: usize) -> Self {
-        Self { identifier: (identifier, length), bound: Option::None, state: PhantomData }
+    pub fn new(identifier: Located<InternId>) -> Self {
+        Self { identifier: identifier, bound: Option::None, state: PhantomData }
     }
 
     pub fn resolve(self, bound: Bound) -> IdentifierExpression<Resolved> {
@@ -111,10 +95,6 @@ impl<T> ApplicationExpression<T> {
     pub fn argument(&self) -> &Located<Expression<T>> {
         &self.argument
     }
-
-    pub fn end(&self) -> SourceLocation {
-        self.argument().data().end()
-    }
 }
 
 pub struct LambdaExpression<T> {
@@ -138,10 +118,5 @@ impl<T> LambdaExpression<T> {
 
     pub fn expression(&self) -> &Located<Expression<T>> {
         &self.expression
-    }
-
-    #[allow(unused)]
-    pub fn end(&self) -> SourceLocation {
-        self.expression().data().end()
     }
 }

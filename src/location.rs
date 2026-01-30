@@ -27,10 +27,6 @@ impl SourceLocation {
         self.column
     }
 
-    pub fn add(&self, n: usize) -> Self {
-        Self { row: self.row, column: self.column + n }
-    }
-
     pub fn increment(&mut self) {
         self.column += 1;
     }
@@ -50,29 +46,34 @@ impl Display for SourceLocation {
 #[derive(Clone, Copy, Debug)]
 pub struct Located<T> {
     data: T,
-    location: SourceLocation
+    start: SourceLocation,
+    end: SourceLocation
 }
 
 impl<T> Located<T> {
-    pub fn new(data: T, location: SourceLocation) -> Self {
-        Self { data, location }
+    pub fn new(data: T, start: SourceLocation, end: SourceLocation) -> Self {
+        Self { data, start, end }
     }
 
-    pub fn destruct(self) -> (T, SourceLocation) {
-        (self.data, self.location)
+    pub fn destruct(self) -> (T, SourceLocation, SourceLocation) {
+        (self.data, self.start, self.end)
     }
 
     pub fn data(&self) -> &T {
         &self.data
     }
 
-    pub fn location(&self) -> SourceLocation {
-        self.location
+    pub fn start(&self) -> SourceLocation {
+        self.start
+    }
+
+    pub fn end(&self) -> SourceLocation {
+        self.end
     }
 }
 
 impl<T: Display> Display for Located<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {}", self.data, self.location)
+        write!(f, "{} {} {}", self.data, self.start, self.end)
     }
 }
