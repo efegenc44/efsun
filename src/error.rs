@@ -26,7 +26,7 @@ impl Error {
             Self::Parse(error) => match error {
                 ParseError::LexError(error) => Self::Lex(*error).description(interner),
                 ParseError::UnexpectedEOF => {
-                    format!("Encountered unexpected EOF.")
+                    "Encountered unexpected EOF.".to_string()
                 },
                 ParseError::UnexpectedToken(token) => {
                     format!("Encountered unexpected token `{}`", token.display(interner))
@@ -71,7 +71,7 @@ impl From<TypeCheckError> for Error {
 }
 
 impl Located<Error> {
-    pub fn report<'source, 'interner>(&self, source_name: &str, source: &'source str, interner: &'interner Interner) {
+    pub fn report(&self, source_name: &str, source: &str, interner: &Interner) {
         let mut lines = source.lines();
 
         if self.start().is_eof() {
@@ -84,7 +84,7 @@ impl Located<Error> {
 
         let first_line_number = self.start().row();
 
-        eprintln!("");
+        eprintln!();
         eprintln!("        | [{source_name}:{first_line_number}:{}] ", self.start().column());
         eprintln!("        |");
 

@@ -30,7 +30,7 @@ fn repl() {
         stdin().read_line(&mut input).unwrap();
         let input = input.trim();
 
-        if input == "" {
+        if input.is_empty() {
             continue;
         }
 

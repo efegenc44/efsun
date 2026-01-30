@@ -56,7 +56,7 @@ impl<T> IdentifierExpression<T> {
 
 impl IdentifierExpression<Unresolved> {
     pub fn new(identifier: Located<InternId>) -> Self {
-        Self { identifier: identifier, bound: Option::None, state: PhantomData }
+        Self { identifier, bound: Option::None, state: PhantomData }
     }
 
     pub fn resolve(self, bound: Bound) -> IdentifierExpression<Resolved> {
@@ -84,8 +84,8 @@ impl<T> ApplicationExpression<T> {
         Self { function: Box::new(function), argument: Box::new(argument) }
     }
 
-    pub fn desturct(self) -> (Box<Located<Expression<T>>>, Box<Located<Expression<T>>>) {
-        (self.function, self.argument)
+    pub fn desturct(self) -> (Located<Expression<T>>, Located<Expression<T>>) {
+        (*self.function, *self.argument)
     }
 
     pub fn function(&self) -> &Located<Expression<T>> {

@@ -62,8 +62,8 @@ impl Resolver {
     fn application(&mut self, application: ApplicationExpression<Unresolved>) -> Result<ApplicationExpression<Resolved>> {
         let (function, argument) = application.desturct();
 
-        let function = self.expression(*function)?;
-        let argument = self.expression(*argument)?;
+        let function = self.expression(function)?;
+        let argument = self.expression(argument)?;
 
         Ok(ApplicationExpression::new(function, argument))
     }
