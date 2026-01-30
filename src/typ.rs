@@ -1,19 +1,12 @@
 use std::{collections::HashMap, fmt::Display};
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum MonoType {
     Variable(usize),
     Arrow(ArrowType)
 }
 
 impl MonoType {
-    pub fn arrow(from: Self, to: Self) -> Self {
-        MonoType::Arrow(ArrowType {
-            from: Box::new(from),
-            to: Box::new(to)
-        })
-    }
-
     pub fn substitute(self, table: &HashMap<usize, MonoType>) -> Self {
         match self {
             MonoType::Variable(id) => {
@@ -25,7 +18,9 @@ impl MonoType {
             MonoType::Arrow(arrow) => {
                 let from = arrow.from.substitute(table);
                 let to = arrow.to.substitute(table);
-                Self::arrow(from, to)
+                let arrow = ArrowType::new(from, to);
+
+                Self::Arrow(arrow)
             },
         }
     }
@@ -49,13 +44,20 @@ impl Display for MonoType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ArrowType {
     from: Box<MonoType>,
     to: Box<MonoType>
 }
 
 impl ArrowType {
+    pub fn new(from: MonoType, to: MonoType) -> Self {
+        ArrowType {
+            from: Box::new(from),
+            to: Box::new(to)
+        }
+    }
+
     pub fn from(&self) -> &MonoType {
         &self.from
     }

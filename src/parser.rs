@@ -8,40 +8,34 @@ use crate::{
     interner::InternId,
     lexer::{LexError, Lexer},
     location::{Located, SourceLocation},
-    token::Token
+    token::Token,
+    error::{Error, Result}
 };
 
 pub struct Parser<'source, 'interner> {
-    tokens: Peekable<Lexer<'source, 'interner>>
+    tokens: Peekable<Lexer<'source, 'interner>>,
 }
 
 impl<'source, 'interner> Parser<'source, 'interner> {
     pub fn new(lexer: Lexer<'source, 'interner>) -> Self {
-        Self {
-            tokens: lexer.peekable()
-        }
+        Self { tokens: lexer.peekable() }
     }
 
-    fn peek(&mut self) -> Option<ParseResult<Token>> {
-        self
-            .tokens
-            .peek()
-            .map(|result| result.map_err(Into::into))
+    fn peek(&mut self) -> Option<Result<Located<Token>>> {
+        self.tokens.peek().cloned()
     }
 
-    fn next(&mut self) -> Option<ParseResult<Token>> {
-        self
-            .tokens
-            .next()
-            .map(|result| result.map_err(Into::into))
+    fn next(&mut self) -> Option<Result<Located<Token>>> {
+        self.tokens.next()
     }
 
-    fn peek_some(&mut self) -> ParseResult<Token> {
+    fn peek_some(&mut self) -> Result<Located<Token>> {
         self
             .peek()
             .unwrap_or_else(|| {
-                let error = Located::new(
-                    ParseError::UnexpectedEOF,
+                let error: Error = ParseError::UnexpectedEOF.into();
+                let error = error.span(
+                    SourceLocation::eof(),
                     SourceLocation::eof()
                 );
 
@@ -49,33 +43,34 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             })
     }
 
-    fn next_some(&mut self) -> ParseResult<Token> {
+    fn next_some(&mut self) -> Result<Located<Token>> {
         self.peek_some()?;
         self.next().unwrap()
     }
 
-    fn expect(&mut self, expected: Token) -> ParseResult<Token> {
+    fn expect(&mut self, expected: Token) -> Result<Located<Token>> {
         let token = self.next_some()?;
 
         if std::mem::discriminant(&expected) == std::mem::discriminant(token.data()) {
             Ok(token)
         } else {
-            let error = Located::new(
-                ParseError::UnexpectedToken(*token.data()),
-                token.location()
-            );
+            let start = token.location();
+            let end = start.add(token.data().length());
+
+            let error: Error = ParseError::UnexpectedToken(*token.data()).into();
+            let error = error.span(start, end);
 
             Err(error)
         }
     }
 
-    fn expect_identifier(&mut self) -> ParseResult<InternId> {
-        let token = self.expect(Token::Identifier(InternId::dummy()))?;
-        let Token::Identifier(id) = token.data() else { unreachable!() };
-        Ok(Located::new(*id, token.location()))
+    fn expect_identifier(&mut self) -> Result<(Located<InternId>, usize)> {
+        let token = self.expect(Token::Identifier(InternId::dummy(), 0))?;
+        let Token::Identifier(id, length) = token.data() else { unreachable!() };
+        Ok((Located::new(*id, token.location()), *length))
     }
 
-    pub fn expression(&mut self) -> ParseResult<Expression<Unresolved>> {
+    pub fn expression(&mut self) -> Result<Located<Expression<Unresolved>>> {
         // TODO: Check if all tokens are consumed
         let token = self.peek_some()?;
 
@@ -85,9 +80,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
     }
 
-    fn lambda(&mut self) -> ParseResult<Expression<Unresolved>> {
+    fn lambda(&mut self) -> Result<Located<Expression<Unresolved>>> {
         let location = self.expect(Token::Backslash)?.location();
-        let variable = self.expect_identifier()?;
+        let (variable, _) = self.expect_identifier()?;
         let expression = self.expression()?;
 
         let lambda = LambdaExpression::new(variable, expression);
@@ -96,34 +91,35 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(expression)
     }
 
-    fn primary(&mut self) -> ParseResult<Expression<Unresolved>> {
+    fn primary(&mut self) -> Result<Located<Expression<Unresolved>>> {
         let token = self.peek_some()?;
 
         match token.data() {
-            Token::Identifier(_) => self.identifier(),
+            Token::Identifier(_, _) => self.identifier(),
             Token::LeftParenthesis => self.grouping(),
             unexpected => {
-                let error = Located::new(
-                    ParseError::UnexpectedToken(*unexpected),
-                    token.location()
-                );
+                let start = token.location();
+                let end = start.add(token.data().length());
+
+                let error: Error = ParseError::UnexpectedToken(*unexpected).into();
+                let error = error.span(start, end);
 
                 Err(error)
             }
         }
     }
 
-    fn identifier(&mut self) -> ParseResult<Expression<Unresolved>> {
-        let identifier = self.expect_identifier()?;
+    fn identifier(&mut self) -> Result<Located<Expression<Unresolved>>> {
+        let (identifier, length) = self.expect_identifier()?;
         let location = identifier.location();
 
-        let identifier = IdentifierExpression::new(identifier);
+        let identifier = IdentifierExpression::new(identifier, length);
         let expression = Located::new(Expression::Identifier(identifier), location);
 
         Ok(expression)
     }
 
-    fn grouping(&mut self) -> ParseResult<Expression<Unresolved>> {
+    fn grouping(&mut self) -> Result<Located<Expression<Unresolved>>> {
         let location = self.expect(Token::LeftParenthesis)?.location();
         let expression = self.expression()?;
         self.expect(Token::RightParenthesis)?;
@@ -132,7 +128,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(expression)
     }
 
-    fn application(&mut self) -> ParseResult<Expression<Unresolved>> {
+    fn application(&mut self) -> Result<Located<Expression<Unresolved>>> {
         let mut function = self.primary()?;
         let location = function.location();
 
@@ -140,9 +136,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             let argument = match self.primary() {
                 Ok(expression) => expression,
                 Err(error) => {
-                    match error.data() {
-                        ParseError::UnexpectedEOF |
-                        ParseError::UnexpectedToken(_) => break,
+                    match error.error() {
+                        Error::Parse(ParseError::UnexpectedEOF) |
+                        Error::Parse(ParseError::UnexpectedToken(_)) => break,
                         _ => return Err(error),
                     }
                 }
@@ -156,7 +152,6 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 }
 
-#[allow(unused)]
 #[derive(Clone, Copy, Debug)]
 pub enum ParseError {
     LexError(LexError),
@@ -172,5 +167,3 @@ impl From<Located<LexError>> for Located<ParseError> {
         )
     }
 }
-
-type ParseResult<T> = Result<Located<T>, Located<ParseError>>;

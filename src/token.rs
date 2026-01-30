@@ -1,22 +1,29 @@
-use std::fmt::Display;
-
-use crate::interner::InternId;
+use crate::interner::{Interner, InternId};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Token {
-    Identifier(InternId),
+    Identifier(InternId, usize),
     LeftParenthesis,
     RightParenthesis,
     Backslash,
 }
 
-impl Display for Token {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Token {
+    pub fn display<'interner>(&self, interner: &'interner Interner) -> &'interner str {
         match self {
-            Self::Identifier(id) => write!(f, "identifier: {id}"),
-            Self::LeftParenthesis => write!(f, "("),
-            Self::RightParenthesis => write!(f, ")"),
-            Self::Backslash => write!(f, "\\"),
+            Self::Identifier(id, _) => interner.lookup(*id),
+            Self::LeftParenthesis => "(",
+            Self::RightParenthesis => ")",
+            Self::Backslash => "\\",
+        }
+    }
+
+    pub fn length(&self) -> usize {
+        match self {
+            Self::Identifier(_, length) => *length,
+            Self::LeftParenthesis |
+            Self::RightParenthesis |
+            Self::Backslash => 1
         }
     }
 }

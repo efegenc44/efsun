@@ -5,8 +5,9 @@ use crate::{
         ApplicationExpression, Expression, IdentifierExpression,
         LambdaExpression, Unresolved, Resolved
     },
-    interner::InternId,
-    location::Located
+    interner::{InternId},
+    location::Located,
+    error::{Error, Result}
 };
 
 pub struct Resolver {
@@ -18,7 +19,7 @@ impl Resolver {
         Resolver { locals: Vec::default() }
     }
 
-    pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> ResolutionResult<Located<Expression<Resolved>>> {
+    pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
         let (expression, location) = expression.destruct();
 
         let expression = match expression {
@@ -30,22 +31,23 @@ impl Resolver {
         Ok(Located::new(expression, location))
     }
 
-    fn identifier(&mut self, identifier: IdentifierExpression<Unresolved>) -> ResolutionResult<IdentifierExpression<Resolved>> {
+    fn identifier(&mut self, identifier: IdentifierExpression<Unresolved>) -> Result<IdentifierExpression<Resolved>> {
         for (index, intern_id) in self.locals.iter().rev().enumerate() {
             if intern_id == identifier.identifier().data() {
                 return Ok(identifier.resolve(Bound::Local(BoundId(index))))
             }
         }
 
-        let error = Located::new(
-            ResolutionError::UnboundIdentifier(*identifier.identifier().data()),
-            identifier.identifier().location()
+        let error: Error = ResolutionError::UnboundIdentifier(*identifier.identifier().data()).into();
+        let error = error.span(
+            identifier.identifier().location(),
+            identifier.end()
         );
 
         Err(error)
     }
 
-    fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> ResolutionResult<LambdaExpression<Resolved>> {
+    fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> Result<LambdaExpression<Resolved>> {
         let (variable, expression) = lambda.desturct();
 
         self.locals.push(*variable.data());
@@ -55,7 +57,7 @@ impl Resolver {
         Ok(LambdaExpression::new(variable, expression))
     }
 
-    fn application(&mut self, application: ApplicationExpression<Unresolved>) -> ResolutionResult<ApplicationExpression<Resolved>> {
+    fn application(&mut self, application: ApplicationExpression<Unresolved>) -> Result<ApplicationExpression<Resolved>> {
         let (function, argument) = application.desturct();
 
         let function = self.expression(*function)?;
@@ -87,10 +89,7 @@ impl Display for Bound {
     }
 }
 
-#[allow(unused)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum ResolutionError {
     UnboundIdentifier(InternId)
 }
-
-type ResolutionResult<T> = Result<T, Located<ResolutionError>>;

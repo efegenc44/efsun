@@ -3,7 +3,8 @@ use std::{iter::Peekable, str::Chars};
 use crate::{
     interner::Interner,
     token::Token,
-    location::{Located, SourceLocation}
+    location::{Located, SourceLocation},
+    error::{Error, Result}
 };
 
 pub struct Lexer<'source, 'interner> {
@@ -49,8 +50,9 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
             }
         }
 
+        let length = lexeme.len();
         let id = self.interner.intern(lexeme);
-        Located::new(Token::Identifier(id), location)
+        Located::new(Token::Identifier(id, length), location)
     }
 
     fn single(&mut self, token: Token) -> Located<Token> {
@@ -72,7 +74,7 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
 }
 
 impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
-    type Item = LexResult;
+    type Item = Result<Located<Token>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.skip_whitespace();
@@ -83,12 +85,13 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
             ')' => self.single(Token::RightParenthesis),
             '\\' => self.single(Token::Backslash),
             unknown => {
-                let location = self.location;
-                let error = Located::new(
-                    LexError::UnknownStartOfAToken(unknown),
-                    location
-                );
+                let start = self.location;
                 self.next();
+                let end = self.location;
+
+                let error: Error = LexError::UnknownStartOfAToken(unknown).into();
+                let error = error.span(start, end);
+
                 return Some(Err(error))
             }
         };
@@ -97,10 +100,7 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
     }
 }
 
-#[allow(unused)]
 #[derive(Clone, Copy, Debug)]
 pub enum LexError {
     UnknownStartOfAToken(char)
 }
-
-type LexResult = Result<Located<Token>, Located<LexError>>;

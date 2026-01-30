@@ -7,6 +7,7 @@ mod expression;
 mod resolver;
 mod checker;
 mod typ;
+mod error;
 
 use std::{env, fs, io::{Write, stdin, stdout}};
 
@@ -42,10 +43,31 @@ fn repl() {
         let mut resolver = resolver::Resolver::new();
         let mut checker = checker::TypeChecker::new();
 
-        let expression = parser.expression().unwrap();
-        let expression = resolver.expression(expression).unwrap();
+        let expression = match parser.expression() {
+            Ok(expression) => expression,
+            Err(error) => {
+                error.report("interactive", input, &interner);
+                continue;
+            },
+        };
+
+        let expression = match resolver.expression(expression) {
+            Ok(expression) => expression,
+            Err(error) => {
+                error.report("interactive", input, &interner);
+                continue;
+            },
+        };
+
         expression.data().print(&interner, 0);
-        let t = checker.infer(&expression);
+        let t = match checker.infer(&expression) {
+            Ok(t) => t,
+            Err(error) => {
+                error.report("interactive", input, &interner);
+                continue;
+            },
+        };
+
         println!("= {t}");
     }
 }
@@ -58,9 +80,31 @@ fn from_file(file_path: &str) {
     let mut resolver = resolver::Resolver::new();
     let mut checker = checker::TypeChecker::new();
 
-    let expression = parser.expression().unwrap();
-    let expression = resolver.expression(expression).unwrap();
+    let expression = match parser.expression() {
+        Ok(expression) => expression,
+        Err(error) => {
+            error.report(file_path, &source, &interner);
+            return;
+        },
+    };
+
+    let expression = match resolver.expression(expression) {
+        Ok(expression) => expression,
+        Err(error) => {
+            error.report(file_path, &source, &interner);
+            return;
+        },
+    };
+
     expression.data().print(&interner, 0);
-    let t = checker.infer(&expression);
+
+    let t = match checker.infer(&expression) {
+        Ok(t) => t,
+        Err(error) => {
+            error.report(file_path, &source, &interner);
+            return;
+        },
+    };
+
     println!("{t}");
 }

@@ -3,22 +3,32 @@ use std::fmt::Display;
 #[derive(Clone, Copy, Debug)]
 pub struct SourceLocation {
     row: usize,
-    column: usize
+    column: usize,
 }
 
 impl SourceLocation {
     pub fn start() -> Self {
-        Self {
-            row: 1,
-            column: 1
-        }
+        Self { row: 1, column: 1 }
     }
 
     pub fn eof() -> Self {
-        Self {
-            row: 0,
-            column: 0,
-        }
+        Self { row: 0, column: 0 }
+    }
+
+    pub fn is_eof(&self) -> bool {
+        self.row == 0 && self.column == 0
+    }
+
+    pub fn row(&self) -> usize {
+        self.row
+    }
+
+    pub fn column(&self) -> usize {
+        self.column
+    }
+
+    pub fn add(&self, n: usize) -> Self {
+        Self { row: self.row, column: self.column + n }
     }
 
     pub fn increment(&mut self) {
