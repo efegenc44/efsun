@@ -3,7 +3,7 @@ use std::iter::Peekable;
 use crate::{
     expression::{
         ApplicationExpression, Expression, Unresolved,
-        LambdaExpression, IdentifierExpression
+        LambdaExpression, IdentifierExpression, LetExpression
     },
     interner::InternId,
     lexer::{LexError, Lexer},
@@ -69,6 +69,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
         match token.data() {
             Token::Backslash => self.lambda(),
+            Token::LetKeyword => self.letin(),
             _ => self.application()
         }
     }
@@ -81,6 +82,21 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
         let lambda = LambdaExpression::new(variable, expression);
         let expression = Located::new(Expression::Lambda(lambda), start, end);
+
+        Ok(expression)
+    }
+
+    fn letin(&mut self) -> Result<Located<Expression<Unresolved>>> {
+        let start = self.expect(Token::LetKeyword)?.start();
+        let variable = self.expect_identifier()?;
+        self.expect(Token::Equals)?;
+        let variable_expression = self.expression()?;
+        self.expect(Token::InKeyword)?;
+        let return_expression = self.expression()?;
+        let end = return_expression.end();
+
+        let letin = LetExpression::new(variable, variable_expression, return_expression);
+        let expression = Located::new(Expression::Let(letin), start, end);
 
         Ok(expression)
     }

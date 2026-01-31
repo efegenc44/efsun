@@ -13,6 +13,7 @@ pub enum Expression<State> {
     Identifier(IdentifierExpression<State>),
     Application(ApplicationExpression<State>),
     Lambda(LambdaExpression<State>),
+    Let(LetExpression<State>),
 }
 
 impl<T> Expression<T> {
@@ -38,6 +39,12 @@ impl<T> Expression<T> {
                 application.function.data().print(interner, depth + 1);
                 application.argument.data().print(interner, depth + 1);
             },
+            Self::Let(letin) => {
+                println!("{:indent$}Let:", "");
+                println!("{:indent$}{}", "", interner.lookup(*letin.variable.data()), indent=indent + 2);
+                letin.variable_expression.data().print(interner, depth + 2);
+                letin.return_expression.data().print(interner, depth + 1);
+            }
         }
     }
 }
@@ -118,5 +125,42 @@ impl<T> LambdaExpression<T> {
 
     pub fn expression(&self) -> &Located<Expression<T>> {
         &self.expression
+    }
+}
+
+pub struct LetExpression<T> {
+    variable: Located<InternId>,
+    variable_expression: Box<Located<Expression<T>>>,
+    return_expression: Box<Located<Expression<T>>>
+}
+
+impl<T> LetExpression<T> {
+    pub fn new(
+        variable: Located<InternId>,
+        variable_expression: Located<Expression<T>>,
+        return_expression: Located<Expression<T>>
+    ) -> Self {
+        Self {
+            variable,
+            variable_expression: Box::new(variable_expression),
+            return_expression: Box::new(return_expression)
+        }
+    }
+
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>, Located<Expression<T>>) {
+        (self.variable, *self.variable_expression, *self.return_expression)
+    }
+
+    #[allow(unused)]
+    pub fn variable(&self) -> Located<InternId> {
+        self.variable
+    }
+
+    pub fn variable_expression(&self) -> &Located<Expression<T>> {
+        &self.variable_expression
+    }
+
+    pub fn return_expression(&self) -> &Located<Expression<T>> {
+        &self.return_expression
     }
 }

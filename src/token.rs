@@ -6,6 +6,9 @@ pub enum Token {
     LeftParenthesis,
     RightParenthesis,
     Backslash,
+    Equals,
+    LetKeyword,
+    InKeyword,
 }
 
 impl Token {
@@ -15,6 +18,9 @@ impl Token {
             Self::LeftParenthesis => "(",
             Self::RightParenthesis => ")",
             Self::Backslash => "\\",
+            Self::Equals => "=",
+            Self::LetKeyword => "let",
+            Self::InKeyword => "in",
         }
     }
 }

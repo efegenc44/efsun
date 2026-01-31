@@ -1,5 +1,11 @@
 use std::{collections::HashMap, fmt::Display};
 
+#[derive(Clone)]
+pub enum Type {
+    Mono(MonoType),
+    Poly(Vec<usize>, MonoType)
+}
+
 #[derive(Debug, Clone)]
 pub enum MonoType {
     Variable(usize),
@@ -7,6 +13,27 @@ pub enum MonoType {
 }
 
 impl MonoType {
+    pub fn generalize(self) -> Type {
+        let mut variables = Vec::new();
+        self.gather_variables(&mut variables);
+
+        Type::Poly(variables, self)
+    }
+
+    fn gather_variables(&self, variables: &mut Vec<usize>) {
+        match self {
+            Self::Variable(id) => {
+                if !variables.contains(id) {
+                    variables.push(*id);
+                }
+            },
+            Self::Arrow(arrow) => {
+                arrow.from().gather_variables(variables);
+                arrow.to().gather_variables(variables);
+            },
+        }
+    }
+
     pub fn substitute(self, table: &HashMap<usize, MonoType>) -> Self {
         match self {
             MonoType::Variable(id) => {

@@ -3,16 +3,16 @@ use std::{collections::HashMap, result};
 use crate::{
     expression::{
         ApplicationExpression, Expression, IdentifierExpression,
-        LambdaExpression, Resolved
+        LambdaExpression, Resolved, LetExpression
     },
     location::{Located, SourceLocation},
     resolver::Bound,
-    typ::{MonoType, ArrowType},
+    typ::{Type, MonoType, ArrowType},
     error::{Result, located_error}
 };
 
 pub struct TypeChecker {
-    locals: Vec<MonoType>,
+    locals: Vec<Type>,
     newvar_counter: usize,
     unification_table: HashMap<usize, MonoType>
 }
@@ -32,11 +32,26 @@ impl TypeChecker {
         variable
     }
 
+    fn instantiate(&mut self, t: Type) -> MonoType {
+        match t {
+            Type::Mono(mono) => mono,
+            Type::Poly(variables, mono) => {
+                let mut table = HashMap::new();
+                for variable in variables {
+                    table.insert(variable, self.newvar());
+                }
+
+                mono.substitute(&table)
+            },
+        }
+    }
+
     pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> Result<MonoType> {
         match expression.data() {
             Expression::Identifier(identifier) => self.identifier(identifier),
             Expression::Application(application) => self.application(application, expression.start(), expression.end()),
             Expression::Lambda(lambda) => self.lambda(lambda),
+            Expression::Let(letin) => self.letin(letin),
         }
     }
 
@@ -82,8 +97,13 @@ impl TypeChecker {
         match identifier.bound() {
             Bound::Local(id) => {
                 let index = self.locals.len() - 1 - id.value();
-                self.locals[index] = self.substitute(self.locals[index].clone());
-                Ok(self.locals[index].clone())
+
+                if let Type::Mono(mono) = &self.locals[index] {
+                    self.locals[index] = Type::Mono(self.substitute(mono.clone()));
+                }
+
+                let t = self.locals[index].clone();
+                Ok(self.instantiate(t))
             },
         }
     }
@@ -110,7 +130,7 @@ impl TypeChecker {
 
     fn lambda(&mut self, lambda: &LambdaExpression<Resolved>) -> Result<MonoType> {
         let argument = self.newvar();
-        self.locals.push(argument.clone());
+        self.locals.push(Type::Mono(argument.clone()));
         let return_type = self.infer(lambda.expression())?;
         self.locals.pop();
 
@@ -120,6 +140,17 @@ impl TypeChecker {
         );
 
         Ok(MonoType::Arrow(arrow))
+    }
+
+    fn letin(&mut self, letin: &LetExpression<Resolved>) -> Result<MonoType> {
+        let variable_type = self.infer(letin.variable_expression())?;
+        let variable_type = variable_type.generalize();
+
+        self.locals.push(variable_type);
+        let return_type = self.infer(letin.return_expression())?;
+        self.locals.pop();
+
+        Ok(self.substitute(return_type))
     }
 }
 

@@ -38,7 +38,7 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
         Some(ch)
     }
 
-    fn identifier(&mut self) -> Located<Token> {
+    fn keyword_or_identifier(&mut self) -> Located<Token> {
         let start = self.location;
         let mut lexeme = String::new();
         while let Some(ch) = self.peek() {
@@ -50,8 +50,16 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
         }
         let end = self.location;
 
-        let id = self.interner.intern(lexeme);
-        Located::new(Token::Identifier(id), start, end)
+        let token = match lexeme.as_str() {
+            "let" => Token::LetKeyword,
+            "in" => Token::InKeyword,
+            _ => {
+                let id = self.interner.intern(lexeme);
+                Token::Identifier(id)
+            }
+        };
+
+        Located::new(token, start, end)
     }
 
     fn single(&mut self, token: Token) -> Located<Token> {
@@ -80,10 +88,11 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
         self.skip_whitespace();
 
         let token = match self.peek()? {
-            ch if ch.is_alphabetic() => self.identifier(),
+            ch if ch.is_alphabetic() => self.keyword_or_identifier(),
             '(' => self.single(Token::LeftParenthesis),
             ')' => self.single(Token::RightParenthesis),
             '\\' => self.single(Token::Backslash),
+            '=' => self.single(Token::Equals),
             unknown => {
                 let start = self.location;
                 self.next();

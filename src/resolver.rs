@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{
     expression::{
         ApplicationExpression, Expression, IdentifierExpression,
-        LambdaExpression, Unresolved, Resolved
+        LambdaExpression, Unresolved, Resolved, LetExpression
     },
     interner::{InternId},
     location::{Located, SourceLocation},
@@ -26,6 +26,7 @@ impl Resolver {
             Expression::Identifier(identifier) => Expression::Identifier(self.identifier(identifier, start, end)?),
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
             Expression::Application(application) => Expression::Application(self.application(application)?),
+            Expression::Let(letin) => Expression::Let(self.letin(letin)?),
         };
 
         Ok(Located::new(expression, start, end))
@@ -64,6 +65,17 @@ impl Resolver {
         let argument = self.expression(argument)?;
 
         Ok(ApplicationExpression::new(function, argument))
+    }
+
+    fn letin(&mut self, letin: LetExpression<Unresolved>) -> Result<LetExpression<Resolved>> {
+        let (variable, variable_expression, return_expression) = letin.destruct();
+
+        let variable_expression = self.expression(variable_expression)?;
+        self.locals.push(*variable.data());
+        let return_expression = self.expression(return_expression)?;
+        self.locals.pop();
+
+        Ok(LetExpression::new(variable, variable_expression, return_expression))
     }
 }
 
