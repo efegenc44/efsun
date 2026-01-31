@@ -91,7 +91,7 @@ impl<T> ApplicationExpression<T> {
         Self { function: Box::new(function), argument: Box::new(argument) }
     }
 
-    pub fn desturct(self) -> (Located<Expression<T>>, Located<Expression<T>>) {
+    pub fn destruct(self) -> (Located<Expression<T>>, Located<Expression<T>>) {
         (*self.function, *self.argument)
     }
 
@@ -114,8 +114,8 @@ impl<T> LambdaExpression<T> {
         Self { variable, expression: Box::new(expression) }
     }
 
-    pub fn desturct(self) -> (Located<InternId>, Box<Located<Expression<T>>>) {
-        (self.variable, self.expression)
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>) {
+        (self.variable, *self.expression)
     }
 
     #[allow(unused)]

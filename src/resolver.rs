@@ -49,17 +49,17 @@ impl Resolver {
     }
 
     fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> Result<LambdaExpression<Resolved>> {
-        let (variable, expression) = lambda.desturct();
+        let (variable, expression) = lambda.destruct();
 
         self.locals.push(*variable.data());
-        let expression = self.expression(*expression)?;
+        let expression = self.expression(expression)?;
         self.locals.pop();
 
         Ok(LambdaExpression::new(variable, expression))
     }
 
     fn application(&mut self, application: ApplicationExpression<Unresolved>) -> Result<ApplicationExpression<Resolved>> {
-        let (function, argument) = application.desturct();
+        let (function, argument) = application.destruct();
 
         let function = self.expression(function)?;
         let argument = self.expression(argument)?;
