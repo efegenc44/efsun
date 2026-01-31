@@ -64,8 +64,10 @@ impl TypeChecker {
             (MonoType::Variable(id1), MonoType::Variable(id2)) => {
                 match (self.unification_table.get(id1), self.unification_table.get(id2)) {
                     (None, None) => {
-                        self.unification_table.insert(*id1, MonoType::Variable(*id2));
-                        self.unification_table.insert(*id2, MonoType::Variable(*id1));
+                        let newvar = self.newvar();
+                        self.unification_table.insert(*id1, newvar.clone());
+                        self.unification_table.insert(*id2, newvar);
+
                         Ok(())
                     },
                     (None, Some(t)) => self.unify(t1, &t.clone()),
