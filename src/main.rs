@@ -8,6 +8,8 @@ mod resolver;
 mod checker;
 mod typ;
 mod error;
+mod evaluator;
+mod value;
 
 use std::{env, fs, io::{Write, stdin, stdout}};
 
@@ -22,6 +24,7 @@ fn main() {
 
 fn repl() {
     let mut interner = interner::Interner::new();
+    let mut evaluator = evaluator::Evaluator::new();
 
     loop {
         let mut input = String::new();
@@ -59,7 +62,8 @@ fn repl() {
             },
         };
 
-        expression.data().print(&interner, 0);
+        // expression.data().print(&interner, 0);
+
         let t = match checker.infer(&expression) {
             Ok(t) => t,
             Err(error) => {
@@ -68,7 +72,9 @@ fn repl() {
             },
         };
 
-        println!("= {t}");
+        let value = evaluator.expression(expression.data());
+
+        println!("= {value} : {t}");
     }
 }
 
@@ -79,6 +85,7 @@ fn from_file(file_path: &str) {
     let mut parser = parser::Parser::new(lexer);
     let mut resolver = resolver::Resolver::new();
     let mut checker = checker::TypeChecker::new();
+    let mut evaluator = evaluator::Evaluator::new();
 
     let expression = match parser.expression() {
         Ok(expression) => expression,
@@ -106,5 +113,7 @@ fn from_file(file_path: &str) {
         },
     };
 
-    println!("{t}");
+    let value = evaluator.expression(expression.data());
+
+    println!("= {value} : {t}");
 }

@@ -6,9 +6,12 @@ use crate::{
     resolver::Bound
 };
 
+#[derive(Clone, Copy)]
 pub struct Resolved;
+#[derive(Clone, Copy)]
 pub struct Unresolved;
 
+#[derive(Clone)]
 pub enum Expression<State> {
     Identifier(IdentifierExpression<State>),
     Application(ApplicationExpression<State>),
@@ -49,6 +52,7 @@ impl<T> Expression<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct IdentifierExpression<State> {
     identifier: Located<InternId>,
     bound: Option<Bound>,
@@ -81,6 +85,7 @@ impl IdentifierExpression<Resolved> {
     }
 }
 
+#[derive(Clone)]
 pub struct ApplicationExpression<T> {
     function: Box<Located<Expression<T>>>,
     argument: Box<Located<Expression<T>>>,
@@ -104,6 +109,7 @@ impl<T> ApplicationExpression<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct LambdaExpression<T> {
     variable: Located<InternId>,
     expression: Box<Located<Expression<T>>>,
@@ -128,6 +134,7 @@ impl<T> LambdaExpression<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct LetExpression<T> {
     variable: Located<InternId>,
     variable_expression: Box<Located<Expression<T>>>,
