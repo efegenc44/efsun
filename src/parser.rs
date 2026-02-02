@@ -80,7 +80,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let expression = self.expression()?;
         let end = expression.end();
 
-        let lambda = LambdaExpression::new(variable, expression);
+        let lambda = LambdaExpression::<Unresolved>::new(variable, expression);
         let expression = Located::new(Expression::Lambda(lambda), start, end);
 
         Ok(expression)

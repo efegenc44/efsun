@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 
 use crate::{
     expression::{
@@ -11,12 +11,30 @@ use crate::{
 };
 
 pub struct Resolver {
-    locals: Vec<InternId>
+    scopes: Vec<Scope>
 }
 
 impl Resolver {
     pub fn new() -> Self {
-        Resolver { locals: Vec::default() }
+        Resolver {
+            scopes: vec![Scope::new()]
+        }
+    }
+
+    fn enter_scope(&mut self) {
+        self.scopes.push(Scope::new())
+    }
+
+    fn exit_scope(&mut self) -> Vec<Capture> {
+        self.scopes.pop().unwrap().captures
+    }
+
+    fn push_local(&mut self, local: InternId) {
+        self.scopes.last_mut().unwrap().locals.push(local);
+    }
+
+    fn pop_local(&mut self) {
+        self.scopes.last_mut().unwrap().locals.pop();
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
@@ -38,9 +56,29 @@ impl Resolver {
         start: SourceLocation,
         end: SourceLocation
     ) -> Result<IdentifierExpression<Resolved>> {
-        for (index, intern_id) in self.locals.iter().rev().enumerate() {
-            if intern_id == identifier.identifier().data() {
-                return Ok(identifier.resolve(Bound::Local(BoundId(index))))
+        // Local
+        let result = self.scopes[self.scopes.len() - 1].resolve(*identifier.identifier().data());
+        if let Some(bound) = result {
+            return Ok(identifier.resolve(Bound::Local(bound)))
+        }
+
+        if self.scopes.len() - 1 == 0 {
+            let error = ResolutionError::UnboundIdentifier(*identifier.identifier().data());
+            return Err(located_error(error, start, end));
+        }
+
+        // Capture
+        let result = self.capture(*identifier.identifier().data(), self.scopes.len() - 2);
+        if let Some(bound) = result {
+            let scope_index = self.scopes.len() - 1;
+
+            if let Some(position) = self.scopes[scope_index].captures.iter().position(|c| *c == bound) {
+                return Ok(identifier.resolve(Bound::Capture(BoundId(position))));
+            } else {
+                self.scopes[scope_index].captures.push(bound);
+                let id = self.scopes[scope_index].captures.len() - 1;
+
+                return Ok(identifier.resolve(Bound::Capture(BoundId(id))));
             }
         }
 
@@ -48,14 +86,38 @@ impl Resolver {
         Err(located_error(error, start, end))
     }
 
+    fn capture(&mut self, identifier: InternId, scope_index: usize) -> Option<Capture> {
+        let scope = &self.scopes[scope_index];
+
+        if let Some(bound) = scope.resolve(identifier) {
+            Some(Capture::Local(bound))
+        } else {
+            if scope_index == 0 {
+                None
+            } else {
+                let capture = self.capture(identifier, scope_index - 1)?;
+
+                if let Some(position) = self.scopes[scope_index].captures.iter().position(|c| *c == capture) {
+                    Some(Capture::Outer(BoundId(position)))
+                } else {
+                    self.scopes[scope_index].captures.push(capture);
+                    let id = self.scopes[scope_index].captures.len() - 1;
+                    Some(Capture::Outer(BoundId(id)))
+                }
+            }
+        }
+    }
+
     fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> Result<LambdaExpression<Resolved>> {
         let (variable, expression) = lambda.destruct();
 
-        self.locals.push(*variable.data());
+        self.enter_scope();
+        self.push_local(*variable.data());
         let expression = self.expression(expression)?;
-        self.locals.pop();
+        self.pop_local();
+        let captures = self.exit_scope();
 
-        Ok(LambdaExpression::new(variable, expression))
+        Ok(LambdaExpression::<Resolved>::new(variable, expression, captures))
     }
 
     fn application(&mut self, application: ApplicationExpression<Unresolved>) -> Result<ApplicationExpression<Resolved>> {
@@ -71,20 +133,66 @@ impl Resolver {
         let (variable, variable_expression, return_expression) = letin.destruct();
 
         let variable_expression = self.expression(variable_expression)?;
-        self.locals.push(*variable.data());
+        self.push_local(*variable.data());
         let return_expression = self.expression(return_expression)?;
-        self.locals.pop();
+        self.pop_local();
 
         Ok(LetExpression::new(variable, variable_expression, return_expression))
+    }
+}
+
+struct Scope {
+    locals: Vec<InternId>,
+    captures: Vec<Capture>,
+}
+
+impl Scope {
+    fn new() -> Self {
+        Self {
+            locals: Vec::new(),
+            captures: Vec::new(),
+        }
+    }
+
+    fn resolve(&self, identifier: InternId) -> Option<BoundId> {
+        for (index, intern_id) in self.locals.iter().rev().enumerate() {
+            if identifier == *intern_id {
+                return Some(BoundId(index));
+            }
+        }
+
+        None
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Capture {
+    Local(BoundId),
+    Outer(BoundId)
+}
+
+impl Display for Capture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Local(id) => write!(f, "local({})", id.0),
+            Self::Outer(id) => write!(f, "outer({})", id.0),
+        }
+    }
+}
+
+impl Debug for Capture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum Bound {
     Local(BoundId),
+    Capture(BoundId),
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BoundId(usize);
 
 impl BoundId {
@@ -97,6 +205,7 @@ impl Display for Bound {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Local(id) => write!(f, "{}", id.0),
+            Self::Capture(id) => write!(f, "captured({})", id.0),
         }
     }
 }

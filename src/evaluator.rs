@@ -28,6 +28,7 @@ impl Evaluator {
     fn identifier(&mut self, identifier: &IdentifierExpression<Resolved>) -> Value {
         match identifier.bound() {
             Bound::Local(id) => self.locals[id.value()].clone(),
+            Bound::Capture(_capture) => todo!(),
         }
     }
 

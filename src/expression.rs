@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     interner::{InternId, Interner},
     location::Located,
-    resolver::Bound
+    resolver::{Bound, Capture}
 };
 
 #[derive(Clone, Copy)]
@@ -34,6 +34,11 @@ impl<T> Expression<T> {
             },
             Self::Lambda(lambda) => {
                 println!("{:indent$}Lambda:", "");
+                if let Some(captures) = &lambda.captures {
+                    if !captures.is_empty() {
+                        println!("{:indent$}Captures: {:?}", "", captures, indent=indent + 2);
+                    }
+                }
                 println!("{:indent$}{}", "", interner.lookup(*lambda.variable.data()), indent=indent + 2);
                 lambda.expression.data().print(interner, depth + 1);
             }
@@ -113,17 +118,10 @@ impl<T> ApplicationExpression<T> {
 pub struct LambdaExpression<T> {
     variable: Located<InternId>,
     expression: Box<Located<Expression<T>>>,
+    captures: Option<Vec<Capture>>
 }
 
 impl<T> LambdaExpression<T> {
-    pub fn new(variable: Located<InternId>, expression: Located<Expression<T>>) -> Self {
-        Self { variable, expression: Box::new(expression) }
-    }
-
-    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>) {
-        (self.variable, *self.expression)
-    }
-
     #[allow(unused)]
     pub fn variable(&self) -> Located<InternId> {
         self.variable
@@ -133,6 +131,28 @@ impl<T> LambdaExpression<T> {
         &self.expression
     }
 }
+
+impl LambdaExpression<Unresolved> {
+    pub fn new(variable: Located<InternId>, expression: Located<Expression<Unresolved>>) -> Self {
+        Self { variable, expression: Box::new(expression), captures: None }
+    }
+
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<Unresolved>>) {
+        (self.variable, *self.expression)
+    }
+}
+
+impl LambdaExpression<Resolved> {
+    pub fn new(variable: Located<InternId>, expression: Located<Expression<Resolved>>, captures: Vec<Capture>) -> Self {
+        Self { variable, expression: Box::new(expression), captures: Some(captures) }
+    }
+
+    pub fn captures(&self) -> &[Capture] {
+        self.captures.as_ref().unwrap()
+    }
+}
+
+
 
 #[derive(Clone)]
 pub struct LetExpression<T> {
