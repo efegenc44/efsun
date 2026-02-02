@@ -76,6 +76,7 @@ impl TypeChecker {
     }
 
     fn unify(&mut self, t1: &MonoType, t2: &MonoType) -> result::Result<(), (MonoType, MonoType)> {
+
         match (t1, t2) {
             (MonoType::Variable(id1), MonoType::Variable(id2)) => {
                 match (self.unification_table.get(id1), self.unification_table.get(id2)) {
@@ -92,7 +93,7 @@ impl TypeChecker {
                 }
             },
             (MonoType::Variable(id), t) | (t, MonoType::Variable(id)) => {
-                if t.includes(*id) {
+                if self.substitute(t.clone()).includes(*id) {
                     return Err((t1.clone(), t2.clone()));
                 }
 
@@ -159,7 +160,10 @@ impl TypeChecker {
         let arrow = MonoType::Arrow(arrow);
 
         if let Err((first, second)) = self.unify(&function, &arrow) {
-            let error = TypeCheckError::TypeMismatch { first, second };
+            let error = TypeCheckError::TypeMismatch {
+                first: self.substitute(first),
+                second: self.substitute(second)
+            };
             Err(located_error(error, start, end))
         } else {
             Ok(self.substitute(return_type))
