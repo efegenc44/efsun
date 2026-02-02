@@ -1,19 +1,25 @@
+use std::rc::Rc;
+
 use crate::{
     expression::{
         Expression, Resolved, IdentifierExpression, ApplicationExpression,
         LambdaExpression, LetExpression
     },
     value::{Value, LambdaValue},
-    resolver::Bound
+    resolver::{Bound, Capture}
 };
 
 pub struct Evaluator {
-    locals: Vec<Value>
+    locals: Vec<Value>,
+    closures: Vec<Rc<Vec<Value>>>,
 }
 
 impl Evaluator {
     pub fn new() -> Self {
-        Self { locals: Vec::new() }
+        Self {
+            locals: Vec::new(),
+            closures: Vec::new(),
+        }
     }
 
     pub fn expression(&mut self, expression: &Expression<Resolved>) -> Value {
@@ -28,7 +34,7 @@ impl Evaluator {
     fn identifier(&mut self, identifier: &IdentifierExpression<Resolved>) -> Value {
         match identifier.bound() {
             Bound::Local(id) => self.locals[id.value()].clone(),
-            Bound::Capture(_capture) => todo!(),
+            Bound::Capture(id) => self.closures.last().unwrap()[id.value()].clone(),
         }
     }
 
@@ -36,24 +42,42 @@ impl Evaluator {
         let function = self.expression(application.function().data());
         let argument = self.expression(application.argument().data());
 
-        let n = self.locals.len();
-        let return_value = match function {
+        match function {
             Value::Lambda(lambda) => {
-                self.locals.extend(lambda.captures().iter().cloned());
+                self.closures.push(lambda.captures());
                 self.locals.push(argument);
-                self.expression(lambda.expression())
-            }
-        };
-        self.locals.truncate(n);
+                let return_value = self.expression(lambda.expression());
+                self.locals.pop();
+                self.closures.pop();
 
-        return_value
+                return_value
+            }
+        }
     }
 
     fn lambda(&mut self, lambda: &LambdaExpression<Resolved>) -> Value {
-        let lambda = lambda.expression().data().clone();
-        let captures = self.locals.clone();
+        let expression = lambda.expression().data().clone();
+        let captures = self.capture(lambda.captures());
 
-        Value::Lambda(LambdaValue::new(lambda, captures))
+        Value::Lambda(LambdaValue::new(expression, captures))
+    }
+
+    fn capture(&self, captures: &[Capture]) -> Vec<Value> {
+        let mut values = vec![];
+        for capture in captures {
+            match capture {
+                Capture::Local(id) => {
+                    let index = self.locals.len() - 1 - id.value();
+                    values.push(self.locals[index].clone());
+                },
+                Capture::Outer(id) => {
+                    let value = self.closures.last().unwrap()[id.value()].clone();
+                    values.push(value);
+                },
+            }
+        }
+
+        values
     }
 
     fn letin(&mut self, letin: &LetExpression<Resolved>) -> Value {

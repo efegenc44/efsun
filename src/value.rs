@@ -33,7 +33,7 @@ impl LambdaValue {
         &self.expression
     }
 
-    pub fn captures(&self) -> &[Value] {
-        &self.captures
+    pub fn captures(&self) -> Rc<Vec<Value>> {
+        self.captures.clone()
     }
 }

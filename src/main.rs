@@ -62,7 +62,7 @@ fn repl() {
             },
         };
 
-        expression.data().print(&interner, 0);
+        // expression.data().print(&interner, 0);
 
         let t = match checker.infer(&expression) {
             Ok(t) => t,
@@ -71,7 +71,6 @@ fn repl() {
                 continue;
             },
         };
-        println!("= {t}");
 
         let value = evaluator.expression(expression.data());
         println!("= {value} : {t}");
