@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub struct TypeChecker {
-    scopes: Vec<Scope>,
+    frames: Vec<Frame>,
     newvar_counter: usize,
     unification_table: HashMap<usize, MonoType>
 }
@@ -20,26 +20,34 @@ pub struct TypeChecker {
 impl TypeChecker {
     pub fn new() -> Self {
         Self {
-            scopes: vec![Scope::new()],
+            frames: vec![Frame::with_captures(vec![])],
             newvar_counter: 0,
             unification_table: HashMap::default()
         }
     }
 
-    fn enter_scope(&mut self) {
-        self.scopes.push(Scope::new());
+    fn current_frame(&self) -> &Frame {
+        self.frames.last().unwrap()
     }
 
-    fn exit_scope(&mut self) {
-        self.scopes.pop().unwrap();
+    fn current_frame_mut(&mut self) -> &mut Frame {
+        self.frames.last_mut().unwrap()
+    }
+
+    fn push_frame(&mut self, captures: Vec<Capture>) {
+        self.frames.push(Frame::with_captures(captures));
+    }
+
+    fn pop_frame(&mut self) {
+        self.frames.pop().unwrap();
     }
 
     fn push_local(&mut self, local: Type) {
-        self.scopes.last_mut().unwrap().locals.push(local);
+        self.frames.last_mut().unwrap().locals.push(local);
     }
 
     fn pop_local(&mut self) {
-        self.scopes.last_mut().unwrap().locals.pop();
+        self.frames.last_mut().unwrap().locals.pop();
     }
 
     fn newvar(&mut self) -> MonoType {
@@ -115,34 +123,38 @@ impl TypeChecker {
     fn identifier(&mut self, identifier: &IdentifierExpression<Resolved>) -> Result<MonoType> {
         match identifier.bound() {
             Bound::Local(id) => {
-                let scope_index = self.scopes.len() - 1;
+                let index = self.current_frame().locals.len() - 1 - id.value();
 
-                let index = self.scopes[scope_index].locals.len() - 1 - id.value();
-
-                if let Type::Mono(mono) = &self.scopes[scope_index].locals[index] {
-                    self.scopes[scope_index].locals[index] = Type::Mono(self.substitute(mono.clone()));
+                if let Type::Mono(mono) = &self.current_frame().locals[index] {
+                    self.current_frame_mut().locals[index] = Type::Mono(self.substitute(mono.clone()));
                 }
 
-                let t = self.scopes[scope_index].locals[index].clone();
+                let t = self.current_frame().locals[index].clone();
                 Ok(self.instantiate(t))
             },
             Bound::Capture(capture) => {
-                let capture = self.scopes[self.scopes.len() - 1].captures[capture.value()];
-                Ok(self.get_capture(capture, self.scopes.len() - 2))
+                let capture = self.current_frame().captures[capture.value()];
+                Ok(self.get_capture(capture))
             }
         }
     }
 
-    fn get_capture(&mut self, capture: Capture, scope_index: usize) -> MonoType {
+    fn get_capture(&mut self, capture: Capture) -> MonoType {
+        self.get_capture_in_frame(capture, 1)
+    }
+
+    fn get_capture_in_frame(&mut self, capture: Capture, frame_depth: usize) -> MonoType {
+        let index = self.frames.len() - 1 - frame_depth;
+
         match capture {
             Capture::Local(id) => {
-                let index = self.scopes[scope_index].locals.len() - 1 - id.value();
-                let t = self.scopes[scope_index].locals[index].clone();
+                let local_index = self.frames[index].locals.len() - 1 - id.value();
+                let t = self.frames[index].locals[local_index].clone();
                 self.instantiate(t)
             },
             Capture::Outer(id) => {
-                let capture = self.scopes[scope_index].captures[id.value()];
-                self.get_capture(capture, scope_index - 1)
+                let capture = self.frames[index].captures[id.value()];
+                self.get_capture_in_frame(capture, frame_depth + 1)
             },
         }
     }
@@ -173,15 +185,11 @@ impl TypeChecker {
     fn lambda(&mut self, lambda: &LambdaExpression<Resolved>) -> Result<MonoType> {
         let argument = self.newvar();
 
-        self.enter_scope();
-
-        let scope_index = self.scopes.len() - 1;
-        self.scopes[scope_index].captures = lambda.captures().to_vec();
-
+        self.push_frame(lambda.captures().to_vec());
         self.push_local(Type::Mono(argument.clone()));
         let return_type = self.infer(lambda.expression())?;
         self.pop_local();
-        self.exit_scope();
+        self.pop_frame();
 
         let arrow = ArrowType::new(
             self.substitute(argument),
@@ -203,24 +211,24 @@ impl TypeChecker {
     }
 }
 
+struct Frame {
+    locals: Vec<Type>,
+    captures: Vec<Capture>,
+}
+
+impl Frame {
+    pub fn with_captures(captures: Vec<Capture>) -> Self {
+        Self {
+            locals: Vec::new(),
+            captures,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum TypeCheckError {
     TypeMismatch {
         first: MonoType,
         second: MonoType,
-    }
-}
-
-struct Scope {
-    locals: Vec<Type>,
-    captures: Vec<Capture>,
-}
-
-impl Scope {
-    pub fn new() -> Self {
-        Self {
-            locals: Vec::new(),
-            captures: Vec::new(),
-        }
     }
 }

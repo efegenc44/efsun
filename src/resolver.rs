@@ -11,30 +11,38 @@ use crate::{
 };
 
 pub struct Resolver {
-    scopes: Vec<Scope>
+    stack: Vec<Frame>,
 }
 
 impl Resolver {
     pub fn new() -> Self {
         Resolver {
-            scopes: vec![Scope::new()]
+            stack: vec![Frame::new()]
         }
     }
 
-    fn enter_scope(&mut self) {
-        self.scopes.push(Scope::new())
+    fn current_frame(&self) -> &Frame {
+        self.stack.last().unwrap()
     }
 
-    fn exit_scope(&mut self) -> Vec<Capture> {
-        self.scopes.pop().unwrap().captures
+    fn current_frame_mut(&mut self) -> &mut Frame {
+        self.stack.last_mut().unwrap()
+    }
+
+    fn push_frame(&mut self) {
+        self.stack.push(Frame::new())
+    }
+
+    fn pop_frame(&mut self) -> Vec<Capture> {
+        self.stack.pop().unwrap().captures
     }
 
     fn push_local(&mut self, local: InternId) {
-        self.scopes.last_mut().unwrap().locals.push(local);
+        self.stack.last_mut().unwrap().locals.push(local);
     }
 
     fn pop_local(&mut self) {
-        self.scopes.last_mut().unwrap().locals.pop();
+        self.stack.last_mut().unwrap().locals.pop();
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
@@ -56,66 +64,74 @@ impl Resolver {
         start: SourceLocation,
         end: SourceLocation
     ) -> Result<IdentifierExpression<Resolved>> {
-        // Local
-        let result = self.scopes[self.scopes.len() - 1].resolve(*identifier.identifier().data());
-        if let Some(bound) = result {
-            return Ok(identifier.resolve(Bound::Local(bound)))
-        }
+        let intern_id = *identifier.identifier().data();
 
-        if self.scopes.len() - 1 == 0 {
-            let error = ResolutionError::UnboundIdentifier(*identifier.identifier().data());
-            return Err(located_error(error, start, end));
-        }
+        let bound = match self.current_frame().resolve(intern_id) {
+            Some(id) => Ok(Bound::Local(id)),
+            None => {
+                match self.capture(intern_id) {
+                    Some(capture) => {
+                        let id = match self.current_frame().captures.iter().position(|c| *c == capture) {
+                            Some(id) => id,
+                            None => {
+                                self.current_frame_mut().captures.push(capture);
+                                self.current_frame().captures.len() - 1
+                            }
+                        };
 
-        // Capture
-        let result = self.capture(*identifier.identifier().data(), self.scopes.len() - 2);
-        if let Some(bound) = result {
-            let scope_index = self.scopes.len() - 1;
+                        Ok(Bound::Capture(BoundId(id)))
+                    },
+                    None => {
+                        let error = ResolutionError::UnboundIdentifier(intern_id);
+                        Err(located_error(error, start, end))
+                    }
+                }
+            },
+        };
 
-            if let Some(position) = self.scopes[scope_index].captures.iter().position(|c| *c == bound) {
-                return Ok(identifier.resolve(Bound::Capture(BoundId(position))));
-            } else {
-                self.scopes[scope_index].captures.push(bound);
-                let id = self.scopes[scope_index].captures.len() - 1;
+        Ok(identifier.resolve(bound?))
 
-                return Ok(identifier.resolve(Bound::Capture(BoundId(id))));
-            }
-        }
-
-        let error = ResolutionError::UnboundIdentifier(*identifier.identifier().data());
-        Err(located_error(error, start, end))
     }
 
-    fn capture(&mut self, identifier: InternId, scope_index: usize) -> Option<Capture> {
-        let scope = &self.scopes[scope_index];
+    fn capture(&mut self, identifier: InternId) -> Option<Capture> {
+        self.capture_in_frame(identifier, 1)
+    }
 
-        if let Some(bound) = scope.resolve(identifier) {
-            Some(Capture::Local(bound))
-        } else {
-            if scope_index == 0 {
-                None
-            } else {
-                let capture = self.capture(identifier, scope_index - 1)?;
-
-                if let Some(position) = self.scopes[scope_index].captures.iter().position(|c| *c == capture) {
-                    Some(Capture::Outer(BoundId(position)))
-                } else {
-                    self.scopes[scope_index].captures.push(capture);
-                    let id = self.scopes[scope_index].captures.len() - 1;
-                    Some(Capture::Outer(BoundId(id)))
-                }
-            }
+    fn capture_in_frame(&mut self, identifier: InternId, frame_depth: usize) -> Option<Capture> {
+        if frame_depth == self.stack.len() {
+            return None;
         }
+
+        let index = self.stack.len() - 1 - frame_depth;
+
+        let capture = match self.stack[index].resolve(identifier) {
+            Some(id) => Capture::Local(id),
+            None => {
+                let capture = self.capture_in_frame(identifier, frame_depth + 1)?;
+
+                let id = match self.stack[index].captures.iter().position(|c| *c == capture) {
+                    Some(id) => id,
+                    None => {
+                        self.stack[index].captures.push(capture);
+                        self.stack[index].captures.len() - 1
+                    },
+                };
+
+                Capture::Outer(BoundId(id))
+            },
+        };
+
+        Some(capture)
     }
 
     fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> Result<LambdaExpression<Resolved>> {
         let (variable, expression) = lambda.destruct();
 
-        self.enter_scope();
+        self.push_frame();
         self.push_local(*variable.data());
         let expression = self.expression(expression)?;
         self.pop_local();
-        let captures = self.exit_scope();
+        let captures = self.pop_frame();
 
         Ok(LambdaExpression::<Resolved>::new(variable, expression, captures))
     }
@@ -141,13 +157,13 @@ impl Resolver {
     }
 }
 
-struct Scope {
+pub struct Frame {
     locals: Vec<InternId>,
     captures: Vec<Capture>,
 }
 
-impl Scope {
-    fn new() -> Self {
+impl Frame {
+    pub fn new() -> Self {
         Self {
             locals: Vec::new(),
             captures: Vec::new(),
