@@ -128,6 +128,7 @@ impl Display for Instruction {
     }
 }
 
+#[allow(unused)]
 pub fn display_instructions(instructions: &[Instruction]) {
     for (index, instruction) in instructions.iter().enumerate() {
         println!("{index:#>05x} | {instruction}");
