@@ -4,14 +4,12 @@ use crate::{compiler::Instruction, resolver::Capture};
 
 pub struct VM {
     stack: Vec<Frame>,
-    ip: usize,
 }
 
 impl VM {
     pub fn new() -> Self {
         Self {
             stack: vec![Frame::new()],
-            ip: 0,
         }
     }
 
@@ -32,9 +30,11 @@ impl VM {
     }
 
     pub fn run(&mut self, instructions: &[Instruction]) -> Value {
-        while self.ip < instructions.len() {
-            let instruction = instructions[self.ip].clone();
-            self.ip += 1;
+        let mut ip = 0;
+
+        while ip < instructions.len() {
+            let instruction = instructions[ip].clone();
+            ip += 1;
 
             match instruction {
                 Instruction::MakeString(string) => {
@@ -69,7 +69,7 @@ impl VM {
                     self.push(value);
                 },
                 Instruction::Jump(address) => {
-                    self.ip = address;
+                    ip = address;
                 },
                 Instruction::CapturingEnter(captures) => {
                     let mut closure = vec![];
@@ -102,15 +102,15 @@ impl VM {
                     self.push(argument);
 
                     self.current_frame_mut().closure = lambda.captures;
-                    self.current_frame_mut().return_ip = self.ip;
+                    self.current_frame_mut().return_ip = ip;
 
-                    self.ip = lambda.address;
+                    ip = lambda.address;
                 },
                 Instruction::Return => {
                     let return_value = self.pop();
-                    let ip = self.stack.pop().unwrap().return_ip;
+                    let return_ip = self.stack.pop().unwrap().return_ip;
                     self.push(return_value);
-                    self.ip = ip;
+                    ip = return_ip;
                 },
             }
         }
