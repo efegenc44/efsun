@@ -70,8 +70,8 @@ impl<'interner> Compiler<'interner> {
     }
 
     fn letin(&mut self, letin: &LetExpression<Resolved>) {
-        self.write(Instruction::CapturingEnter(letin.captures().to_vec()));
         self.expression(letin.variable_expression().data());
+        self.write(Instruction::CapturingEnter(letin.captures().to_vec()));
         self.expression(letin.return_expression().data());
         self.write(Instruction::Leave);
     }

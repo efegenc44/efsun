@@ -72,6 +72,8 @@ impl VM {
                     ip = address;
                 },
                 Instruction::CapturingEnter(captures) => {
+                    let argument = self.pop();
+
                     let mut closure = vec![];
 
                     for capture in captures {
@@ -88,6 +90,7 @@ impl VM {
                     }
 
                     self.stack.push(Frame::with_closure(closure));
+                    self.push(argument);
                 }
                 Instruction::Leave => {
                     let return_value = self.pop();
