@@ -95,7 +95,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let return_expression = self.expression()?;
         let end = return_expression.end();
 
-        let letin = LetExpression::new(variable, variable_expression, return_expression);
+        let letin = LetExpression::<Unresolved>::new(variable, variable_expression, return_expression);
         let expression = Located::new(Expression::Let(letin), start, end);
 
         Ok(expression)

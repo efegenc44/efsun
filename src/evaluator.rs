@@ -82,9 +82,11 @@ impl Evaluator {
 
     fn letin(&mut self, letin: &LetExpression<Resolved>) -> Value {
         let variable = self.expression(letin.variable_expression().data());
+        self.closures.push(Rc::new(self.capture(letin.captures())));
         self.locals.push(variable);
         let return_value = self.expression(letin.return_expression().data());
         self.locals.pop();
+        self.closures.pop();
 
         return_value
     }

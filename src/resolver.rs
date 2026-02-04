@@ -149,11 +149,13 @@ impl Resolver {
         let (variable, variable_expression, return_expression) = letin.destruct();
 
         let variable_expression = self.expression(variable_expression)?;
+        self.push_frame();
         self.push_local(*variable.data());
         let return_expression = self.expression(return_expression)?;
         self.pop_local();
+        let captures = self.pop_frame();
 
-        Ok(LetExpression::new(variable, variable_expression, return_expression))
+        Ok(LetExpression::<Resolved>::new(variable, variable_expression, return_expression, captures))
     }
 }
 

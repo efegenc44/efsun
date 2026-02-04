@@ -49,6 +49,11 @@ impl<T> Expression<T> {
             },
             Self::Let(letin) => {
                 println!("{:indent$}Let:", "");
+                if let Some(captures) = &letin.captures {
+                    if !captures.is_empty() {
+                        println!("{:indent$}Captures: {:?}", "", captures, indent=indent + 2);
+                    }
+                }
                 println!("{:indent$}{}", "", interner.lookup(*letin.variable.data()), indent=indent + 2);
                 letin.variable_expression.data().print(interner, depth + 2);
                 letin.return_expression.data().print(interner, depth + 1);
@@ -158,26 +163,11 @@ impl LambdaExpression<Resolved> {
 pub struct LetExpression<T> {
     variable: Located<InternId>,
     variable_expression: Box<Located<Expression<T>>>,
-    return_expression: Box<Located<Expression<T>>>
+    return_expression: Box<Located<Expression<T>>>,
+    captures: Option<Vec<Capture>>
 }
 
 impl<T> LetExpression<T> {
-    pub fn new(
-        variable: Located<InternId>,
-        variable_expression: Located<Expression<T>>,
-        return_expression: Located<Expression<T>>
-    ) -> Self {
-        Self {
-            variable,
-            variable_expression: Box::new(variable_expression),
-            return_expression: Box::new(return_expression)
-        }
-    }
-
-    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>, Located<Expression<T>>) {
-        (self.variable, *self.variable_expression, *self.return_expression)
-    }
-
     #[allow(unused)]
     pub fn variable(&self) -> Located<InternId> {
         self.variable
@@ -189,5 +179,44 @@ impl<T> LetExpression<T> {
 
     pub fn return_expression(&self) -> &Located<Expression<T>> {
         &self.return_expression
+    }
+}
+
+impl LetExpression<Unresolved> {
+    pub fn new(
+        variable: Located<InternId>,
+        variable_expression: Located<Expression<Unresolved>>,
+        return_expression: Located<Expression<Unresolved>>
+    ) -> Self {
+        Self {
+            variable,
+            variable_expression: Box::new(variable_expression),
+            return_expression: Box::new(return_expression),
+            captures: None
+        }
+    }
+
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<Unresolved>>, Located<Expression<Unresolved>>) {
+        (self.variable, *self.variable_expression, *self.return_expression)
+    }
+}
+
+impl LetExpression<Resolved> {
+    pub fn new(
+        variable: Located<InternId>,
+        variable_expression: Located<Expression<Resolved>>,
+        return_expression: Located<Expression<Resolved>>,
+        captures: Vec<Capture>
+    ) -> Self {
+        Self {
+            variable,
+            variable_expression: Box::new(variable_expression),
+            return_expression: Box::new(return_expression),
+            captures: Some(captures)
+        }
+    }
+
+    pub fn captures(&self) -> &[Capture] {
+        self.captures.as_ref().unwrap()
     }
 }
