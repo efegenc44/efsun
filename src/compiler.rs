@@ -6,15 +6,20 @@ use crate::{
         ApplicationExpression, IdentifierExpression
     },
     resolver::{Bound, Capture},
+    interner::Interner,
 };
 
-pub struct Compiler {
+pub struct Compiler<'interner> {
     output: Vec<Instruction>,
+    interner: &'interner Interner
 }
 
-impl Compiler {
-    pub fn new() -> Self {
-        Self { output: Vec::new() }
+impl<'interner> Compiler<'interner> {
+    pub fn new(interner: &'interner Interner) -> Self {
+        Self {
+            output: Vec::new(),
+            interner
+        }
     }
 
     fn write(&mut self, instruction: Instruction) {
@@ -32,6 +37,7 @@ impl Compiler {
 
     fn expression(&mut self, expression: &Expression<Resolved>) {
         match expression {
+            Expression::String(string) => self.write(Instruction::MakeString(self.interner.lookup(*string).to_string())),
             Expression::Identifier(identifier) => self.identifier(identifier),
             Expression::Application(application) => self.application(application),
             Expression::Lambda(lambda) => self.lambda(lambda),
@@ -47,7 +53,6 @@ impl Compiler {
     }
 
     fn application(&mut self, application: &ApplicationExpression<Resolved>) {
-        self.write(Instruction::Enter);
         self.expression(application.argument().data());
         self.expression(application.function().data());
         self.write(Instruction::Call);
@@ -74,12 +79,12 @@ impl Compiler {
 
 #[derive(Clone)]
 pub enum Instruction {
+    MakeString(String),
     MakeLambda(usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
     Jump(usize),
     CapturingEnter(Vec<Capture>),
-    Enter,
     Leave,
     Call,
     Return,
@@ -88,6 +93,7 @@ pub enum Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::MakeString(string) => write!(f, "MAKE_STRING \"{string}\""),
             Self::MakeLambda(address, captures) => {
                 write!(f, "MAKE_LAMBDA {address:#x}")?;
                 for capture in captures {
@@ -115,7 +121,6 @@ impl Display for Instruction {
 
                 Ok(())
             }
-            Self::Enter => write!(f, "ENTER"),
             Self::Leave => write!(f, "LEAVE"),
             Self::Call => write!(f, "CALL"),
             Self::Return => write!(f, "RETURN"),

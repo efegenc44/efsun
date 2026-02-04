@@ -49,6 +49,7 @@ impl Resolver {
         let (expression, start, end) = expression.destruct();
 
         let expression = match expression {
+            Expression::String(string) => Expression::String(string),
             Expression::Identifier(identifier) => Expression::Identifier(self.identifier(identifier, start, end)?),
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
             Expression::Application(application) => Expression::Application(self.application(application)?),

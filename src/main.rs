@@ -28,7 +28,7 @@ fn main() {
 
 fn repl() {
     let mut interner = interner::Interner::new();
-    let mut evaluator = evaluator::Evaluator::new();
+    // let mut evaluator = evaluator::Evaluator::new();
 
     loop {
         let mut input = String::new();
@@ -66,7 +66,7 @@ fn repl() {
             },
         };
 
-        expression.data().print(&interner, 0);
+        // expression.data().print(&interner, 0);
 
         let t = match checker.infer(&expression) {
             Ok(t) => t,
@@ -76,17 +76,16 @@ fn repl() {
             },
         };
 
-        let value = evaluator.expression(expression.data());
-        println!("= {value} : {t}");
+        // let value = evaluator.expression(expression.data());
 
-        let mut compiler = compiler::Compiler::new();
+        let mut compiler = compiler::Compiler::new(&interner);
         let mut vm = vm::VM::new();
 
         let instructions = compiler.compile(expression.data());
         display_instructions(instructions);
 
-        vm.run(instructions);
-
+        let result = vm.run(instructions);
+        println!("= {result} : {t}");
     }
 }
 

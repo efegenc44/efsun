@@ -62,6 +62,35 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
         Located::new(token, start, end)
     }
 
+    fn string(&mut self) -> Result<Located<Token>> {
+        let start = self.location;
+        self.next(); // Starting `"`
+        let mut string = String::new();
+        while let Some(ch) = self.peek() {
+            if ch == '"' {
+                break;
+            } else {
+                string.push(self.next().unwrap());
+            }
+        }
+
+        let Some('"') = self.next() else {
+            let end = {
+                let mut end = start;
+                end.increment();
+                end
+            };
+
+            let error = LexError::UnterminatedStringLiteral;
+            return Err(located_error(error, start, end));
+        };
+
+        let end = self.location;
+
+        let string = Token::String(self.interner.intern(string));
+        Ok(Located::new(string, start, end))
+    }
+
     fn single(&mut self, token: Token) -> Located<Token> {
         let start = self.location;
         self.next();
@@ -89,6 +118,12 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
 
         let token = match self.peek()? {
             ch if ch.is_alphabetic() => self.keyword_or_identifier(),
+            '"' => {
+                match self.string() {
+                    Ok(token) => token,
+                    Err(error) => return Some(Err(error)),
+                }
+            },
             '(' => self.single(Token::LeftParenthesis),
             ')' => self.single(Token::RightParenthesis),
             '\\' => self.single(Token::Backslash),
@@ -109,5 +144,6 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
 
 #[derive(Clone, Copy, Debug)]
 pub enum LexError {
-    UnknownStartOfAToken(char)
+    UnknownStartOfAToken(char),
+    UnterminatedStringLiteral,
 }

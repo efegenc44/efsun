@@ -24,6 +24,7 @@ impl Evaluator {
 
     pub fn expression(&mut self, expression: &Expression<Resolved>) -> Value {
         match expression {
+            Expression::String(_) => todo!(),
             Expression::Identifier(identifier) => self.identifier(identifier),
             Expression::Application(application) => self.application(application),
             Expression::Lambda(lambda) => self.lambda(lambda),

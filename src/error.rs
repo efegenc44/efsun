@@ -22,6 +22,9 @@ impl Error {
                 LexError::UnknownStartOfAToken(unknown) => {
                     format!("Encountered an unknown start of a token `{unknown}`")
                 },
+                LexError::UnterminatedStringLiteral => {
+                    "Unterminated string literal".to_string()
+                }
             }
             Self::Parse(error) => match error {
                 ParseError::LexError(error) => Self::Lex(*error).description(interner),

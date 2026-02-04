@@ -9,7 +9,8 @@ pub enum Type {
 #[derive(Debug, Clone)]
 pub enum MonoType {
     Variable(usize),
-    Arrow(ArrowType)
+    Arrow(ArrowType),
+    String
 }
 
 impl MonoType {
@@ -31,6 +32,7 @@ impl MonoType {
                 arrow.from().gather_variables(variables);
                 arrow.to().gather_variables(variables);
             },
+            Self::String => (),
         }
     }
 
@@ -49,15 +51,17 @@ impl MonoType {
 
                 Self::Arrow(arrow)
             },
+            Self::String => self,
         }
     }
 
     pub fn includes(&self, variable: usize) -> bool {
         match self {
-            MonoType::Variable(id) => *id == variable,
-            MonoType::Arrow(arrow) => {
+            Self::Variable(id) => *id == variable,
+            Self::Arrow(arrow) => {
                 arrow.from().includes(variable) || arrow.to().includes(variable)
             },
+            Self::String => false,
         }
     }
 }
@@ -67,6 +71,7 @@ impl Display for MonoType {
         match self {
             Self::Variable(id) => write!(f, "a{id}"),
             Self::Arrow(arrow) => write!(f, "({} -> {})", arrow.from(), arrow.to()),
+            Self::String => write!(f, "String")
         }
     }
 }

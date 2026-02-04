@@ -31,12 +31,15 @@ impl VM {
         self.current_frame_mut().stack.pop().unwrap()
     }
 
-    pub fn run(&mut self, instructions: &[Instruction]) {
+    pub fn run(&mut self, instructions: &[Instruction]) -> Value {
         while self.ip < instructions.len() {
             let instruction = instructions[self.ip].clone();
             self.ip += 1;
 
             match instruction {
+                Instruction::MakeString(string) => {
+                    self.push(Value::String(string));
+                }
                 Instruction::MakeLambda(address, captures) => {
                     let mut closure = vec![];
 
@@ -86,9 +89,6 @@ impl VM {
 
                     self.stack.push(Frame::with_closure(closure));
                 }
-                Instruction::Enter => {
-                    self.stack.push(Frame::new());
-                },
                 Instruction::Leave => {
                     let return_value = self.pop();
                     self.stack.pop().unwrap();
@@ -96,8 +96,14 @@ impl VM {
                 },
                 Instruction::Call => {
                     let lambda = self.pop().into_lambda();
+                    let argument = self.pop();
+
+                    self.stack.push(Frame::new());
+                    self.push(argument);
+
                     self.current_frame_mut().closure = lambda.captures;
                     self.current_frame_mut().return_ip = self.ip;
+
                     self.ip = lambda.address;
                 },
                 Instruction::Return => {
@@ -109,7 +115,11 @@ impl VM {
             }
         }
 
-        println!("vm result : {:?}", self.current_frame().stack);
+        if self.current_frame().stack.len() != 1 || self.stack.len() != 1 {
+            panic!();
+        }
+
+        self.pop()
     }
 }
 
@@ -134,14 +144,15 @@ impl Frame {
 }
 
 #[derive(Clone)]
-enum Value {
-    Lambda(LambdaValue)
+pub enum Value {
+    Lambda(LambdaValue),
+    String(String)
 }
 
 impl Value {
     fn into_lambda(self) -> LambdaValue {
-        #[allow(irrefutable_let_patterns)]
         let Self::Lambda(lambda) = self else {
+            dbg!(self);
             panic!();
         };
 
@@ -150,7 +161,7 @@ impl Value {
 }
 
 #[derive(Clone)]
-struct LambdaValue {
+pub struct LambdaValue {
     address: usize,
     captures: Rc<Vec<Value>>
 }
@@ -159,6 +170,7 @@ impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Lambda(lambda) => write!(f, "<lambda@{:#x}>", lambda.address),
+            Self::String(string) => write!(f, "\"{string}\"")
         }
     }
 }

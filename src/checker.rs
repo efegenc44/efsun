@@ -72,6 +72,7 @@ impl TypeChecker {
 
     pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> Result<MonoType> {
         match expression.data() {
+            Expression::String(_) => Ok(MonoType::String),
             Expression::Identifier(identifier) => self.identifier(identifier),
             Expression::Application(application) => self.application(application, expression.start(), expression.end()),
             Expression::Lambda(lambda) => self.lambda(lambda),
@@ -117,6 +118,8 @@ impl TypeChecker {
                 self.unify(arrow1.from(), arrow2.from())?;
                 self.unify(arrow1.to(), arrow2.to())
             },
+            (MonoType::String, MonoType::String) => Ok(()),
+            _ => Err((t1.clone(), t2.clone()))
         }
     }
 

@@ -13,6 +13,7 @@ pub struct Unresolved;
 
 #[derive(Clone)]
 pub enum Expression<State> {
+    String(InternId),
     Identifier(IdentifierExpression<State>),
     Application(ApplicationExpression<State>),
     Lambda(LambdaExpression<State>),
@@ -25,6 +26,9 @@ impl<T> Expression<T> {
         let indent = depth*2;
 
         match self {
+            Self::String(string) => {
+                println!("{:indent$}{}", "", interner.lookup(*string));
+            },
             Self::Identifier(identifier) => {
                 println!(
                     "{:indent$}Identifier: {}{}", "",

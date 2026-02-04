@@ -105,6 +105,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let token = self.peek_some()?;
 
         match token.data() {
+            Token::String(string) => {
+                self.next();
+                let literal = Expression::String(*string);
+                Ok(Located::new(literal, token.start(), token.end()))
+            },
             Token::Identifier(_) => self.identifier(),
             Token::LeftParenthesis => self.grouping(),
             unexpected => {
