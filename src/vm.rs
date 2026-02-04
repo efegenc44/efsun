@@ -1,0 +1,170 @@
+use std::{fmt::Display, rc::Rc};
+
+use crate::{compiler::Instruction, resolver::Capture};
+
+pub struct VM {
+    stack: Vec<Frame>,
+    ip: usize,
+}
+
+impl VM {
+    pub fn new() -> Self {
+        Self {
+            stack: vec![Frame::new()],
+            ip: 0,
+        }
+    }
+
+    fn current_frame(&self) -> &Frame {
+        self.stack.last().unwrap()
+    }
+
+    fn current_frame_mut(&mut self) -> &mut Frame {
+        self.stack.last_mut().unwrap()
+    }
+
+    fn push(&mut self, value: Value) {
+        self.current_frame_mut().stack.push(value);
+    }
+
+    fn pop(&mut self) -> Value {
+        self.current_frame_mut().stack.pop().unwrap()
+    }
+
+    pub fn run(&mut self, instructions: &[Instruction]) {
+        while self.ip < instructions.len() {
+            let instruction = instructions[self.ip].clone();
+            self.ip += 1;
+
+            match instruction {
+                Instruction::MakeLambda(address, captures) => {
+                    let mut closure = vec![];
+
+                    for capture in captures {
+                        let value = match capture {
+                            Capture::Local(id) => {
+                                self.current_frame().stack[id.value()].clone()
+                            },
+                            Capture::Outer(id) => {
+                                self.current_frame().closure[id.value()].clone()
+                            },
+                        };
+
+                        closure.push(value);
+                    }
+
+                    self.push(Value::Lambda(LambdaValue {
+                        address, captures: Rc::new(closure)
+                    }));
+                },
+                Instruction::GetCapture(id) => {
+                    let value = self.current_frame().closure[id].clone();
+                    self.push(value);
+                },
+                Instruction::GetLocal(id) => {
+                    let value = self.current_frame().stack[id].clone();
+                    self.push(value);
+                },
+                Instruction::Jump(address) => {
+                    self.ip = address;
+                },
+                Instruction::CapturingEnter(captures) => {
+                    let mut closure = vec![];
+
+                    for capture in captures {
+                        let value = match capture {
+                            Capture::Local(id) => {
+                                self.current_frame().stack[id.value()].clone()
+                            },
+                            Capture::Outer(id) => {
+                                self.current_frame().closure[id.value()].clone()
+                            },
+                        };
+
+                        closure.push(value);
+                    }
+
+                    self.stack.push(Frame::with_closure(closure));
+                }
+                Instruction::Enter => {
+                    self.stack.push(Frame::new());
+                },
+                Instruction::Leave => {
+                    let return_value = self.pop();
+                    self.stack.pop().unwrap();
+                    self.push(return_value);
+                },
+                Instruction::Call => {
+                    let lambda = self.pop().into_lambda();
+                    self.current_frame_mut().closure = lambda.captures;
+                    self.current_frame_mut().return_ip = self.ip;
+                    self.ip = lambda.address;
+                },
+                Instruction::Return => {
+                    let return_value = self.pop();
+                    let ip = self.stack.pop().unwrap().return_ip;
+                    self.push(return_value);
+                    self.ip = ip;
+                },
+            }
+        }
+
+        println!("vm result : {:?}", self.current_frame().stack);
+    }
+}
+
+struct Frame {
+    stack: Vec<Value>,
+    closure: Rc<Vec<Value>>,
+    return_ip: usize,
+}
+
+impl Frame {
+    fn new() -> Self {
+        Self::with_closure(vec![])
+    }
+
+    fn with_closure(closure: Vec<Value>) -> Self {
+        Self {
+            stack: Vec::new(),
+            closure: Rc::new(closure),
+            return_ip: 0
+        }
+    }
+}
+
+#[derive(Clone)]
+enum Value {
+    Lambda(LambdaValue)
+}
+
+impl Value {
+    fn into_lambda(self) -> LambdaValue {
+        #[allow(irrefutable_let_patterns)]
+        let Self::Lambda(lambda) = self else {
+            panic!();
+        };
+
+        lambda
+    }
+}
+
+#[derive(Clone)]
+struct LambdaValue {
+    address: usize,
+    captures: Rc<Vec<Value>>
+}
+
+impl Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Lambda(lambda) => write!(f, "<lambda@{:#x}>", lambda.address),
+        }
+    }
+}
+
+impl std::fmt::Debug for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self}")
+    }
+}

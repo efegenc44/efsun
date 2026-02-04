@@ -175,7 +175,7 @@ impl Frame {
     fn resolve(&self, identifier: InternId) -> Option<BoundId> {
         for (index, intern_id) in self.locals.iter().rev().enumerate() {
             if identifier == *intern_id {
-                return Some(BoundId(index));
+                return Some(BoundId(self.locals.len() - 1 - index));
             }
         }
 

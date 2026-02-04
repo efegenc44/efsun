@@ -10,8 +10,12 @@ mod typ;
 mod error;
 mod evaluator;
 mod value;
+mod compiler;
+mod vm;
 
 use std::{env, fs, io::{Write, stdin, stdout}};
+
+use crate::compiler::display_instructions;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -74,6 +78,15 @@ fn repl() {
 
         let value = evaluator.expression(expression.data());
         println!("= {value} : {t}");
+
+        let mut compiler = compiler::Compiler::new();
+        let mut vm = vm::VM::new();
+
+        let instructions = compiler.compile(expression.data());
+        display_instructions(instructions);
+
+        vm.run(instructions);
+
     }
 }
 
