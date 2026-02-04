@@ -8,8 +8,6 @@ mod resolver;
 mod checker;
 mod typ;
 mod error;
-mod evaluator;
-mod value;
 mod compiler;
 mod vm;
 
@@ -28,7 +26,6 @@ fn main() {
 
 fn repl() {
     let mut interner = interner::Interner::new();
-    // let mut evaluator = evaluator::Evaluator::new();
 
     loop {
         let mut input = String::new();
@@ -76,8 +73,6 @@ fn repl() {
             },
         };
 
-        // let value = evaluator.expression(expression.data());
-
         let mut compiler = compiler::Compiler::new(&interner);
         let mut vm = vm::VM::new();
 
@@ -96,7 +91,6 @@ fn from_file(file_path: &str) {
     let mut parser = parser::Parser::new(lexer);
     let mut resolver = resolver::Resolver::new();
     let mut checker = checker::TypeChecker::new();
-    let mut evaluator = evaluator::Evaluator::new();
 
     let expression = match parser.expression() {
         Ok(expression) => expression,
@@ -124,7 +118,12 @@ fn from_file(file_path: &str) {
         },
     };
 
-    let value = evaluator.expression(expression.data());
+    let mut compiler = compiler::Compiler::new(&interner);
+    let mut vm = vm::VM::new();
 
-    println!("= {value} : {t}");
+    let instructions = compiler.compile(expression.data());
+    display_instructions(instructions);
+
+    let result = vm.run(instructions);
+    println!("= {result} : {t}");
 }
