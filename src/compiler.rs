@@ -2,47 +2,65 @@ use std::fmt::Display;
 
 use crate::{
     expression::{
-        Expression, LambdaExpression, LetExpression, Resolved,
-        ApplicationExpression, IdentifierExpression
+        ApplicationExpression, Expression, IdentifierExpression, LambdaExpression, LetExpression, Resolved
     },
+    interner::{Interner, InternId},
     resolver::{Bound, Capture},
-    interner::Interner,
 };
 
 pub struct Compiler<'interner> {
-    output: Vec<Instruction>,
+    code: Vec<Instruction>,
+    interns: Vec<InternId>,
+    strings: Vec<String>,
     interner: &'interner Interner
 }
 
 impl<'interner> Compiler<'interner> {
     pub fn new(interner: &'interner Interner) -> Self {
         Self {
-            output: Vec::new(),
+            code: Vec::new(),
+            interns: Vec::new(),
+            strings: Vec::new(),
             interner
         }
     }
 
     fn write(&mut self, instruction: Instruction) {
-        self.output.push(instruction);
+        self.code.push(instruction);
     }
 
     fn ip(&self) -> usize {
-        self.output.len()
+        self.code.len()
     }
 
-    pub fn compile(&mut self, expression: &Expression<Resolved>) -> &[Instruction] {
+    pub fn compile(mut self, expression: &Expression<Resolved>) -> (Vec<Instruction>, Vec<String>) {
         self.expression(expression);
-        &self.output
+        (self.code, self.strings)
     }
 
     fn expression(&mut self, expression: &Expression<Resolved>) {
         match expression {
-            Expression::String(string) => self.write(Instruction::MakeString(self.interner.lookup(*string).to_string())),
+            Expression::String(id) => self.string(*id),
             Expression::Identifier(identifier) => self.identifier(identifier),
             Expression::Application(application) => self.application(application),
             Expression::Lambda(lambda) => self.lambda(lambda),
             Expression::Let(letin) => self.letin(letin),
         }
+    }
+
+    fn string(&mut self, intern_id: InternId) {
+        let offset = match self.interns.iter().position(|id| *id == intern_id) {
+            Some(offset) => offset,
+            None => {
+                let string = self.interner.lookup(intern_id).to_string();
+                let offset = self.strings.len();
+                self.strings.push(string);
+                self.interns.push(intern_id);
+                offset
+            },
+        };
+
+        self.write(Instruction::String(offset));
     }
 
     fn identifier(&mut self, identifier: &IdentifierExpression<Resolved>) {
@@ -66,7 +84,7 @@ impl<'interner> Compiler<'interner> {
         let end = self.ip();
         self.write(Instruction::MakeLambda(start, lambda.captures().to_vec()));
 
-        self.output[start - 1] = Instruction::Jump(end);
+        self.code[start - 1] = Instruction::Jump(end);
     }
 
     fn letin(&mut self, letin: &LetExpression<Resolved>) {
@@ -79,7 +97,7 @@ impl<'interner> Compiler<'interner> {
 
 #[derive(Clone)]
 pub enum Instruction {
-    MakeString(String),
+    String(usize),
     MakeLambda(usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
@@ -93,11 +111,11 @@ pub enum Instruction {
 impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MakeString(string) => write!(f, "MAKE_STRING \"{string}\""),
+            Self::String(offset) => write!(f, "STRING {offset}"),
             Self::MakeLambda(address, captures) => {
                 write!(f, "MAKE_LAMBDA {address:#x}")?;
                 for capture in captures {
-                    write!(f, "\n        CAPTURE_")?;
+                    write!(f, "\n            CAPTURE_")?;
                     match capture {
                         Capture::Local(id) => write!(f, "LOCAL {}", id.value())?,
                         Capture::Outer(id) => write!(f, "OUTER {}", id.value())?,
@@ -112,7 +130,7 @@ impl Display for Instruction {
             Self::CapturingEnter(captures) => {
                 write!(f, "ENTER")?;
                 for capture in captures {
-                    write!(f, "\n        CAPTURE_")?;
+                    write!(f, "\n            CAPTURE_")?;
                     match capture {
                         Capture::Local(id) => write!(f, "LOCAL {}", id.value())?,
                         Capture::Outer(id) => write!(f, "OUTER {}", id.value())?,
@@ -129,8 +147,14 @@ impl Display for Instruction {
 }
 
 #[allow(unused)]
-pub fn display_instructions(instructions: &[Instruction]) {
+pub fn display_instructions(instructions: &[Instruction], strings: &[String]) {
+    println!("  ====== CODE ======");
     for (index, instruction) in instructions.iter().enumerate() {
-        println!("{index:#>05x} | {instruction}");
+        println!("    {index:#>05x} | {instruction}");
+    }
+
+    println!("  ====== STRINGS ======");
+    for (index, string) in strings.iter().enumerate() {
+        println!("    {index:#>05x} | {string}");
     }
 }

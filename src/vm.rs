@@ -1,4 +1,4 @@
-use std::{fmt::Display, rc::Rc};
+use std::rc::Rc;
 
 use crate::{compiler::Instruction, resolver::Capture};
 
@@ -37,8 +37,8 @@ impl VM {
             ip += 1;
 
             match instruction {
-                Instruction::MakeString(string) => {
-                    self.push(Value::String(string));
+                Instruction::String(offset) => {
+                    self.push(Value::String(offset));
                 }
                 Instruction::MakeLambda(address, captures) => {
                     let mut closure = vec![];
@@ -149,37 +149,27 @@ impl Frame {
 #[derive(Clone)]
 pub enum Value {
     Lambda(LambdaValue),
-    String(String)
+    String(usize)
 }
 
 impl Value {
+    pub fn display(&self, strings: &[String]) -> String {
+        match self {
+            Value::Lambda(lambda) => format!("<lambda@{}>", lambda.address),
+            Value::String(offset) => strings[*offset].to_string(),
+        }
+    }
+
     fn into_lambda(self) -> LambdaValue {
         let Self::Lambda(lambda) = self else {
-            dbg!(self);
             panic!();
         };
 
         lambda
     }
 }
-
 #[derive(Clone)]
 pub struct LambdaValue {
     address: usize,
     captures: Rc<Vec<Value>>
-}
-
-impl Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Lambda(lambda) => write!(f, "<lambda@{:#x}>", lambda.address),
-            Self::String(string) => write!(f, "\"{string}\"")
-        }
-    }
-}
-
-impl std::fmt::Debug for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
-    }
 }

@@ -2,7 +2,7 @@ use std::{fs, io::{self, Write}};
 
 use crate::{
     checker::TypeChecker,
-    compiler::Compiler,
+    compiler::{Compiler, display_instructions},
     interner::Interner,
     lexer::Lexer,
     parser::Parser,
@@ -12,7 +12,7 @@ use crate::{
     error::Result
 };
 
-fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType)> {
+fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {
     let lexer = Lexer::new(source, interner);
     let mut parser = Parser::new(lexer);
     let mut resolver = Resolver::new();
@@ -22,11 +22,14 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     let expression = resolver.expression(expression)?;
     let t = checker.infer(&expression)?;
 
-    let mut compiler = Compiler::new(interner);
-    let instructions = compiler.compile(expression.data());
-    let result = vm.run(instructions);
+    let compiler = Compiler::new(interner);
+    let (instructions, strings) = compiler.compile(expression.data());
 
-    Ok((result, t))
+    display_instructions(&instructions, &strings);
+
+    let result = vm.run(&instructions);
+
+    Ok((result, t, strings))
 }
 
 pub fn repl() {
@@ -50,7 +53,7 @@ pub fn repl() {
         }
 
         match expression(input, &mut vm, &mut interner) {
-            Ok((result, t)) => println!("= {result} : {t}"),
+            Ok((result, t, strings)) => println!("= {} : {t}", result.display(&strings)),
             Err(error) => error.report("<interactive>", input, &interner),
         }
     }
@@ -62,7 +65,7 @@ pub fn from_file(file_path: &str) {
     let mut vm = VM::new();
 
     match expression(&source, &mut vm, &mut interner) {
-        Ok((result, t)) => println!("= {result} : {t}"),
+        Ok((result, t, strings)) => println!("= {} : {t}", result.display(&strings)),
         Err(error) => error.report(file_path, &source, &interner),
     }
 }
