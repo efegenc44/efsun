@@ -10,7 +10,7 @@ use crate::{
     typ::MonoType,
     vm::{VM, Value},
     error::Result,
-    anf::{anf, print_anf},
+    anf::ANFConverter,
 };
 
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {
@@ -21,7 +21,12 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
 
     let expression = parser.expression()?;
 
-    print_anf(&anf(expression.destruct().0), 0, interner);
+    let mut converter = ANFConverter::new();
+    let anf = converter.convert(expression.destruct().0);
+    let anf = resolver.anf_expression(anf);
+
+    anf.print(0, interner);
+
     exit(0);
 
     let expression = resolver.expression(expression)?;
