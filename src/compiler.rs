@@ -82,7 +82,6 @@ impl<'interner> Compiler<'interner> {
         self.atom(application.function());
         self.write(Instruction::Call);
         self.expression(application.expression());
-        self.write(Instruction::SwapPop);
     }
 
     fn lambda(&mut self, lambda: &anf::LambdaExpression<Resolved>) {
@@ -99,7 +98,6 @@ impl<'interner> Compiler<'interner> {
     fn letin(&mut self, letin: &anf::LetExpression<Resolved>) {
         self.atom(letin.variable_expression());
         self.expression(letin.return_expression());
-        self.write(Instruction::SwapPop);
     }
 }
 
@@ -110,7 +108,6 @@ pub enum Instruction {
     GetCapture(usize),
     GetLocal(usize),
     Jump(usize),
-    SwapPop,
     Call,
     Return,
 }
@@ -134,7 +131,6 @@ impl Display for Instruction {
             Self::GetCapture(id) => write!(f, "GET_CAPTURE {id}"),
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
             Self::Jump(address) => write!(f, "JUMP {address:#x}"),
-            Self::SwapPop => write!(f, "SWAP_POP"),
             Self::Call => write!(f, "CALL"),
             Self::Return => write!(f, "RETURN"),
         }

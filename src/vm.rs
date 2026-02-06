@@ -89,15 +89,10 @@ impl VM {
                     self.push(return_value);
                     ip = return_ip;
                 },
-                Instruction::SwapPop => {
-                    let a = self.pop();
-                    let b = self.pop();
-                    self.push(a);
-                }
             }
         }
 
-        if self.current_frame().stack.len() != 1 || self.stack.len() != 1 {
+        if self.stack.len() != 1 {
             println!("{:?}", self.current_frame().stack);
             panic!();
         }
