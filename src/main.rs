@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 mod interner;
 mod lexer;
 mod token;
@@ -12,6 +14,7 @@ mod compiler;
 mod vm;
 mod cli;
 mod run;
+mod anf;
 
 fn main() {
     cli::execute();
