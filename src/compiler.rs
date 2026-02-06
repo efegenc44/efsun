@@ -4,8 +4,9 @@ use crate::{
     expression::{
         ApplicationExpression, Expression, IdentifierExpression, LambdaExpression, LetExpression, Resolved
     },
-    interner::{Interner, InternId},
+    interner::{InternId, Interner},
     resolver::{Bound, Capture},
+    anf::{self, ANF, Atom},
 };
 
 pub struct Compiler<'interner> {
@@ -33,18 +34,24 @@ impl<'interner> Compiler<'interner> {
         self.code.len()
     }
 
-    pub fn compile(mut self, expression: &Expression<Resolved>) -> (Vec<Instruction>, Vec<String>) {
+    pub fn compile(mut self, expression: &ANF<Resolved>) -> (Vec<Instruction>, Vec<String>) {
         self.expression(expression);
         (self.code, self.strings)
     }
 
-    fn expression(&mut self, expression: &Expression<Resolved>) {
+    fn expression(&mut self, expression: &ANF<Resolved>) {
         match expression {
-            Expression::String(id) => self.string(*id),
-            Expression::Identifier(identifier) => self.identifier(identifier),
-            Expression::Application(application) => self.application(application),
-            Expression::Lambda(lambda) => self.lambda(lambda),
-            Expression::Let(letin) => self.letin(letin),
+            ANF::Let(letin) => self.letin(letin),
+            ANF::Application(application) => self.application(application),
+            ANF::Atom(atom) => self.atom(atom),
+        }
+    }
+
+    fn atom(&mut self, atom: &Atom<Resolved>) {
+        match atom {
+            Atom::String(id) => self.string(*id),
+            Atom::Identifier(identifier) => self.identifier(identifier),
+            Atom::Lambda(lambda) => self.lambda(lambda),
         }
     }
 
@@ -63,23 +70,25 @@ impl<'interner> Compiler<'interner> {
         self.write(Instruction::String(offset));
     }
 
-    fn identifier(&mut self, identifier: &IdentifierExpression<Resolved>) {
+    fn identifier(&mut self, identifier: &anf::IdentifierExpression<Resolved>) {
         match identifier.bound() {
             Bound::Local(id) => self.write(Instruction::GetLocal(id.value())),
             Bound::Capture(id) => self.write(Instruction::GetCapture(id.value())),
         }
     }
 
-    fn application(&mut self, application: &ApplicationExpression<Resolved>) {
-        self.expression(application.argument().data());
-        self.expression(application.function().data());
+    fn application(&mut self, application: &anf::ApplicationExpression<Resolved>) {
+        self.atom(application.argument());
+        self.atom(application.function());
         self.write(Instruction::Call);
+        self.expression(application.expression());
+        self.write(Instruction::SwapPop);
     }
 
-    fn lambda(&mut self, lambda: &LambdaExpression<Resolved>) {
+    fn lambda(&mut self, lambda: &anf::LambdaExpression<Resolved>) {
         self.write(Instruction::Jump(0));
         let start = self.ip();
-        self.expression(lambda.expression().data());
+        self.expression(lambda.expression());
         self.write(Instruction::Return);
         let end = self.ip();
         self.write(Instruction::MakeLambda(start, lambda.captures().to_vec()));
@@ -87,11 +96,10 @@ impl<'interner> Compiler<'interner> {
         self.code[start - 1] = Instruction::Jump(end);
     }
 
-    fn letin(&mut self, letin: &LetExpression<Resolved>) {
-        self.expression(letin.variable_expression().data());
-        self.write(Instruction::CapturingEnter(letin.captures().to_vec()));
-        self.expression(letin.return_expression().data());
-        self.write(Instruction::Leave);
+    fn letin(&mut self, letin: &anf::LetExpression<Resolved>) {
+        self.atom(letin.variable_expression());
+        self.expression(letin.return_expression());
+        self.write(Instruction::SwapPop);
     }
 }
 
@@ -102,8 +110,7 @@ pub enum Instruction {
     GetCapture(usize),
     GetLocal(usize),
     Jump(usize),
-    CapturingEnter(Vec<Capture>),
-    Leave,
+    SwapPop,
     Call,
     Return,
 }
@@ -127,19 +134,7 @@ impl Display for Instruction {
             Self::GetCapture(id) => write!(f, "GET_CAPTURE {id}"),
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
             Self::Jump(address) => write!(f, "JUMP {address:#x}"),
-            Self::CapturingEnter(captures) => {
-                write!(f, "ENTER")?;
-                for capture in captures {
-                    write!(f, "\n            CAPTURE_")?;
-                    match capture {
-                        Capture::Local(id) => write!(f, "LOCAL {}", id.value())?,
-                        Capture::Outer(id) => write!(f, "OUTER {}", id.value())?,
-                    }
-                }
-
-                Ok(())
-            }
-            Self::Leave => write!(f, "LEAVE"),
+            Self::SwapPop => write!(f, "SWAP_POP"),
             Self::Call => write!(f, "CALL"),
             Self::Return => write!(f, "RETURN"),
         }

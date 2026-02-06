@@ -57,6 +57,16 @@ impl<T> LetExpression<T> {
     }
 }
 
+impl LetExpression<Resolved> {
+    pub fn variable_expression(&self) -> &Atom<Resolved> {
+        &self.variable_expression
+    }
+
+    pub fn return_expression(&self) -> &ANF<Resolved> {
+        &self.return_expression
+    }
+}
+
 #[derive(Clone)]
 pub struct ApplicationExpression<T> {
     variable: Identifier,
@@ -74,6 +84,20 @@ impl<T> ApplicationExpression<T> {
 impl ApplicationExpression<Unresolved> {
     pub fn destruct(self) -> (Identifier, Atom<Unresolved>, Atom<Unresolved>, ANF<Unresolved>) {
         (self.variable, self.function, self.argument, *self.expression)
+    }
+}
+
+impl ApplicationExpression<Resolved> {
+    pub fn function(&self) -> &Atom<Resolved> {
+        &self.function
+    }
+
+    pub fn argument(&self) -> &Atom<Resolved> {
+        &self.argument
+    }
+
+    pub fn expression(&self) -> &ANF<Resolved> {
+        &self.expression
     }
 }
 
@@ -176,6 +200,14 @@ impl LambdaExpression<Unresolved> {
 impl LambdaExpression<Resolved> {
     pub fn new(variable: InternId, expression: ANF<Resolved>, captures: Vec<Capture>) -> Self {
         Self { variable, expression: Box::new(expression), captures: Some(captures) }
+    }
+
+    pub fn expression(&self) -> &ANF<Resolved> {
+        &self.expression
+    }
+
+    pub fn captures(&self) -> &[Capture] {
+        self.captures.as_ref().unwrap()
     }
 }
 

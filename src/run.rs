@@ -21,19 +21,20 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
 
     let expression = parser.expression()?;
 
+    let resolved = resolver.expression(expression.clone())?;
+    let t = checker.infer(&resolved)?;
+
     let mut converter = ANFConverter::new();
     let anf = converter.convert(expression.destruct().0);
     let anf = resolver.anf_expression(anf);
 
-    anf.print(0, interner);
-
-    exit(0);
-
-    let expression = resolver.expression(expression)?;
-    let t = checker.infer(&expression)?;
+    // anf.print(0, interner);
 
     let compiler = Compiler::new(interner);
-    let (instructions, strings) = compiler.compile(expression.data());
+    let (instructions, strings) = compiler.compile(&anf);
+
+    display_instructions(&instructions, &strings);
+
     let result = vm.run(&instructions);
 
     Ok((result, t, strings))

@@ -71,32 +71,6 @@ impl VM {
                 Instruction::Jump(address) => {
                     ip = address;
                 },
-                Instruction::CapturingEnter(captures) => {
-                    let argument = self.pop();
-
-                    let mut closure = vec![];
-
-                    for capture in captures {
-                        let value = match capture {
-                            Capture::Local(id) => {
-                                self.current_frame().stack[id.value()].clone()
-                            },
-                            Capture::Outer(id) => {
-                                self.current_frame().closure[id.value()].clone()
-                            },
-                        };
-
-                        closure.push(value);
-                    }
-
-                    self.stack.push(Frame::with_closure(closure));
-                    self.push(argument);
-                }
-                Instruction::Leave => {
-                    let return_value = self.pop();
-                    self.stack.pop().unwrap();
-                    self.push(return_value);
-                },
                 Instruction::Call => {
                     let lambda = self.pop().into_lambda();
                     let argument = self.pop();
@@ -115,10 +89,16 @@ impl VM {
                     self.push(return_value);
                     ip = return_ip;
                 },
+                Instruction::SwapPop => {
+                    let a = self.pop();
+                    let b = self.pop();
+                    self.push(a);
+                }
             }
         }
 
         if self.current_frame().stack.len() != 1 || self.stack.len() != 1 {
+            println!("{:?}", self.current_frame().stack);
             panic!();
         }
 
@@ -146,7 +126,7 @@ impl Frame {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Value {
     Lambda(LambdaValue),
     String(usize)
@@ -168,7 +148,7 @@ impl Value {
         lambda
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct LambdaValue {
     address: usize,
     captures: Rc<Vec<Value>>
