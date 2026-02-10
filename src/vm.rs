@@ -30,6 +30,8 @@ impl VM {
     }
 
     pub fn run(&mut self, instructions: &[Instruction]) -> Value {
+        self.stack = vec![Frame::new()];
+
         let mut ip = 0;
 
         while ip < instructions.len() {
