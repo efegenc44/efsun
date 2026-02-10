@@ -6,7 +6,7 @@ use crate::{
     interner::Interner,
     lexer::Lexer,
     parser::Parser,
-    resolver::Resolver,
+    resolver::{ExpressionResolver, ANFResolver},
     typ::MonoType,
     vm::{VM, Value},
     error::Result,
@@ -16,17 +16,18 @@ use crate::{
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {
     let lexer = Lexer::new(source, interner);
     let mut parser = Parser::new(lexer);
-    let mut resolver = Resolver::new();
+    let mut expression_resolver = ExpressionResolver::new();
+    let mut anf_resolver = ANFResolver::new();
     let mut checker = TypeChecker::new();
 
     let expression = parser.expression()?;
 
-    let resolved = resolver.expression(expression.clone())?;
+    let resolved = expression_resolver.expression(expression.clone())?;
     let t = checker.infer(&resolved)?;
 
     let mut converter = ANFConverter::new();
     let anf = converter.convert(expression.destruct().0);
-    let anf = resolver.anf_expression(anf);
+    let anf = anf_resolver.expression(anf);
 
     // anf.print(0, interner);
 

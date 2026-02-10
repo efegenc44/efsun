@@ -11,39 +11,18 @@ use crate::{
     anf::{self, Atom, ANF, Identifier},
 };
 
-pub struct Resolver {
-    stack: Vec<Frame>,
+pub struct ExpressionResolver {
+    stack: Stack<InternId>,
 }
 
-impl Resolver {
+impl ExpressionResolver {
     pub fn new() -> Self {
-        Resolver {
-            stack: vec![Frame::new()]
+        let mut stack = Stack::new();
+        stack.push_frame();
+
+        ExpressionResolver {
+            stack
         }
-    }
-
-    fn current_frame(&self) -> &Frame {
-        self.stack.last().unwrap()
-    }
-
-    fn current_frame_mut(&mut self) -> &mut Frame {
-        self.stack.last_mut().unwrap()
-    }
-
-    fn push_frame(&mut self) {
-        self.stack.push(Frame::new())
-    }
-
-    fn pop_frame(&mut self) -> Vec<Capture> {
-        self.stack.pop().unwrap().captures
-    }
-
-    fn push_local(&mut self, local: Identifier) {
-        self.stack.last_mut().unwrap().locals.push(local);
-    }
-
-    fn pop_local(&mut self) {
-        self.stack.last_mut().unwrap().locals.pop();
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
@@ -68,16 +47,16 @@ impl Resolver {
     ) -> Result<IdentifierExpression<Resolved>> {
         let intern_id = *identifier.identifier().data();
 
-        let bound = match self.current_frame().resolve(Identifier::Normal(intern_id)) {
+        let bound = match self.stack.current_frame().resolve(intern_id) {
             Some(id) => Ok(Bound::Local(id)),
             None => {
-                match self.capture(Identifier::Normal(intern_id)) {
+                match self.stack.capture(intern_id) {
                     Some(capture) => {
-                        let id = match self.current_frame().captures.iter().position(|c| *c == capture) {
+                        let id = match self.stack.current_frame().captures.iter().position(|c| *c == capture) {
                             Some(id) => id,
                             None => {
-                                self.current_frame_mut().captures.push(capture);
-                                self.current_frame().captures.len() - 1
+                                self.stack.current_frame_mut().captures.push(capture);
+                                self.stack.current_frame().captures.len() - 1
                             }
                         };
 
@@ -95,45 +74,14 @@ impl Resolver {
 
     }
 
-    fn capture(&mut self, identifier: Identifier) -> Option<Capture> {
-        self.capture_in_frame(identifier, 1)
-    }
-
-    fn capture_in_frame(&mut self, identifier: Identifier, frame_depth: usize) -> Option<Capture> {
-        if frame_depth == self.stack.len() {
-            return None;
-        }
-
-        let index = self.stack.len() - 1 - frame_depth;
-
-        let capture = match self.stack[index].resolve(identifier) {
-            Some(id) => Capture::Local(id),
-            None => {
-                let capture = self.capture_in_frame(identifier, frame_depth + 1)?;
-
-                let id = match self.stack[index].captures.iter().position(|c| *c == capture) {
-                    Some(id) => id,
-                    None => {
-                        self.stack[index].captures.push(capture);
-                        self.stack[index].captures.len() - 1
-                    },
-                };
-
-                Capture::Outer(BoundId(id))
-            },
-        };
-
-        Some(capture)
-    }
-
     fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> Result<LambdaExpression<Resolved>> {
         let (variable, expression) = lambda.destruct();
 
-        self.push_frame();
-        self.push_local(Identifier::Normal(*variable.data()));
+        self.stack.push_frame();
+        self.stack.push_local(*variable.data());
         let expression = self.expression(expression)?;
-        self.pop_local();
-        let captures = self.pop_frame();
+        self.stack.pop_local();
+        let captures = self.stack.pop_frame();
 
         Ok(LambdaExpression::<Resolved>::new(variable, expression, captures))
     }
@@ -151,43 +99,58 @@ impl Resolver {
         let (variable, variable_expression, return_expression) = letin.destruct();
 
         let variable_expression = self.expression(variable_expression)?;
-        self.push_frame();
-        self.push_local(Identifier::Normal(*variable.data()));
+        self.stack.push_frame();
+        self.stack.push_local(*variable.data());
         let return_expression = self.expression(return_expression)?;
-        self.pop_local();
-        let captures = self.pop_frame();
+        self.stack.pop_local();
+        let captures = self.stack.pop_frame();
 
         Ok(LetExpression::<Resolved>::new(variable, variable_expression, return_expression, captures))
     }
+}
 
-    pub fn anf_expression(&mut self, anf: ANF<Unresolved>) -> ANF<Resolved> {
-        match anf {
-            ANF::Let(letin) => ANF::Let(self.anf_let(letin)),
-            ANF::Application(application) => ANF::Application(self.anf_application(application)),
-            ANF::Atom(atom) => ANF::Atom(self.anf_atom(atom)),
+pub struct ANFResolver {
+    stack: Stack<anf::Identifier>,
+}
+
+impl ANFResolver {
+    pub fn new() -> Self {
+        let mut stack = Stack::new();
+        stack.push_frame();
+
+        ANFResolver {
+            stack
         }
     }
 
-    fn anf_atom(&mut self, atom: Atom<Unresolved>) -> Atom<Resolved> {
+    pub fn expression(&mut self, anf: ANF<Unresolved>) -> ANF<Resolved> {
+        match anf {
+            ANF::Let(letin) => ANF::Let(self.letin(letin)),
+            ANF::Application(application) => ANF::Application(self.application(application)),
+            ANF::Atom(atom) => ANF::Atom(self.atom(atom)),
+        }
+    }
+
+    fn atom(&mut self, atom: Atom<Unresolved>) -> Atom<Resolved> {
         match atom {
             Atom::String(id) => Atom::String(id),
-            Atom::Identifier(identifier) => Atom::Identifier(self.anf_identifier(identifier)),
-            Atom::Lambda(lambda) => Atom::Lambda(self.anf_lambda(lambda)),
+            Atom::Identifier(identifier) => Atom::Identifier(self.identifier(identifier)),
+            Atom::Lambda(lambda) => Atom::Lambda(self.lambda(lambda)),
         }
     }
 
-    fn anf_identifier(&mut self, identifier: anf::IdentifierExpression<Unresolved>) -> anf::IdentifierExpression<Resolved> {
+    fn identifier(&mut self, identifier: anf::IdentifierExpression<Unresolved>) -> anf::IdentifierExpression<Resolved> {
         let id = identifier.identifier();
 
-        let bound = match self.current_frame().resolve(id) {
+        let bound = match self.stack.current_frame().resolve(id) {
             Some(id) => Bound::Local(id),
             None => {
-                let capture = self.capture(id).unwrap();
-                let id = match self.current_frame().captures.iter().position(|c| *c == capture) {
+                let capture = self.stack.capture(id).unwrap();
+                let id = match self.stack.current_frame().captures.iter().position(|c| *c == capture) {
                     Some(id) => id,
                     None => {
-                        self.current_frame_mut().captures.push(capture);
-                        self.current_frame().captures.len() - 1
+                        self.stack.current_frame_mut().captures.push(capture);
+                        self.stack.current_frame().captures.len() - 1
                     }
                 };
 
@@ -198,48 +161,112 @@ impl Resolver {
         identifier.resolve(bound)
     }
 
-    fn anf_lambda(&mut self, lambda: anf::LambdaExpression<Unresolved>) -> anf::LambdaExpression<Resolved> {
+    fn lambda(&mut self, lambda: anf::LambdaExpression<Unresolved>) -> anf::LambdaExpression<Resolved> {
         let (variable, expression) = lambda.destruct();
 
-        self.push_frame();
-        self.push_local(Identifier::Normal(variable));
-        let expression = self.anf_expression(expression);
-        self.pop_local();
-        let captures = self.pop_frame();
+        self.stack.push_frame();
+        self.stack.push_local(Identifier::Normal(variable));
+        let expression = self.expression(expression);
+        self.stack.pop_local();
+        let captures = self.stack.pop_frame();
 
         anf::LambdaExpression::new(variable, expression, captures)
     }
 
-    fn anf_let(&mut self, letin: anf::LetExpression<Unresolved>) -> anf::LetExpression<Resolved> {
+    fn letin(&mut self, letin: anf::LetExpression<Unresolved>) -> anf::LetExpression<Resolved> {
         let (variable, variable_expression, return_expression) = letin.destruct();
 
-        let variable_expression = self.anf_atom(variable_expression);
-        self.push_local(Identifier::Normal(variable));
-        let return_expression = self.anf_expression(return_expression);
-        self.pop_local();
+        let variable_expression = self.atom(variable_expression);
+        self.stack.push_local(Identifier::Normal(variable));
+        let return_expression = self.expression(return_expression);
+        self.stack.pop_local();
 
         anf::LetExpression::new(variable, variable_expression, return_expression)
     }
 
-    fn anf_application(&mut self, application: anf::ApplicationExpression<Unresolved>) -> anf::ApplicationExpression<Resolved> {
+    fn application(&mut self, application: anf::ApplicationExpression<Unresolved>) -> anf::ApplicationExpression<Resolved> {
         let (variable, function, argument, expression) = application.destruct();
 
-        let function = self.anf_atom(function);
-        let argument = self.anf_atom(argument);
-        self.push_local(variable);
-        let expression = self.anf_expression(expression);
-        self.pop_local();
+        let function = self.atom(function);
+        let argument = self.atom(argument);
+        self.stack.push_local(variable);
+        let expression = self.expression(expression);
+        self.stack.pop_local();
 
         anf::ApplicationExpression::new(variable, function, argument, expression)
     }
 }
 
-pub struct Frame {
-    locals: Vec<Identifier>,
+pub struct Stack<T>(Vec<Frame<T>>);
+
+impl<T: Eq + Copy + Clone> Stack<T> {
+    fn new() -> Self {
+        Self(vec![])
+    }
+
+    fn current_frame(&self) -> &Frame<T> {
+        self.0.last().unwrap()
+    }
+
+    fn current_frame_mut(&mut self) -> &mut Frame<T> {
+        self.0.last_mut().unwrap()
+    }
+
+    fn push_frame(&mut self) {
+        self.0.push(Frame::new())
+    }
+
+    fn pop_frame(&mut self) -> Vec<Capture> {
+        self.0.pop().unwrap().captures
+    }
+
+    fn push_local(&mut self, local: T) {
+        self.0.last_mut().unwrap().locals.push(local);
+    }
+
+    fn pop_local(&mut self) {
+        self.0.last_mut().unwrap().locals.pop();
+    }
+
+    fn capture(&mut self, identifier: T) -> Option<Capture> {
+        self.capture_in_frame(identifier, 1)
+    }
+
+    fn capture_in_frame(&mut self, identifier: T, frame_depth: usize) -> Option<Capture> {
+        if frame_depth == self.0.len() {
+            return None;
+        }
+
+        let index = self.0.len() - 1 - frame_depth;
+
+        let capture = match self.0[index].resolve(identifier) {
+            Some(id) => Capture::Local(id),
+            None => {
+                let capture = self.capture_in_frame(identifier, frame_depth + 1)?;
+
+                let id = match self.0[index].captures.iter().position(|c| *c == capture) {
+                    Some(id) => id,
+                    None => {
+                        self.0[index].captures.push(capture);
+                        self.0[index].captures.len() - 1
+                    },
+                };
+
+                Capture::Outer(BoundId(id))
+            },
+        };
+
+        Some(capture)
+    }
+
+}
+
+pub struct Frame<T> {
+    locals: Vec<T>,
     captures: Vec<Capture>,
 }
 
-impl Frame {
+impl<T: Eq> Frame<T> {
     pub fn new() -> Self {
         Self {
             locals: Vec::new(),
@@ -247,7 +274,7 @@ impl Frame {
         }
     }
 
-    fn resolve(&self, identifier: Identifier) -> Option<BoundId> {
+    fn resolve(&self, identifier: T) -> Option<BoundId> {
         for (index, intern_id) in self.locals.iter().rev().enumerate() {
             if identifier == *intern_id {
                 return Some(BoundId(self.locals.len() - 1 - index));
