@@ -1,11 +1,14 @@
+pub mod token;
+
 use std::{iter::Peekable, str::Chars};
 
 use crate::{
     interner::Interner,
-    token::Token,
     location::{Located, SourceLocation},
     error::{Result, located_error}
 };
+
+use token::Token;
 
 pub struct Lexer<'source, 'interner> {
     chars: Peekable<Chars<'source>>,

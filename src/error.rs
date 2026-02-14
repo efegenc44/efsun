@@ -1,8 +1,7 @@
 use crate::{
-    checker::TypeCheckError,
+    check::TypeCheckError,
     interner::Interner,
-    lexer::LexError,
-    parser::ParseError,
+    parse::{ParseError, lex::LexError},
     resolver::ResolutionError,
     location::{Located, SourceLocation}
 };

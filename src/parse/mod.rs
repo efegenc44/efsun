@@ -1,15 +1,19 @@
+pub mod expression;
+pub mod lex;
+
 use std::iter::Peekable;
 
 use crate::{
-    expression::{
-        ApplicationExpression, Expression, Unresolved,
-        LambdaExpression, IdentifierExpression, LetExpression
-    },
     interner::InternId,
-    lexer::{LexError, Lexer},
     location::{Located, SourceLocation},
-    token::Token,
     error::{Error, Result, located_error}
+};
+
+use lex::{LexError, Lexer, token::Token};
+
+use expression::{
+    ApplicationExpression, Expression, Unresolved,
+    LambdaExpression, IdentifierExpression, LetExpression
 };
 
 pub struct Parser<'source, 'interner> {

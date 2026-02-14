@@ -1,15 +1,18 @@
+pub mod typ;
+
 use std::{collections::HashMap, result};
 
 use crate::{
-    expression::{
+    parse::expression::{
         ApplicationExpression, Expression, IdentifierExpression,
         LambdaExpression, Resolved, LetExpression
     },
     location::{Located, SourceLocation},
     resolver::{Bound, Capture},
-    typ::{Type, MonoType, ArrowType},
     error::{Result, located_error}
 };
+
+use typ::{Type, MonoType, ArrowType};
 
 pub struct TypeChecker {
     frames: Vec<Frame>,

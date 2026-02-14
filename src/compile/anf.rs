@@ -1,7 +1,7 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use crate::{
-    expression::{Expression, Resolved, Unresolved},
+    parse::expression::{Expression, Resolved, Unresolved},
     interner::{InternId, Interner},
     location::{Located, SourceLocation},
     resolver::{Bound, Capture}
@@ -263,6 +263,4 @@ impl ANFConverter {
         self.anf(e, Box::new(ANF::Atom))
     }
 }
-
-
 

@@ -2,13 +2,13 @@ use std::fmt::{Debug, Display};
 
 use crate::{
     error::{Result, located_error},
-    expression::{
+    parse::expression::{
         ApplicationExpression, Expression, IdentifierExpression, LambdaExpression,
         LetExpression, Resolved, Unresolved
     },
     interner::InternId,
     location::{Located, SourceLocation},
-    anf::{self, Atom, ANF, Identifier},
+    compile::anf::{self, Atom, ANF, Identifier},
 };
 
 pub struct ExpressionResolver {

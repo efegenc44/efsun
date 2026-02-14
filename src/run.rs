@@ -1,16 +1,14 @@
 use std::{fs, io::{self, Write}, process::exit};
 
 use crate::{
-    checker::TypeChecker,
-    compiler::{Compiler, display_instructions},
+    check::{TypeChecker, typ::MonoType},
+    compile::{Compiler, instruction::display_instructions},
     interner::Interner,
-    lexer::Lexer,
-    parser::Parser,
+    parse::{Parser, lex::Lexer},
     resolver::{ExpressionResolver, ANFResolver},
-    typ::MonoType,
     vm::{VM, Value},
     error::Result,
-    anf::ANFConverter,
+    compile::anf::ANFConverter,
 };
 
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {

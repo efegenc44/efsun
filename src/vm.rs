@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use crate::{compiler::Instruction, resolver::Capture};
+use crate::{compile::instruction::Instruction, resolver::Capture};
 
 pub struct VM {
     stack: Vec<Frame>,
