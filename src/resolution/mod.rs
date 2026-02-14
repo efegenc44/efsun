@@ -11,7 +11,7 @@ use crate::{
     },
     interner::InternId,
     location::{Located, SourceLocation},
-    compile::anf::{self, Atom, ANF, Identifier},
+    compilation::anf::{self, Atom, ANF, Identifier},
 };
 
 use bound::{Bound, BoundId};

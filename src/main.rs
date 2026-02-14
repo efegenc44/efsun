@@ -1,6 +1,6 @@
 mod parse;
 mod check;
-mod compile;
+mod compilation;
 mod resolution;
 
 mod interner;

@@ -211,11 +211,11 @@ impl LambdaExpression<Resolved> {
     }
 }
 
-pub struct ANFConverter {
+pub struct ANFTransformer {
     counter: RefCell<usize>,
 }
 
-impl ANFConverter {
+impl ANFTransformer {
     pub fn new() -> Self {
         Self { counter: RefCell::new(0) }
     }

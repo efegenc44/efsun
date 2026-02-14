@@ -2,13 +2,13 @@ use std::{fs, io::{self, Write}};
 
 use crate::{
     check::{TypeChecker, typ::MonoType},
-    compile::{Compiler, instruction::display_instructions},
+    compilation::{Compiler, instruction::display_instructions},
     interner::Interner,
     parse::Parser,
     resolution::{ExpressionResolver, ANFResolver},
     vm::{VM, Value},
     error::Result,
-    compile::anf::ANFConverter,
+    compilation::anf::ANFTransformer,
 };
 
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {
@@ -22,7 +22,7 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     let resolved = expression_resolver.expression(expression.clone())?;
     let t = checker.infer(&resolved)?;
 
-    let converter = ANFConverter::new();
+    let converter = ANFTransformer::new();
     let anf = converter.convert(expression.destruct().0);
     let anf = anf_resolver.expression(anf);
 
