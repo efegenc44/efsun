@@ -1,6 +1,10 @@
+pub mod value;
+
 use std::rc::Rc;
 
 use crate::{compilation::instruction::Instruction, resolution::bound::Capture};
+
+use value::{Value, LambdaValue};
 
 pub struct VM {
     stack: Vec<Frame>,
@@ -58,9 +62,7 @@ impl VM {
                         closure.push(value);
                     }
 
-                    self.push(Value::Lambda(LambdaValue {
-                        address, captures: Rc::new(closure)
-                    }));
+                    self.push(Value::Lambda(LambdaValue::new(address, closure)));
                 },
                 Instruction::GetCapture(id) => {
                     let value = self.current_frame().closure[id].clone();
@@ -74,16 +76,16 @@ impl VM {
                     ip = address;
                 },
                 Instruction::Call => {
-                    let lambda = self.pop().into_lambda();
+                    let (address, captures) = self.pop().into_lambda().destruct();
                     let argument = self.pop();
 
                     self.stack.push(Frame::new());
                     self.push(argument);
 
-                    self.current_frame_mut().closure = lambda.captures;
+                    self.current_frame_mut().closure = captures;
                     self.current_frame_mut().return_ip = ip;
 
-                    ip = lambda.address;
+                    ip = address;
                 },
                 Instruction::Return => {
                     let return_value = self.pop();
@@ -121,32 +123,4 @@ impl Frame {
             return_ip: 0
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub enum Value {
-    Lambda(LambdaValue),
-    String(usize)
-}
-
-impl Value {
-    pub fn display(&self, strings: &[String]) -> String {
-        match self {
-            Value::Lambda(lambda) => format!("<lambda@{}>", lambda.address),
-            Value::String(offset) => strings[*offset].to_string(),
-        }
-    }
-
-    fn into_lambda(self) -> LambdaValue {
-        let Self::Lambda(lambda) = self else {
-            panic!();
-        };
-
-        lambda
-    }
-}
-#[derive(Clone, Debug)]
-pub struct LambdaValue {
-    address: usize,
-    captures: Rc<Vec<Value>>
 }

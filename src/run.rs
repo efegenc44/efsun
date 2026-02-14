@@ -6,7 +6,7 @@ use crate::{
     interner::Interner,
     parse::Parser,
     resolution::{ExpressionResolver, ANFResolver},
-    vm::{VM, Value},
+    vm::{VM, value::Value},
     error::Result,
     compilation::anf::ANFTransformer,
 };
