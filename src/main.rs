@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 mod parse;
 mod check;
 mod compile;

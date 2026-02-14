@@ -3,7 +3,6 @@ use std::{cell::RefCell, marker::PhantomData};
 use crate::{
     parse::expression::{Expression, Resolved, Unresolved},
     interner::{InternId, Interner},
-    location::{Located, SourceLocation},
     resolver::{Bound, Capture}
 };
 
@@ -15,6 +14,7 @@ pub enum ANF<State> {
 }
 
 impl<T> ANF<T> {
+    #[allow(unused)]
     pub fn print(&self, depth: usize, interner: &Interner) {
         let indent = 2*depth;
 

@@ -1,14 +1,10 @@
 pub mod instruction;
 pub mod anf;
 
-use std::fmt::Display;
-
 use crate::{
-    parse::expression::{
-        ApplicationExpression, Expression, IdentifierExpression, LambdaExpression, LetExpression, Resolved
-    },
+    parse::expression::Resolved,
     interner::{InternId, Interner},
-    resolver::{Bound, Capture},
+    resolver::Bound,
 };
 
 use anf::{ANF, Atom};

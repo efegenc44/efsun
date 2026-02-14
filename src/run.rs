@@ -1,4 +1,4 @@
-use std::{fs, io::{self, Write}, process::exit};
+use std::{fs, io::{self, Write}};
 
 use crate::{
     check::{TypeChecker, typ::MonoType},
@@ -23,7 +23,7 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     let resolved = expression_resolver.expression(expression.clone())?;
     let t = checker.infer(&resolved)?;
 
-    let mut converter = ANFConverter::new();
+    let converter = ANFConverter::new();
     let anf = converter.convert(expression.destruct().0);
     let anf = anf_resolver.expression(anf);
 
