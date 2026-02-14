@@ -4,7 +4,7 @@ use crate::{
     check::{TypeChecker, typ::MonoType},
     compile::{Compiler, instruction::display_instructions},
     interner::Interner,
-    parse::{Parser, lex::Lexer},
+    parse::Parser,
     resolver::{ExpressionResolver, ANFResolver},
     vm::{VM, Value},
     error::Result,
@@ -12,8 +12,7 @@ use crate::{
 };
 
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {
-    let lexer = Lexer::new(source, interner);
-    let mut parser = Parser::new(lexer);
+    let mut parser = Parser::from_source(source, interner);
     let mut expression_resolver = ExpressionResolver::new();
     let mut anf_resolver = ANFResolver::new();
     let mut checker = TypeChecker::new();

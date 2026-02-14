@@ -4,9 +4,9 @@ pub mod lex;
 use std::iter::Peekable;
 
 use crate::{
-    interner::InternId,
-    location::{Located, SourceLocation},
-    error::{Error, Result, located_error}
+    error::{Error, Result, located_error},
+    interner::{Interner, InternId},
+    location::{Located, SourceLocation}
 };
 
 use lex::{LexError, Lexer, token::Token};
@@ -21,8 +21,8 @@ pub struct Parser<'source, 'interner> {
 }
 
 impl<'source, 'interner> Parser<'source, 'interner> {
-    pub fn new(lexer: Lexer<'source, 'interner>) -> Self {
-        Self { tokens: lexer.peekable() }
+    pub fn from_source(source: &'source str, interner: &'interner mut Interner) -> Self {
+        Self { tokens: Lexer::new(source, interner).peekable() }
     }
 
     fn peek(&mut self) -> Option<Result<Located<Token>>> {
