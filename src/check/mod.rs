@@ -5,10 +5,10 @@ use std::{collections::HashMap, result};
 use crate::{
     parse::expression::{
         ApplicationExpression, Expression, IdentifierExpression,
-        LambdaExpression, Resolved, LetExpression
+        LambdaExpression, LetExpression
     },
     location::{Located, SourceLocation},
-    resolver::{Bound, Capture},
+    resolution::{Resolved, bound::{Bound, Capture}},
     error::{Result, located_error}
 };
 

@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::resolver::Capture;
+use crate::resolution::bound::Capture;
 
 #[derive(Clone)]
 pub enum Instruction {

@@ -6,14 +6,15 @@ use std::iter::Peekable;
 use crate::{
     error::{Error, Result, located_error},
     interner::{Interner, InternId},
-    location::{Located, SourceLocation}
+    location::{Located, SourceLocation},
+    resolution::Unresolved,
 };
 
 use lex::{LexError, Lexer, token::Token};
 
 use expression::{
-    ApplicationExpression, Expression, Unresolved,
-    LambdaExpression, IdentifierExpression, LetExpression
+    ApplicationExpression, Expression, LambdaExpression, IdentifierExpression,
+    LetExpression
 };
 
 pub struct Parser<'source, 'interner> {

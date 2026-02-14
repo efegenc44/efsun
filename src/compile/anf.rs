@@ -1,9 +1,9 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use crate::{
-    parse::expression::{Expression, Resolved, Unresolved},
+    parse::expression::Expression,
     interner::{InternId, Interner},
-    resolver::{Bound, Capture}
+    resolution::{Resolved, Unresolved, bound::{Bound, Capture}}
 };
 
 #[derive(Clone)]

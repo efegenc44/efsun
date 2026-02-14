@@ -2,9 +2,8 @@ pub mod instruction;
 pub mod anf;
 
 use crate::{
-    parse::expression::Resolved,
     interner::{InternId, Interner},
-    resolver::Bound,
+    resolution::{Resolved, bound::Bound},
 };
 
 use anf::{ANF, Atom};

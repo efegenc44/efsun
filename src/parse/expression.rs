@@ -3,13 +3,8 @@ use std::marker::PhantomData;
 use crate::{
     interner::{InternId, Interner},
     location::Located,
-    resolver::{Bound, Capture}
+    resolution::{Resolved, Unresolved, bound::{Bound, Capture}},
 };
-
-#[derive(Clone, Copy)]
-pub struct Resolved;
-#[derive(Clone, Copy)]
-pub struct Unresolved;
 
 #[derive(Clone)]
 pub enum Expression<State> {

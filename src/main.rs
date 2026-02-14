@@ -1,10 +1,10 @@
 mod parse;
 mod check;
 mod compile;
+mod resolution;
 
 mod interner;
 mod location;
-mod resolver;
 mod error;
 mod vm;
 mod cli;

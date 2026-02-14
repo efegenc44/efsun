@@ -5,7 +5,7 @@ use crate::{
     compile::{Compiler, instruction::display_instructions},
     interner::Interner,
     parse::Parser,
-    resolver::{ExpressionResolver, ANFResolver},
+    resolution::{ExpressionResolver, ANFResolver},
     vm::{VM, Value},
     error::Result,
     compile::anf::ANFConverter,

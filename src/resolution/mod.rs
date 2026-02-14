@@ -1,15 +1,26 @@
-use std::fmt::{Debug, Display};
+pub mod frame;
+pub mod bound;
+
+use std::fmt::Debug;
 
 use crate::{
     error::{Result, located_error},
     parse::expression::{
         ApplicationExpression, Expression, IdentifierExpression, LambdaExpression,
-        LetExpression, Resolved, Unresolved
+        LetExpression
     },
     interner::InternId,
     location::{Located, SourceLocation},
     compile::anf::{self, Atom, ANF, Identifier},
 };
+
+use bound::{Bound, BoundId};
+use frame::Stack;
+
+#[derive(Clone, Copy)]
+pub struct Resolved;
+#[derive(Clone, Copy)]
+pub struct Unresolved;
 
 pub struct ExpressionResolver {
     stack: Stack<InternId>,
@@ -52,15 +63,15 @@ impl ExpressionResolver {
             None => {
                 match self.stack.capture(intern_id) {
                     Some(capture) => {
-                        let id = match self.stack.current_frame().captures.iter().position(|c| *c == capture) {
+                        let id = match self.stack.current_frame().captures().iter().position(|c| *c == capture) {
                             Some(id) => id,
                             None => {
-                                self.stack.current_frame_mut().captures.push(capture);
-                                self.stack.current_frame().captures.len() - 1
+                                self.stack.current_frame_mut().captures_mut().push(capture);
+                                self.stack.current_frame().captures().len() - 1
                             }
                         };
 
-                        Ok(Bound::Capture(BoundId(id)))
+                        Ok(Bound::Capture(BoundId::new(id)))
                     },
                     None => {
                         let error = ResolutionError::UnboundIdentifier(intern_id);
@@ -146,15 +157,15 @@ impl ANFResolver {
             Some(id) => Bound::Local(id),
             None => {
                 let capture = self.stack.capture(id).unwrap();
-                let id = match self.stack.current_frame().captures.iter().position(|c| *c == capture) {
+                let id = match self.stack.current_frame().captures().iter().position(|c| *c == capture) {
                     Some(id) => id,
                     None => {
-                        self.stack.current_frame_mut().captures.push(capture);
-                        self.stack.current_frame().captures.len() - 1
+                        self.stack.current_frame_mut().captures_mut().push(capture);
+                        self.stack.current_frame().captures().len() - 1
                     }
                 };
 
-                Bound::Capture(BoundId(id))
+                Bound::Capture(BoundId::new(id))
             },
         };
 
@@ -194,139 +205,6 @@ impl ANFResolver {
         self.stack.pop_local();
 
         anf::ApplicationExpression::new(variable, function, argument, expression)
-    }
-}
-
-pub struct Stack<T>(Vec<Frame<T>>);
-
-impl<T: Eq + Copy + Clone> Stack<T> {
-    fn new() -> Self {
-        Self(vec![])
-    }
-
-    fn current_frame(&self) -> &Frame<T> {
-        self.0.last().unwrap()
-    }
-
-    fn current_frame_mut(&mut self) -> &mut Frame<T> {
-        self.0.last_mut().unwrap()
-    }
-
-    fn push_frame(&mut self) {
-        self.0.push(Frame::new())
-    }
-
-    fn pop_frame(&mut self) -> Vec<Capture> {
-        self.0.pop().unwrap().captures
-    }
-
-    fn push_local(&mut self, local: T) {
-        self.0.last_mut().unwrap().locals.push(local);
-    }
-
-    fn pop_local(&mut self) {
-        self.0.last_mut().unwrap().locals.pop();
-    }
-
-    fn capture(&mut self, identifier: T) -> Option<Capture> {
-        self.capture_in_frame(identifier, 1)
-    }
-
-    fn capture_in_frame(&mut self, identifier: T, frame_depth: usize) -> Option<Capture> {
-        if frame_depth == self.0.len() {
-            return None;
-        }
-
-        let index = self.0.len() - 1 - frame_depth;
-
-        let capture = match self.0[index].resolve(identifier) {
-            Some(id) => Capture::Local(id),
-            None => {
-                let capture = self.capture_in_frame(identifier, frame_depth + 1)?;
-
-                let id = match self.0[index].captures.iter().position(|c| *c == capture) {
-                    Some(id) => id,
-                    None => {
-                        self.0[index].captures.push(capture);
-                        self.0[index].captures.len() - 1
-                    },
-                };
-
-                Capture::Outer(BoundId(id))
-            },
-        };
-
-        Some(capture)
-    }
-
-}
-
-pub struct Frame<T> {
-    locals: Vec<T>,
-    captures: Vec<Capture>,
-}
-
-impl<T: Eq> Frame<T> {
-    pub fn new() -> Self {
-        Self {
-            locals: Vec::new(),
-            captures: Vec::new(),
-        }
-    }
-
-    fn resolve(&self, identifier: T) -> Option<BoundId> {
-        for (index, intern_id) in self.locals.iter().rev().enumerate() {
-            if identifier == *intern_id {
-                return Some(BoundId(self.locals.len() - 1 - index));
-            }
-        }
-
-        None
-    }
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Capture {
-    Local(BoundId),
-    Outer(BoundId)
-}
-
-impl Display for Capture {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Local(id) => write!(f, "local({})", id.0),
-            Self::Outer(id) => write!(f, "outer({})", id.0),
-        }
-    }
-}
-
-impl Debug for Capture {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum Bound {
-    Local(BoundId),
-    Capture(BoundId),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct BoundId(usize);
-
-impl BoundId {
-    pub fn value(&self) -> usize {
-        self.0
-    }
-}
-
-impl Display for Bound {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Local(id) => write!(f, "{}", id.0),
-            Self::Capture(id) => write!(f, "captured({})", id.0),
-        }
     }
 }
 

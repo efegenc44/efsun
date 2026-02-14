@@ -2,7 +2,7 @@ use crate::{
     check::TypeCheckError,
     interner::Interner,
     parse::{ParseError, lex::LexError},
-    resolver::ResolutionError,
+    resolution::ResolutionError,
     location::{Located, SourceLocation}
 };
 
