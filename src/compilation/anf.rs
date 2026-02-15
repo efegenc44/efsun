@@ -118,7 +118,7 @@ impl<T> Atom<T> {
                 print!(
                     "{:indent$}{}{}", "",
                     identifier.identifier.display(interner),
-                    if let Some(bound) = identifier.bound { format!("#{}", bound) } else { "".to_string() }
+                    if let Some(bound) = &identifier.bound { format!("#{}", bound.display(interner)) } else { "".to_string() }
                 )
             },
             Atom::Lambda(lambda) => {
@@ -175,8 +175,8 @@ impl IdentifierExpression<Unresolved> {
 }
 
 impl IdentifierExpression<Resolved> {
-    pub fn bound(&self) -> Bound {
-        self.bound.unwrap()
+    pub fn bound(&self) -> &Bound {
+        self.bound.as_ref().unwrap()
     }
 }
 
@@ -223,9 +223,10 @@ impl ANFTransformer {
     fn anf(&self, e: Expression<Unresolved>, k: Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + '_>) -> ANF<Unresolved> {
         match e {
             Expression::String(id) => k(Atom::String(id)),
-            Expression::Identifier(identifier) => {
-                let id = *identifier.identifier().data();
-                k(Atom::Identifier(IdentifierExpression::new(Identifier::Normal(id))))
+            Expression::Path(_path) => {
+                todo!();
+                // let id = *path.identifier().data();
+                // k(Atom::Identifier(IdentifierExpression::new(Identifier::Normal(id))))
             },
             Expression::Application(application) => {
                 let (function, argument) = application.destruct();

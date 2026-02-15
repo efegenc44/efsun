@@ -4,7 +4,7 @@ use std::{collections::HashMap, result};
 
 use crate::{
     parse::expression::{
-        ApplicationExpression, Expression, IdentifierExpression,
+        ApplicationExpression, Expression, PathExpression,
         LambdaExpression, LetExpression
     },
     location::{Located, SourceLocation},
@@ -76,7 +76,7 @@ impl TypeChecker {
     pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> Result<MonoType> {
         match expression.data() {
             Expression::String(_) => Ok(MonoType::String),
-            Expression::Identifier(identifier) => self.identifier(identifier),
+            Expression::Path(path) => self.path(path),
             Expression::Application(application) => self.application(application, expression.start(), expression.end()),
             Expression::Lambda(lambda) => self.lambda(lambda),
             Expression::Let(letin) => self.letin(letin),
@@ -126,8 +126,8 @@ impl TypeChecker {
         }
     }
 
-    fn identifier(&mut self, identifier: &IdentifierExpression<Resolved>) -> Result<MonoType> {
-        match identifier.bound() {
+    fn path(&mut self, path: &PathExpression<Resolved>) -> Result<MonoType> {
+        match path.bound() {
             Bound::Local(id) => {
                 let index = self.current_frame().locals.len() - 1 - id.value();
 
@@ -142,6 +142,7 @@ impl TypeChecker {
                 let capture = self.current_frame().captures[capture.value()];
                 Ok(self.get_capture(capture))
             }
+            Bound::Absolute(_) => todo!()
         }
     }
 

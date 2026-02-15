@@ -75,6 +75,7 @@ impl<'interner> Compiler<'interner> {
         match identifier.bound() {
             Bound::Local(id) => self.write(Instruction::GetLocal(id.value())),
             Bound::Capture(id) => self.write(Instruction::GetCapture(id.value())),
+            Bound::Absolute(_) => todo!(),
         }
     }
 

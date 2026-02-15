@@ -8,8 +8,10 @@ pub enum Token {
     RightParenthesis,
     Backslash,
     Equals,
+    Dot,
     LetKeyword,
     InKeyword,
+    ModuleKeyword,
 }
 
 impl Token {
@@ -21,8 +23,10 @@ impl Token {
             Self::RightParenthesis => ")",
             Self::Backslash => "\\",
             Self::Equals => "=",
+            Self::Dot => ".",
             Self::LetKeyword => "let",
             Self::InKeyword => "in",
+            Self::ModuleKeyword => "module",
         }
     }
 }

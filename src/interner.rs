@@ -4,7 +4,7 @@ pub struct Interner {
     strings: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct InternId(usize);
 
 impl InternId {

@@ -1,5 +1,6 @@
 pub mod expression;
 pub mod lex;
+pub mod definition;
 
 use std::iter::Peekable;
 
@@ -13,7 +14,7 @@ use crate::{
 use lex::{LexError, Lexer, token::Token};
 
 use expression::{
-    ApplicationExpression, Expression, LambdaExpression, IdentifierExpression,
+    ApplicationExpression, Expression, LambdaExpression, PathExpression,
     LetExpression
 };
 
@@ -49,6 +50,15 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn next_some(&mut self) -> Result<Located<Token>> {
         self.peek_some()?;
         self.next().unwrap()
+    }
+
+    fn peek_is(&mut self, expected: Token) -> Result<bool> {
+        let Some(peek) = self.peek() else {
+            return Ok(false);
+        };
+        let peek = peek?;
+
+        Ok(std::mem::discriminant(&expected) == std::mem::discriminant(peek.data()))
     }
 
     fn expect(&mut self, expected: Token) -> Result<Located<Token>> {
@@ -127,10 +137,18 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn identifier(&mut self) -> Result<Located<Expression<Unresolved>>> {
         let identifier = self.expect_identifier()?;
         let start = identifier.start();
-        let end = identifier.end();
+        let mut end = identifier.end();
+        let mut parts = vec![*identifier.data()];
 
-        let identifier = IdentifierExpression::new(identifier);
-        let expression = Located::new(Expression::Identifier(identifier), start, end);
+        while self.peek_is(Token::Dot)? {
+            self.next();
+            let part = self.expect_identifier()?;
+            parts.push(*part.data());
+            end = part.end();
+        }
+
+        let path = PathExpression::new(Located::new(parts, start, end));
+        let expression = Located::new(Expression::Path(path), start, end);
 
         Ok(expression)
     }

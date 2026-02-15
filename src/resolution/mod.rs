@@ -1,20 +1,20 @@
 pub mod frame;
 pub mod bound;
 
-use std::fmt::Debug;
+use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
     error::{Result, located_error},
     parse::expression::{
-        ApplicationExpression, Expression, IdentifierExpression, LambdaExpression,
+        ApplicationExpression, Expression, PathExpression, LambdaExpression,
         LetExpression
     },
-    interner::InternId,
+    interner::{Interner, InternId},
     location::{Located, SourceLocation},
     compilation::anf::{self, Atom, ANF, Identifier},
 };
 
-use bound::{Bound, BoundId};
+use bound::{Bound, BoundId, Path, Module};
 use frame::Stack;
 
 #[derive(Clone, Copy)]
@@ -24,6 +24,9 @@ pub struct Unresolved;
 
 pub struct ExpressionResolver {
     stack: Stack<InternId>,
+
+    modules: HashMap<Path, Module>,
+    current_module_path: Path
 }
 
 impl ExpressionResolver {
@@ -32,8 +35,23 @@ impl ExpressionResolver {
         stack.push_frame();
 
         ExpressionResolver {
-            stack
+            stack,
+            modules: HashMap::new(),
+            current_module_path: Path::empty(),
         }
+    }
+
+    pub fn interactive_module(&mut self, interner: &mut Interner) {
+        let interactive_id = interner.intern(String::from("interactive"));
+        let path = Path::from_parts(vec![interactive_id]);
+        let module = Module::empty();
+
+        self.modules.insert(path.clone(), module);
+        self.current_module_path = path;
+    }
+
+    fn current_module(&self) -> &Module {
+        &self.modules[&self.current_module_path]
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
@@ -41,7 +59,7 @@ impl ExpressionResolver {
 
         let expression = match expression {
             Expression::String(string) => Expression::String(string),
-            Expression::Identifier(identifier) => Expression::Identifier(self.identifier(identifier, start, end)?),
+            Expression::Path(path) => Expression::Path(self.path(path, start, end)?),
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
             Expression::Application(application) => Expression::Application(self.application(application)?),
             Expression::Let(letin) => Expression::Let(self.letin(letin)?),
@@ -50,18 +68,11 @@ impl ExpressionResolver {
         Ok(Located::new(expression, start, end))
     }
 
-    fn identifier(
-        &mut self,
-        identifier: IdentifierExpression<Unresolved>,
-        start: SourceLocation,
-        end: SourceLocation
-    ) -> Result<IdentifierExpression<Resolved>> {
-        let intern_id = *identifier.identifier().data();
-
-        let bound = match self.stack.current_frame().resolve(intern_id) {
+    fn identifier(&mut self, identifier: InternId, start: SourceLocation, end: SourceLocation) -> Result<Bound> {
+        match self.stack.current_frame().resolve(identifier) {
             Some(id) => Ok(Bound::Local(id)),
             None => {
-                match self.stack.capture(intern_id) {
+                match self.stack.capture(identifier) {
                     Some(capture) => {
                         let id = match self.stack.current_frame().captures().iter().position(|c| *c == capture) {
                             Some(id) => id,
@@ -74,15 +85,42 @@ impl ExpressionResolver {
                         Ok(Bound::Capture(BoundId::new(id)))
                     },
                     None => {
-                        let error = ResolutionError::UnboundIdentifier(intern_id);
-                        Err(located_error(error, start, end))
+                        if self.current_module().names().contains(&identifier) {
+                            Ok(Bound::Absolute(self.current_module_path.append(identifier)))
+                        } else {
+                            let error = ResolutionError::UnboundIdentifier(identifier);
+                            Err(located_error(error, start, end))
+                        }
                     }
                 }
             },
+        }
+    }
+
+    fn path(
+        &mut self,
+        path: PathExpression<Unresolved>,
+        start: SourceLocation,
+        end: SourceLocation
+    ) -> Result<PathExpression<Resolved>> {
+
+        let bound = match &path.parts().data()[..] {
+            [] => unreachable!(),
+            [identifier] => self.identifier(*identifier, start, end),
+            [module@.., name] => {
+                let mut module_path = Path::from_parts(module.to_vec());
+                if self.modules[&module_path].names().contains(name) {
+                    module_path.push(*name);
+                    Ok(Bound::Absolute(module_path))
+                } else {
+                    // let error = ResolutionError::UnboundIdentifier(identifier);
+                    // Err(located_error(error, start, end))
+                    todo!()
+                }
+            }
         };
 
-        Ok(identifier.resolve(bound?))
-
+        Ok(path.resolve(bound?))
     }
 
     fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> Result<LambdaExpression<Resolved>> {
@@ -200,7 +238,7 @@ impl ANFResolver {
 
         let function = self.atom(function);
         let argument = self.atom(argument);
-        self.stack.push_local(variable);
+        self.stack.push_local(variable.clone());
         let expression = self.expression(expression);
         self.stack.pop_local();
 

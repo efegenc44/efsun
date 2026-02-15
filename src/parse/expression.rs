@@ -9,7 +9,7 @@ use crate::{
 #[derive(Clone)]
 pub enum Expression<State> {
     String(InternId),
-    Identifier(IdentifierExpression<State>),
+    Path(PathExpression<State>),
     Application(ApplicationExpression<State>),
     Lambda(LambdaExpression<State>),
     Let(LetExpression<State>),
@@ -24,11 +24,18 @@ impl<T> Expression<T> {
             Self::String(string) => {
                 println!("{:indent$}{}", "", interner.lookup(*string));
             },
-            Self::Identifier(identifier) => {
+            Self::Path(path) => {
+                let path_string = path.parts()
+                    .data()
+                    .iter()
+                    .map(|id| interner.lookup(*id))
+                    .collect::<Vec<_>>()
+                    .join(".");
+
                 println!(
                     "{:indent$}Identifier: {}{}", "",
-                    interner.lookup(*identifier.identifier().data()),
-                    if let Some(bound) = identifier.bound { format!("#{}", bound) } else { "".to_string() }
+                    path_string,
+                    if let Some(bound) = &path.bound { format!("#{}", bound.display(interner)) } else { "".to_string() }
                 )
             },
             Self::Lambda(lambda) => {
@@ -62,35 +69,35 @@ impl<T> Expression<T> {
 }
 
 #[derive(Clone)]
-pub struct IdentifierExpression<State> {
-    identifier: Located<InternId>,
+pub struct PathExpression<State> {
+    parts: Located<Vec<InternId>>,
     bound: Option<Bound>,
     state: PhantomData<State>
 }
 
-impl<T> IdentifierExpression<T> {
-    pub fn identifier(&self) -> Located<InternId> {
-        self.identifier
+impl<T> PathExpression<T> {
+    pub fn parts(&self) -> &Located<Vec<InternId>> {
+        &self.parts
     }
 }
 
-impl IdentifierExpression<Unresolved> {
-    pub fn new(identifier: Located<InternId>) -> Self {
-        Self { identifier, bound: Option::None, state: PhantomData }
+impl PathExpression<Unresolved> {
+    pub fn new(parts: Located<Vec<InternId>>) -> Self {
+        Self { parts, bound: Option::None, state: PhantomData }
     }
 
-    pub fn resolve(self, bound: Bound) -> IdentifierExpression<Resolved> {
-        IdentifierExpression {
-            identifier: self.identifier,
+    pub fn resolve(self, bound: Bound) -> PathExpression<Resolved> {
+        PathExpression {
+            parts: self.parts,
             bound: Some(bound),
             state: PhantomData
         }
     }
 }
 
-impl IdentifierExpression<Resolved> {
-    pub fn bound(&self) -> Bound {
-        self.bound.unwrap()
+impl PathExpression<Resolved> {
+    pub fn bound(&self) -> &Bound {
+        self.bound.as_ref().unwrap()
     }
 }
 

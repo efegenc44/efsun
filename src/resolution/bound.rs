@@ -1,9 +1,12 @@
-use std::fmt::{Debug, Display};
+use std::{collections::HashSet, fmt::{Debug, Display}};
 
-#[derive(Clone, Copy, Debug)]
+use crate::interner::{InternId, Interner};
+
+#[derive(Clone, Debug)]
 pub enum Bound {
     Local(BoundId),
     Capture(BoundId),
+    Absolute(Path)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,11 +22,12 @@ impl BoundId {
     }
 }
 
-impl Display for Bound {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl Bound {
+    pub fn display(&self, interner: &Interner) -> String {
         match self {
-            Self::Local(id) => write!(f, "{}", id.0),
-            Self::Capture(id) => write!(f, "captured({})", id.0),
+            Bound::Local(id) => format!("{}", id.0),
+            Bound::Capture(id) => format!("captured({})", id.0),
+            Bound::Absolute(path) => path.display(interner),
         }
     }
 }
@@ -48,3 +52,49 @@ impl Debug for Capture {
         write!(f, "{self}")
     }
 }
+
+#[derive(Clone, Debug, Hash, PartialEq, Eq)]
+pub struct Path(Vec<InternId>);
+
+impl Path {
+    pub fn empty() -> Self {
+        Path(Vec::new())
+    }
+
+    pub fn from_parts(parts: Vec<InternId>) -> Self {
+        Self(parts)
+    }
+
+    pub fn push(&mut self, identifier: InternId) {
+        self.0.push(identifier);
+    }
+
+    pub fn append(&self, identifier: InternId) -> Self {
+        let mut clone = self.clone();
+        clone.0.push(identifier);
+        clone
+    }
+
+    fn display(&self, interner: &Interner) -> String {
+        self.0
+            .iter()
+            .map(|id| interner.lookup(*id))
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+}
+
+pub struct Module {
+    names: HashSet<InternId>,
+}
+
+impl Module {
+    pub fn empty() -> Self {
+        Self { names: HashSet::new() }
+    }
+
+    pub fn names(&self) -> &HashSet<InternId> {
+        &self.names
+    }
+}
+

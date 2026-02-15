@@ -14,12 +14,17 @@ use crate::{
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {
     let mut parser = Parser::from_source(source, interner);
     let mut expression_resolver = ExpressionResolver::new();
+
+
     let mut anf_resolver = ANFResolver::new();
     let mut checker = TypeChecker::new();
 
     let expression = parser.expression()?;
 
+    expression_resolver.interactive_module(interner);
     let resolved = expression_resolver.expression(expression.clone())?;
+    resolved.data().print(interner, 0);
+
     let t = checker.infer(&resolved)?;
 
     let converter = ANFTransformer::new();
