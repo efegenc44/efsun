@@ -19,6 +19,7 @@ use typ::{Type, MonoType, ArrowType};
 
 pub struct TypeChecker {
     frames: Vec<Frame>,
+    name_exprs: HashMap<Path, (Located<Expression<Resolved>>, bool)>,
     names: HashMap<Path, Type>,
     newvar_counter: usize,
     unification_table: HashMap<usize, MonoType>
@@ -28,6 +29,7 @@ impl TypeChecker {
     pub fn new() -> Self {
         Self {
             frames: vec![Frame::with_captures(vec![])],
+            name_exprs: HashMap::new(),
             names: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default()
@@ -148,8 +150,26 @@ impl TypeChecker {
                 Ok(self.get_capture(capture))
             }
             Bound::Absolute(path) => {
-                let t = self.names[path].clone();
-                Ok(self.instantiate(t))
+                if let Some(t) = self.names.get(path) {
+                    Ok(self.instantiate(t.clone()))
+                } else {
+                    // TODO: Ideally don't clone here
+                    let (expr, status) = self.name_exprs[path].clone();
+
+                    if status {
+                        panic!("Cyclic definition");
+                    }
+
+                    self.name_exprs.get_mut(path).unwrap().1 = true;
+
+                    let m = self.infer(&expr)?;
+
+                    self.name_exprs.get_mut(path).unwrap().1 = false;
+
+                    let t = m.generalize();
+                    self.names.insert(path.clone(), t.clone());
+                    Ok(self.instantiate(t))
+                }
             }
         }
     }
@@ -256,8 +276,7 @@ impl TypeChecker {
     fn collect_names(&mut self, definitions: &[Definition<Resolved>]) -> Result<()> {
         for definition in definitions {
             if let Definition::Name(name) = definition {
-                let newvar = self.newvar();
-                self.names.insert(name.path().clone(), Type::Mono(newvar));
+                self.name_exprs.insert(name.path().clone(), (name.expression().clone(), false));
             }
         }
 
@@ -265,10 +284,13 @@ impl TypeChecker {
     }
 
     fn let_definition(&mut self, let_definition: &NameDefinition<Resolved>) -> Result<()> {
+        self.name_exprs.get_mut(let_definition.path()).unwrap().1 = true;
+
         let m = self.infer(let_definition.expression())?;
         let t = m.generalize();
-        // println!("{} : {t}", let_definition.identifier().data());
-        *self.names.get_mut(let_definition.path()).unwrap() = t;
+        self.names.insert(let_definition.path().clone(), t);
+
+        self.name_exprs.get_mut(let_definition.path()).unwrap().1 = false;
 
         Ok(())
     }
