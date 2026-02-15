@@ -37,11 +37,10 @@ const COMMANDS: &[Command] = &[
     Command::new("interactive", "", "Enter the the interactive efsun session", |_| {
         run::repl();
     }),
-    Command::new("execute", "FILE", "Execute an efsun program from a file", |args| {
+    Command::new("execute", "FILE*", "Execute an efsun program from a file", |args| {
         match args.as_slice() {
-            [file_path] => run::from_file(file_path),
             [] => error("No file provided"),
-            _ => error("Provided too many files"),
+            _ => run::from_file(args),
         }
     })
 ];

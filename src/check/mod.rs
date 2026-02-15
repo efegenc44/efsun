@@ -227,13 +227,26 @@ impl TypeChecker {
         Ok(self.substitute(return_type))
     }
 
+    pub fn program(&mut self, modules: &[Vec<Definition<Resolved>>]) -> Result<()> {
+        for module in modules {
+            self.collect_names(module)?;
+        }
+
+        for module in modules {
+            self.module(module)?;
+        }
+
+        Ok(())
+    }
+
     pub fn module(&mut self, definitions: &[Definition<Resolved>]) -> Result<()> {
-        self.collect_names(definitions)?;
+        // self.collect_names(definitions)?;
 
         for definition in definitions {
             match definition {
                 Definition::Module(_) => (),
                 Definition::Name(name) => self.let_definition(name)?,
+                Definition::Import(_) => (),
             }
         }
 

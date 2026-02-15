@@ -7,7 +7,8 @@ use crate::{
 #[derive(Clone)]
 pub enum Definition<State> {
     Module(ModuleDefinition),
-    Name(NameDefinition<State>)
+    Name(NameDefinition<State>),
+    Import(ImportDefinition)
 }
 
 impl<T> Definition<T> {
@@ -31,6 +32,9 @@ impl<T> Definition<T> {
                 println!("{:indent$}{}", "", interner.lookup(*name.identifier.data()), indent=indent + 2);
                 name.expression.data().print(interner, depth + 1);
             },
+            Definition::Import(import) => {
+                println!("{:indent$}Import:", "");
+            }
         }
     }
 }
@@ -87,3 +91,28 @@ impl NameDefinition<Resolved> {
     }
 }
 
+#[derive(Clone)]
+pub struct ImportDefinition {
+    module_path: Vec<InternId>,
+    name: Option<ImportName>
+}
+
+impl ImportDefinition {
+    pub fn new(module_path: Vec<InternId>, name: Option<ImportName>) -> Self {
+        Self { module_path, name }
+    }
+
+    pub fn module_path(&self) -> &[InternId] {
+        &self.module_path
+    }
+
+    pub fn name(&self) -> Option<&ImportName> {
+        self.name.as_ref()
+    }
+}
+
+#[derive(Clone)]
+pub enum ImportName {
+    As(InternId),
+    Import(Vec<ImportDefinition>)
+}

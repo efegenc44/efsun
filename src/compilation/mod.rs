@@ -37,20 +37,17 @@ impl<'interner> Compiler<'interner> {
         self.code.len()
     }
 
-    pub fn module(mut self, definitions: &[ANFDefinition<Resolved>]) -> (Vec<Instruction>, Vec<String>)  {
-        for definition in definitions {
-            if let ANFDefinition::Name(name) = definition {
-                self.names.push(name.path().clone());
+    pub fn program(mut self, modules: &[Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, Vec<String>) {
+        for module in modules {
+            for definition in module {
+                if let ANFDefinition::Name(name) = definition {
+                    self.names.push(name.path().clone());
+                }
             }
         }
 
-        for definition in definitions {
-            match definition {
-                ANFDefinition::Module(_) => (),
-                ANFDefinition::Name(name) => {
-                    self.expression(name.expression());
-                },
-            }
+        for module in modules {
+            self.module(module);
         }
 
         let parts = vec!["Main", "main"]
@@ -68,6 +65,24 @@ impl<'interner> Compiler<'interner> {
         self.write(Instruction::Call);
 
         (self.code, self.strings)
+    }
+
+    pub fn module(&mut self, definitions: &[ANFDefinition<Resolved>]) {
+        // for definition in definitions {
+        //     if let ANFDefinition::Name(name) = definition {
+        //         self.names.push(name.path().clone());
+        //     }
+        // }
+
+        for definition in definitions {
+            match definition {
+                ANFDefinition::Module(_) => (),
+                ANFDefinition::Name(name) => {
+                    self.expression(name.expression());
+                },
+                ANFDefinition::Import(_) => (),
+            }
+        }
     }
 
     pub fn compile(mut self, expression: &ANF<Resolved>) -> (Vec<Instruction>, Vec<String>) {

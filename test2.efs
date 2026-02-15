@@ -1,0 +1,3 @@
+module Test2
+
+let test2 = \x \y x

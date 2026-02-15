@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::{Debug, Display}};
+use std::{collections::{HashMap, HashSet}, fmt::{Debug, Display}};
 
 use crate::interner::{InternId, Interner};
 
@@ -75,6 +75,12 @@ impl Path {
         clone
     }
 
+    pub fn append_parts(&self, identifiers: Vec<InternId>) -> Self {
+        let mut clone = self.clone();
+        clone.0.extend(identifiers);
+        clone
+    }
+
     fn display(&self, interner: &Interner) -> String {
         self.0
             .iter()
@@ -86,11 +92,12 @@ impl Path {
 
 pub struct Module {
     names: HashSet<InternId>,
+    imports: HashMap<InternId, Path>
 }
 
 impl Module {
     pub fn empty() -> Self {
-        Self { names: HashSet::new() }
+        Self { names: HashSet::new(), imports: HashMap::new() }
     }
 
     pub fn names(&self) -> &HashSet<InternId> {
@@ -99,6 +106,14 @@ impl Module {
 
     pub fn names_mut(&mut self) -> &mut HashSet<InternId> {
         &mut self.names
+    }
+
+    pub fn imports(&self) -> &HashMap<InternId, Path> {
+        &self.imports
+    }
+
+    pub fn imports_mut(&mut self) -> &mut HashMap<InternId, Path> {
+        &mut self.imports
     }
 }
 

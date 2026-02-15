@@ -18,7 +18,10 @@ use expression::{
     LetExpression
 };
 
-use definition::{Definition, ModuleDefinition, NameDefinition};
+use definition::{
+    Definition, ModuleDefinition, NameDefinition, ImportDefinition,
+    ImportName
+};
 
 pub struct Parser<'source, 'interner> {
     tokens: Peekable<Lexer<'source, 'interner>>,
@@ -204,6 +207,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         match token.data() {
             Token::LetKeyword => self.let_definiton(),
             Token::ModuleKeyword => self.module_definition(),
+            Token::ImportKeyword => self.import_definition(),
             unexpected => {
                 let error = ParseError::UnexpectedToken(*unexpected);
                 Err(located_error(error, token.start(), token.end()))
@@ -238,6 +242,43 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let definition = ModuleDefinition::new(parts);
 
         Ok(Definition::Module(definition))
+    }
+
+    fn import_definition(&mut self) -> Result<Definition<Unresolved>> {
+        self.expect(Token::ImportKeyword)?;
+        Ok(Definition::Import(self.import()?))
+    }
+
+    fn import(&mut self) -> Result<ImportDefinition> {
+        let identifier = self.expect_identifier()?;
+        let mut parts = vec![*identifier.data()];
+
+        while self.peek_is(Token::Dot)? {
+            self.next();
+            let part = self.expect_identifier()?;
+            parts.push(*part.data());
+        }
+
+        let import_name = if self.peek_is(Token::LeftParenthesis)? {
+            self.next();
+            let mut imports = vec![];
+            imports.push(self.import()?);
+
+            while !self.peek_is(Token::RightParenthesis)? {
+                imports.push(self.import()?);
+            }
+
+            self.expect(Token::RightParenthesis)?;
+
+            Some(ImportName::Import(imports))
+        } else if self.peek_is(Token::AsKeyword)? {
+            self.next();
+            Some(ImportName::As(*self.expect_identifier()?.data()))
+        } else {
+            None
+        };
+
+        Ok(ImportDefinition::new(parts, import_name))
     }
 }
 

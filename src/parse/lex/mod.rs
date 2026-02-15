@@ -57,6 +57,8 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
             "let" => Token::LetKeyword,
             "in" => Token::InKeyword,
             "module" => Token::ModuleKeyword,
+            "import" => Token::ImportKeyword,
+            "as" => Token::AsKeyword,
             _ => {
                 let id = self.interner.intern(lexeme);
                 Token::Identifier(id)

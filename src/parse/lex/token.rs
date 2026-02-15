@@ -12,6 +12,8 @@ pub enum Token {
     LetKeyword,
     InKeyword,
     ModuleKeyword,
+    ImportKeyword,
+    AsKeyword,
 }
 
 impl Token {
@@ -27,6 +29,8 @@ impl Token {
             Self::LetKeyword => "let",
             Self::InKeyword => "in",
             Self::ModuleKeyword => "module",
+            Self::ImportKeyword => "import",
+            Self::AsKeyword => "as",
         }
     }
 }

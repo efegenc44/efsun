@@ -1,7 +1,6 @@
 module Main
 
-let True  = \x \y x
-let False = \x \y y
+import Test2 (Test3 as test3)
 
 let main = \a
-    "Hello, World!"
+    test3.id "Hello, World!"

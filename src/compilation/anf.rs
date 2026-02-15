@@ -1,7 +1,7 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use crate::{
-    parse::{definition::Definition, expression::Expression},
+    parse::{definition::{Definition, ImportDefinition}, expression::Expression},
     interner::{InternId, Interner},
     resolution::{Resolved, Unresolved, bound::{Bound, Capture, Path}}
 };
@@ -9,6 +9,7 @@ use crate::{
 pub enum ANFDefinition<State> {
     Module(ModuleDefinition),
     Name(NameDefinition<State>),
+    Import(ImportDefinition)
 }
 
 impl<T> ANFDefinition<T> {
@@ -31,6 +32,7 @@ impl<T> ANFDefinition<T> {
                 println!("{:indent$}{}", "", interner.lookup(name.identifier), indent=indent + 2);
                 name.expression.print(depth + 1, interner);
             },
+            ANFDefinition::Import(_) => todo!(),
         }
     }
 }
@@ -84,6 +86,32 @@ impl NameDefinition<Unresolved> {
         (self.identifier, self.expression)
     }
 }
+
+// #[derive(Clone)]
+// pub struct ImportDefinition {
+//     module_path: Vec<InternId>,
+//     name: Option<ImportName>
+// }
+
+// impl ImportDefinition {
+//     pub fn new(module_path: Vec<InternId>, name: Option<ImportName>) -> Self {
+//         Self { module_path, name }
+//     }
+
+//     pub fn module_path(&self) -> &[InternId] {
+//         &self.module_path
+//     }
+
+//     pub fn name(&self) -> Option<&ImportName> {
+//         self.name.as_ref()
+//     }
+// }
+
+// #[derive(Clone)]
+// pub enum ImportName {
+//     As(InternId),
+//     Import(Vec<ImportDefinition>)
+// }
 
 #[derive(Clone)]
 pub enum ANF<State> {
@@ -338,6 +366,10 @@ impl ANFTransformer {
                     let expression = self.convert(expression.destruct().0);
                     let definition = NameDefinition::<Unresolved>::new(*identifier.data(), expression);
                     anf_definitions.push(ANFDefinition::Name(definition))
+                },
+                Definition::Import(import) => {
+                    let definition = ANFDefinition::Import(import);
+                    anf_definitions.push(definition);
                 },
             }
         }

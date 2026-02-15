@@ -41,31 +41,32 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     Ok((result, t, strings))
 }
 
-fn module(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, Vec<String>)> {
-    let mut parser = Parser::from_source(source, interner);
+fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result<(Value, Vec<String>)> {
     let mut resolver = ExpressionResolver::new();
     let mut checker = TypeChecker::new();
 
-    let definitions = parser.module()?;
-    let resolved_definitions = resolver.module(definitions.clone())?;
-    checker.module(&resolved_definitions)?;
+    let mut modules = vec![];
+    for source in sources {
+        let mut parser = Parser::from_source(&source, interner);
+        modules.push(parser.module()?);
+    }
 
-    // for definiton in &definitions {
-    //     definiton.print(interner, 0);
-    // }
+    let resolved_definitions = resolver.program(modules.clone())?;
+    checker.program(&resolved_definitions)?;
 
     let anf_transformer = ANFTransformer::new();
     let mut anf_resolver = ANFResolver::new();
 
-    let anf_definitions = anf_transformer.module(definitions);
-    let anf_definitions = anf_resolver.module(anf_definitions);
+    let mut anf_modules = vec![];
+    for module in modules {
+        anf_modules.push(anf_transformer.module(module));
+    }
 
-    // for definiton in &anf_definitions {
-    //     definiton.print(interner, 0);
-    // }
+    let anf_definitions = anf_resolver.program(anf_modules)?;
 
     let compiler = Compiler::new(interner);
-    let (instructions, strings) = compiler.module(&anf_definitions);
+
+    let (instructions, strings) = compiler.program(&anf_definitions);
 
     display_instructions(&instructions, &strings);
 
@@ -101,13 +102,22 @@ pub fn repl() {
     }
 }
 
-pub fn from_file(file_path: &str) {
-    let source = fs::read_to_string(file_path).unwrap();
+pub fn from_file(file_paths: Vec<String>) {
+    let file_path = file_paths[0].clone();
+
+    let mut sources = vec![];
+    for file_path in file_paths {
+        let source = fs::read_to_string(file_path).unwrap();
+        sources.push(source);
+    }
+
+    let source = sources[0].clone();
+
     let mut interner = Interner::new();
     let mut vm = VM::new();
 
-    match module(&source, &mut vm, &mut interner) {
+    match program(sources, &mut vm, &mut interner) {
         Ok((result, strings)) => println!("= {}", result.display(&strings)),
-        Err(error) => error.report(file_path, &source, &interner),
+        Err(error) => error.report(&file_path, &source, &interner),
     }
 }
