@@ -1,0 +1,6 @@
+module Main
+
+let True  = \x \y x
+let False = \x \y x
+
+let main = True

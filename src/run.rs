@@ -14,8 +14,6 @@ use crate::{
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {
     let mut parser = Parser::from_source(source, interner);
     let mut expression_resolver = ExpressionResolver::new();
-
-
     let mut anf_resolver = ANFResolver::new();
     let mut checker = TypeChecker::new();
 
@@ -41,6 +39,20 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     let result = vm.run(&instructions);
 
     Ok((result, t, strings))
+}
+
+fn module(source: &str, _vm: &mut VM, interner: &mut Interner) -> Result<()> {
+    let mut parser = Parser::from_source(source, interner);
+    let mut resolver = ExpressionResolver::new();
+
+    let definitions = parser.module()?;
+    let definitions = resolver.module(definitions)?;
+
+    for definiton in definitions {
+        definiton.print(interner, 0);
+    }
+
+    Ok(())
 }
 
 pub fn repl() {
@@ -75,8 +87,8 @@ pub fn from_file(file_path: &str) {
     let mut interner = Interner::new();
     let mut vm = VM::new();
 
-    match expression(&source, &mut vm, &mut interner) {
-        Ok((result, t, strings)) => println!("= {} : {t}", result.display(&strings)),
+    match module(&source, &mut vm, &mut interner) {
+        Ok(()) => println!("OK"),
         Err(error) => error.report(file_path, &source, &interner),
     }
 }

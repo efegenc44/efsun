@@ -18,6 +18,8 @@ use expression::{
     LetExpression
 };
 
+use definition::{Definition, ModuleDefinition, NameDefinition};
+
 pub struct Parser<'source, 'interner> {
     tokens: Peekable<Lexer<'source, 'interner>>,
 }
@@ -125,7 +127,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 let literal = Expression::String(*string);
                 Ok(Located::new(literal, token.start(), token.end()))
             },
-            Token::Identifier(_) => self.identifier(),
+            Token::Identifier(_) => self.path(),
             Token::LeftParenthesis => self.grouping(),
             unexpected => {
                 let error = ParseError::UnexpectedToken(*unexpected);
@@ -134,7 +136,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
     }
 
-    fn identifier(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    fn path(&mut self) -> Result<Located<Expression<Unresolved>>> {
         let identifier = self.expect_identifier()?;
         let start = identifier.start();
         let mut end = identifier.end();
@@ -184,6 +186,58 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
 
         Ok(function)
+    }
+
+    pub fn module(&mut self) -> Result<Vec<Definition<Unresolved>>> {
+        let mut definitions = Vec::new();
+
+        while self.peek().is_some() {
+            definitions.push(self.definiton()?);
+        }
+
+        Ok(definitions)
+    }
+
+    fn definiton(&mut self) -> Result<Definition<Unresolved>> {
+        let token = self.peek_some()?;
+
+        match token.data() {
+            Token::LetKeyword => self.let_definiton(),
+            Token::ModuleKeyword => self.module_definition(),
+            unexpected => {
+                let error = ParseError::UnexpectedToken(*unexpected);
+                Err(located_error(error, token.start(), token.end()))
+            }
+        }
+    }
+
+    fn let_definiton(&mut self) -> Result<Definition<Unresolved>> {
+        self.expect(Token::LetKeyword)?;
+        let identifier = self.expect_identifier()?;
+        self.expect(Token::Equals)?;
+        let expression = self.expression()?;
+        let definiton = NameDefinition::new(identifier, expression);
+
+        Ok(Definition::Name(definiton))
+    }
+
+    fn module_definition(&mut self) -> Result<Definition<Unresolved>> {
+        self.expect(Token::ModuleKeyword)?;
+        let identifier = self.expect_identifier()?;
+        let start = identifier.start();
+        let mut end = identifier.end();
+        let mut parts = vec![*identifier.data()];
+        while self.peek_is(Token::Dot)? {
+            self.next();
+            let part = self.expect_identifier()?;
+            parts.push(*part.data());
+            end = part.end();
+        }
+
+        let parts = Located::new(parts, start, end);
+        let definition = ModuleDefinition::new(parts);
+
+        Ok(Definition::Module(definition))
     }
 }
 

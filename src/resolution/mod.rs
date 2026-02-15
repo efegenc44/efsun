@@ -5,9 +5,12 @@ use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
     error::{Result, located_error},
-    parse::expression::{
-        ApplicationExpression, Expression, PathExpression, LambdaExpression,
-        LetExpression
+    parse::{
+        expression::{
+            ApplicationExpression, Expression, PathExpression, LambdaExpression,
+            LetExpression
+        },
+        definition::{Definition, NameDefinition}
     },
     interner::{Interner, InternId},
     location::{Located, SourceLocation},
@@ -52,6 +55,10 @@ impl ExpressionResolver {
 
     fn current_module(&self) -> &Module {
         &self.modules[&self.current_module_path]
+    }
+
+    fn current_module_mut(&mut self) -> &mut Module {
+        self.modules.get_mut(&self.current_module_path).unwrap()
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
@@ -113,9 +120,8 @@ impl ExpressionResolver {
                     module_path.push(*name);
                     Ok(Bound::Absolute(module_path))
                 } else {
-                    // let error = ResolutionError::UnboundIdentifier(identifier);
-                    // Err(located_error(error, start, end))
-                    todo!()
+                    let error = ResolutionError::UnboundIdentifier(*name);
+                    Err(located_error(error, start, end))
                 }
             }
         };
@@ -155,6 +161,67 @@ impl ExpressionResolver {
         let captures = self.stack.pop_frame();
 
         Ok(LetExpression::<Resolved>::new(variable, variable_expression, return_expression, captures))
+    }
+
+    pub fn module(&mut self, definitions: Vec<Definition<Unresolved>>) -> Result<Vec<Definition<Resolved>>> {
+        self.find_module_name(&definitions)?;
+        self.collect_names(&definitions)?;
+
+        let mut resolved_definitons = Vec::new();
+        for definition in definitions {
+            resolved_definitons.push(self.definition(definition)?);
+        }
+
+        Ok(resolved_definitons)
+    }
+
+    fn find_module_name(&mut self, definitions: &[Definition<Unresolved>]) -> Result<()> {
+        for definition in definitions {
+            if let Definition::Module(module) = definition {
+                let module_path = Path::from_parts(module.parts().data().to_vec());
+                self.modules.insert(module_path.clone(), Module::empty());
+                self.current_module_path = module_path;
+
+                return Ok(())
+            }
+        }
+
+        Err(located_error(
+            ResolutionError::MissingModuleDefinition,
+            SourceLocation::eof(),
+            SourceLocation::eof())
+        )
+    }
+
+    fn collect_names(&mut self, definitions: &[Definition<Unresolved>]) -> Result<()> {
+        for definition in definitions {
+            if let Definition::Name(name) = definition {
+                // TODO: Check for duplicate definitions
+                self
+                    .current_module_mut()
+                    .names_mut()
+                    .insert(*name.identifier().data());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn definition(&mut self, definiton: Definition<Unresolved>) -> Result<Definition<Resolved>> {
+        let definition = match definiton {
+            Definition::Module(module) => Definition::Module(module),
+            Definition::Name(name) => Definition::Name(self.let_definition(name)?),
+        };
+
+        Ok(definition)
+    }
+
+    fn let_definition(&mut self, let_definition: NameDefinition<Unresolved>) -> Result<NameDefinition<Resolved>> {
+        let (identifier, expression) = let_definition.destruct();
+
+        let expression = self.expression(expression)?;
+
+        Ok(NameDefinition::new(identifier, expression))
     }
 }
 
@@ -248,5 +315,6 @@ impl ANFResolver {
 
 #[derive(Debug, Clone, Copy)]
 pub enum ResolutionError {
-    UnboundIdentifier(InternId)
+    UnboundIdentifier(InternId),
+    MissingModuleDefinition,
 }

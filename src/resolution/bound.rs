@@ -96,5 +96,9 @@ impl Module {
     pub fn names(&self) -> &HashSet<InternId> {
         &self.names
     }
+
+    pub fn names_mut(&mut self) -> &mut HashSet<InternId> {
+        &mut self.names
+    }
 }
 

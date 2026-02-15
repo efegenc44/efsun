@@ -38,6 +38,9 @@ impl Error {
                 ResolutionError::UnboundIdentifier(id) => {
                     format!("Identifier `{}` is not bound.", interner.lookup(*id))
                 },
+                ResolutionError::MissingModuleDefinition => {
+                    "Module definiton is missing.".to_string()
+                },
             },
             Self::Check(error) => match error {
                 TypeCheckError::TypeMismatch { first, second } => {

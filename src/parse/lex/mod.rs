@@ -132,6 +132,7 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
             ')' => self.single(Token::RightParenthesis),
             '\\' => self.single(Token::Backslash),
             '=' => self.single(Token::Equals),
+            '.' => self.single(Token::Dot),
             unknown => {
                 let start = self.location;
                 self.next();
