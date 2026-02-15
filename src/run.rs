@@ -41,7 +41,7 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     Ok((result, t, strings))
 }
 
-fn module(source: &str, _vm: &mut VM, interner: &mut Interner) -> Result<()> {
+fn module(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, Vec<String>)> {
     let mut parser = Parser::from_source(source, interner);
     let mut resolver = ExpressionResolver::new();
     let mut checker = TypeChecker::new();
@@ -60,11 +60,18 @@ fn module(source: &str, _vm: &mut VM, interner: &mut Interner) -> Result<()> {
     let anf_definitions = anf_transformer.module(definitions);
     let anf_definitions = anf_resolver.module(anf_definitions);
 
-    for definiton in &anf_definitions {
-        definiton.print(interner, 0);
-    }
+    // for definiton in &anf_definitions {
+    //     definiton.print(interner, 0);
+    // }
 
-    Ok(())
+    let compiler = Compiler::new(interner);
+    let (instructions, strings) = compiler.module(&anf_definitions);
+
+    display_instructions(&instructions, &strings);
+
+    let result = vm.run(&instructions);
+
+    Ok((result, strings))
 }
 
 pub fn repl() {
@@ -100,7 +107,7 @@ pub fn from_file(file_path: &str) {
     let mut vm = VM::new();
 
     match module(&source, &mut vm, &mut interner) {
-        Ok(()) => println!("OK"),
+        Ok((result, strings)) => println!("= {}", result.display(&strings)),
         Err(error) => error.report(file_path, &source, &interner),
     }
 }

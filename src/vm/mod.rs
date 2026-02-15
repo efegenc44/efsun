@@ -72,6 +72,10 @@ impl VM {
                     let value = self.current_frame().stack[id].clone();
                     self.push(value);
                 },
+                Instruction::GetAbsolute(id) => {
+                    let value = self.stack.first().unwrap().stack[id].clone();
+                    self.push(value);
+                }
                 Instruction::Jump(address) => {
                     ip = address;
                 },

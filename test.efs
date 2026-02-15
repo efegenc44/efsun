@@ -3,11 +3,5 @@ module Main
 let True  = \x \y x
 let False = \x \y y
 
-let id = \x x
-
-let merhaba = id "merhaba"
-let foo     = id (\x x)
-
-let loop = loop
-
-let main = True
+let main = \a
+    "Hello, World!"

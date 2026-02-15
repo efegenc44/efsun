@@ -3,10 +3,10 @@ pub mod anf;
 
 use crate::{
     interner::{InternId, Interner},
-    resolution::{Resolved, bound::Bound},
+    resolution::{Resolved, bound::{Bound, Path}},
 };
 
-use anf::{ANF, Atom};
+use anf::{ANF, Atom, ANFDefinition};
 
 use instruction::Instruction;
 
@@ -14,6 +14,7 @@ pub struct Compiler<'interner> {
     code: Vec<Instruction>,
     interns: Vec<InternId>,
     strings: Vec<String>,
+    names: Vec<Path>,
     interner: &'interner Interner
 }
 
@@ -23,6 +24,7 @@ impl<'interner> Compiler<'interner> {
             code: Vec::new(),
             interns: Vec::new(),
             strings: Vec::new(),
+            names: Vec::new(),
             interner
         }
     }
@@ -33,6 +35,39 @@ impl<'interner> Compiler<'interner> {
 
     fn ip(&self) -> usize {
         self.code.len()
+    }
+
+    pub fn module(mut self, definitions: &[ANFDefinition<Resolved>]) -> (Vec<Instruction>, Vec<String>)  {
+        for definition in definitions {
+            if let ANFDefinition::Name(name) = definition {
+                self.names.push(name.path().clone());
+            }
+        }
+
+        for definition in definitions {
+            match definition {
+                ANFDefinition::Module(_) => (),
+                ANFDefinition::Name(name) => {
+                    self.expression(name.expression());
+                },
+            }
+        }
+
+        let parts = vec!["Main", "main"]
+            .iter()
+            .map(|s| self.interner.intern_id(s))
+            .collect::<Vec<_>>();
+
+        let path = Path::from_parts(parts);
+
+        let id = self.names.iter().position(|p| p == &path).unwrap();
+        // TODO: Remove this instruction
+        self.write(Instruction::String(0));
+        self.write(Instruction::GetAbsolute(id));
+        // TODO: Enforce main symbol to have an arrow type
+        self.write(Instruction::Call);
+
+        (self.code, self.strings)
     }
 
     pub fn compile(mut self, expression: &ANF<Resolved>) -> (Vec<Instruction>, Vec<String>) {
@@ -75,7 +110,10 @@ impl<'interner> Compiler<'interner> {
         match identifier.bound() {
             Bound::Local(id) => self.write(Instruction::GetLocal(id.value())),
             Bound::Capture(id) => self.write(Instruction::GetCapture(id.value())),
-            Bound::Absolute(_) => todo!(),
+            Bound::Absolute(path) => {
+                let id = self.names.iter().position(|p| p == path).unwrap();
+                self.write(Instruction::GetAbsolute(id));
+            },
         }
     }
 

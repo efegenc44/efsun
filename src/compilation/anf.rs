@@ -3,7 +3,7 @@ use std::{cell::RefCell, marker::PhantomData};
 use crate::{
     parse::{definition::Definition, expression::Expression},
     interner::{InternId, Interner},
-    resolution::{Resolved, Unresolved, bound::{Bound, Capture}}
+    resolution::{Resolved, Unresolved, bound::{Bound, Capture, Path}}
 };
 
 pub enum ANFDefinition<State> {
@@ -51,20 +51,35 @@ impl ModuleDefinition {
 
 pub struct NameDefinition<T> {
     identifier: InternId,
-    expression: ANF<T>
+    expression: ANF<T>,
+    path: Option<Path>
 }
 
 impl<T> NameDefinition<T> {
-    pub fn new(identifier: InternId, expression: ANF<T>) -> Self {
-        Self { identifier, expression }
-    }
-
     pub fn identifier(&self) -> InternId {
         self.identifier
+    }
+
+    pub fn expression(&self) -> &ANF<T> {
+        &self.expression
+    }
+}
+
+impl NameDefinition<Resolved> {
+    pub fn new(identifier: InternId, expression: ANF<Resolved>, path: Path) -> Self {
+        Self { identifier, expression, path: Some(path) }
+    }
+
+    pub fn path(&self) -> &Path {
+        self.path.as_ref().unwrap()
     }
 }
 
 impl NameDefinition<Unresolved> {
+    pub fn new(identifier: InternId, expression: ANF<Unresolved>) -> Self {
+        Self { identifier, expression, path: None }
+    }
+
     pub fn destruct(self) -> (InternId, ANF<Unresolved>) {
         (self.identifier, self.expression)
     }
@@ -321,7 +336,7 @@ impl ANFTransformer {
                 Definition::Name(name) => {
                     let (identifier, expression) = name.destruct();
                     let expression = self.convert(expression.destruct().0);
-                    let definition = NameDefinition::new(*identifier.data(), expression);
+                    let definition = NameDefinition::<Unresolved>::new(*identifier.data(), expression);
                     anf_definitions.push(ANFDefinition::Name(definition))
                 },
             }

@@ -32,6 +32,16 @@ impl Interner {
     pub fn lookup(&self, id: InternId) -> &str {
         self.strings.get(id.0).unwrap()
     }
+
+    pub fn intern_id(&self, string: &str) -> InternId {
+        for (id, interned) in self.strings.iter().enumerate() {
+            if interned == string {
+                return InternId(id);
+            }
+        }
+
+        unreachable!()
+    }
 }
 
 impl Display for InternId {

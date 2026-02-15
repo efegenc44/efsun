@@ -396,8 +396,9 @@ impl ANFResolver {
         let (identifier, expression) = let_definition.destruct();
 
         let expression = self.expression(expression);
+        let path = self.current_module_path.append(identifier);
 
-        anf::NameDefinition::new(identifier, expression)
+        anf::NameDefinition::<Resolved>::new(identifier, expression, path)
     }
 }
 
