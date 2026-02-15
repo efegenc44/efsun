@@ -1,7 +1,7 @@
 use crate::{
     interner::{InternId, Interner},
     location::Located,
-    parse::expression::Expression, resolution::Unresolved
+    parse::expression::Expression, resolution::{Unresolved, Resolved, bound::Path}
 };
 
 pub enum Definition<State> {
@@ -10,6 +10,7 @@ pub enum Definition<State> {
 }
 
 impl<T> Definition<T> {
+    #[allow(unused)]
     pub fn print(&self, interner: &Interner, depth: usize) {
         let indent = depth*2;
 
@@ -50,21 +51,36 @@ impl ModuleDefinition {
 pub struct NameDefinition<T> {
     identifier: Located<InternId>,
     expression: Located<Expression<T>>,
+    path: Option<Path>
 }
 
 impl<T> NameDefinition<T> {
-    pub fn new(identifier: Located<InternId>, expression: Located<Expression<T>>) -> Self {
-        Self { identifier, expression }
-    }
-
     pub fn identifier(&self) -> Located<InternId> {
         self.identifier
+    }
+
+    pub fn expression(&self) -> &Located<Expression<T>> {
+        &self.expression
     }
 }
 
 impl NameDefinition<Unresolved> {
+    pub fn new(identifier: Located<InternId>, expression: Located<Expression<Unresolved>>) -> Self {
+        Self { identifier, expression, path: None }
+    }
+
     pub fn destruct(self) -> (Located<InternId>, Located<Expression<Unresolved>>) {
         (self.identifier, self.expression)
+    }
+}
+
+impl NameDefinition<Resolved> {
+    pub fn new(identifier: Located<InternId>, expression: Located<Expression<Resolved>>, path: Path) -> Self {
+        Self { identifier, expression, path: Some(path) }
+    }
+
+    pub fn path(&self) -> &Path {
+        self.path.as_ref().unwrap()
     }
 }
 

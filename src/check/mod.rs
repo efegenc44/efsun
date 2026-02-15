@@ -3,12 +3,15 @@ pub mod typ;
 use std::{collections::HashMap, result};
 
 use crate::{
-    parse::expression::{
-        ApplicationExpression, Expression, PathExpression,
-        LambdaExpression, LetExpression
+    parse::{
+        expression::{
+            ApplicationExpression, Expression, PathExpression,
+            LambdaExpression, LetExpression
+        },
+        definition::{Definition, NameDefinition}
     },
     location::{Located, SourceLocation},
-    resolution::{Resolved, bound::{Bound, Capture}},
+    resolution::{Resolved, bound::{Bound, Capture, Path}},
     error::{Result, located_error}
 };
 
@@ -16,6 +19,7 @@ use typ::{Type, MonoType, ArrowType};
 
 pub struct TypeChecker {
     frames: Vec<Frame>,
+    names: HashMap<Path, Type>,
     newvar_counter: usize,
     unification_table: HashMap<usize, MonoType>
 }
@@ -24,6 +28,7 @@ impl TypeChecker {
     pub fn new() -> Self {
         Self {
             frames: vec![Frame::with_captures(vec![])],
+            names: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default()
         }
@@ -142,7 +147,10 @@ impl TypeChecker {
                 let capture = self.current_frame().captures[capture.value()];
                 Ok(self.get_capture(capture))
             }
-            Bound::Absolute(_) => todo!()
+            Bound::Absolute(path) => {
+                let t = self.names[path].clone();
+                Ok(self.instantiate(t))
+            }
         }
     }
 
@@ -217,6 +225,39 @@ impl TypeChecker {
         self.pop_frame();
 
         Ok(self.substitute(return_type))
+    }
+
+    pub fn module(&mut self, definitions: &[Definition<Resolved>]) -> Result<()> {
+        self.collect_names(definitions)?;
+
+        for definition in definitions {
+            match definition {
+                Definition::Module(_) => (),
+                Definition::Name(name) => self.let_definition(name)?,
+            }
+        }
+
+        Ok(())
+    }
+
+    fn collect_names(&mut self, definitions: &[Definition<Resolved>]) -> Result<()> {
+        for definition in definitions {
+            if let Definition::Name(name) = definition {
+                let newvar = self.newvar();
+                self.names.insert(name.path().clone(), Type::Mono(newvar));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn let_definition(&mut self, let_definition: &NameDefinition<Resolved>) -> Result<()> {
+        let m = self.infer(let_definition.expression())?;
+        let t = m.generalize();
+        // println!("{} : {t}", let_definition.identifier().data());
+        *self.names.get_mut(let_definition.path()).unwrap() = t;
+
+        Ok(())
     }
 }
 

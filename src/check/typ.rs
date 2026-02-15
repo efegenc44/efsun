@@ -6,6 +6,21 @@ pub enum Type {
     Poly(Vec<usize>, MonoType)
 }
 
+impl Display for Type {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Type::Mono(m) => write!(f, "{m}"),
+            Type::Poly(variables, m) => {
+                for variable in variables {
+                    write!(f, "a{variable} ")?;
+                }
+
+                write!(f, "; {m}")
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum MonoType {
     Variable(usize),

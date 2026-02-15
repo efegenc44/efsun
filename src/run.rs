@@ -44,13 +44,17 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
 fn module(source: &str, _vm: &mut VM, interner: &mut Interner) -> Result<()> {
     let mut parser = Parser::from_source(source, interner);
     let mut resolver = ExpressionResolver::new();
+    let mut checker = TypeChecker::new();
+
 
     let definitions = parser.module()?;
     let definitions = resolver.module(definitions)?;
 
-    for definiton in definitions {
-        definiton.print(interner, 0);
-    }
+    // for definiton in &definitions {
+    //     definiton.print(interner, 0);
+    // }
+
+    checker.module(&definitions)?;
 
     Ok(())
 }

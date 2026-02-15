@@ -220,8 +220,9 @@ impl ExpressionResolver {
         let (identifier, expression) = let_definition.destruct();
 
         let expression = self.expression(expression)?;
+        let path = self.current_module_path.append(*identifier.data());
 
-        Ok(NameDefinition::new(identifier, expression))
+        Ok(NameDefinition::<Resolved>::new(identifier, expression, path))
     }
 }
 

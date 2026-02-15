@@ -216,7 +216,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let identifier = self.expect_identifier()?;
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
-        let definiton = NameDefinition::new(identifier, expression);
+        let definiton = NameDefinition::<Unresolved>::new(identifier, expression);
 
         Ok(Definition::Name(definiton))
     }
