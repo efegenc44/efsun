@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 pub struct Interner {
-    strings: Vec<String>,
+    pub strings: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

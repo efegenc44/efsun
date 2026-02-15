@@ -4,6 +4,7 @@ use crate::{
     parse::expression::Expression, resolution::{Unresolved, Resolved, bound::Path}
 };
 
+#[derive(Clone)]
 pub enum Definition<State> {
     Module(ModuleDefinition),
     Name(NameDefinition<State>)
@@ -34,6 +35,7 @@ impl<T> Definition<T> {
     }
 }
 
+#[derive(Clone)]
 pub struct ModuleDefinition {
     parts: Located<Vec<InternId>>,
 }
@@ -48,6 +50,7 @@ impl ModuleDefinition {
     }
 }
 
+#[derive(Clone)]
 pub struct NameDefinition<T> {
     identifier: Located<InternId>,
     expression: Located<Expression<T>>,

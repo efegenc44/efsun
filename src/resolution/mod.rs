@@ -14,7 +14,7 @@ use crate::{
     },
     interner::{Interner, InternId},
     location::{Located, SourceLocation},
-    compilation::anf::{self, Atom, ANF, Identifier},
+    compilation::anf::{self, Atom, ANF, ANFLocal},
 };
 
 use bound::{Bound, BoundId, Path, Module};
@@ -110,7 +110,6 @@ impl ExpressionResolver {
         start: SourceLocation,
         end: SourceLocation
     ) -> Result<PathExpression<Resolved>> {
-
         let bound = match &path.parts().data()[..] {
             [] => unreachable!(),
             [identifier] => self.identifier(*identifier, start, end),
@@ -227,7 +226,10 @@ impl ExpressionResolver {
 }
 
 pub struct ANFResolver {
-    stack: Stack<anf::Identifier>,
+    stack: Stack<anf::ANFLocal>,
+
+    modules: HashMap<Path, Module>,
+    current_module_path: Path
 }
 
 impl ANFResolver {
@@ -236,8 +238,14 @@ impl ANFResolver {
         stack.push_frame();
 
         ANFResolver {
-            stack
+            stack,
+            modules: HashMap::new(),
+            current_module_path: Path::empty()
         }
+    }
+
+    fn current_module_mut(&mut self) -> &mut Module {
+        self.modules.get_mut(&self.current_module_path).unwrap()
     }
 
     pub fn expression(&mut self, anf: ANF<Unresolved>) -> ANF<Resolved> {
@@ -251,38 +259,66 @@ impl ANFResolver {
     fn atom(&mut self, atom: Atom<Unresolved>) -> Atom<Resolved> {
         match atom {
             Atom::String(id) => Atom::String(id),
-            Atom::Identifier(identifier) => Atom::Identifier(self.identifier(identifier)),
+            Atom::Path(path) => Atom::Path(self.path(path)),
             Atom::Lambda(lambda) => Atom::Lambda(self.lambda(lambda)),
         }
     }
 
-    fn identifier(&mut self, identifier: anf::IdentifierExpression<Unresolved>) -> anf::IdentifierExpression<Resolved> {
-        let id = identifier.identifier();
-
-        let bound = match self.stack.current_frame().resolve(id) {
-            Some(id) => Bound::Local(id),
-            None => {
-                let capture = self.stack.capture(id).unwrap();
-                let id = match self.stack.current_frame().captures().iter().position(|c| *c == capture) {
-                    Some(id) => id,
-                    None => {
-                        self.stack.current_frame_mut().captures_mut().push(capture);
-                        self.stack.current_frame().captures().len() - 1
+    fn path(&mut self, path: anf::PathExpression<Unresolved>) -> anf::PathExpression<Resolved> {
+        let bound = match path.path() {
+            anf::ANFPath::ANF(id) => {
+                self.identifier(ANFLocal::ANF(*id))
+            },
+            anf::ANFPath::Normal(parts) => {
+                match &parts[..] {
+                    [] => unreachable!(),
+                    [identifier] => self.identifier(ANFLocal::Normal(*identifier)),
+                    [module@.., name] => {
+                        let mut module_path = Path::from_parts(module.to_vec());
+                        module_path.push(*name);
+                        Bound::Absolute(module_path)
                     }
-                };
-
-                Bound::Capture(BoundId::new(id))
+                }
             },
         };
 
-        identifier.resolve(bound)
+        path.resolve(bound)
+    }
+
+    fn identifier(&mut self, identifier: ANFLocal) -> Bound {
+        match self.stack.current_frame().resolve(identifier) {
+            Some(id) => Bound::Local(id),
+            None => {
+                match self.stack.capture(identifier) {
+                    Some(capture) => {
+                        let id = match self.stack.current_frame().captures().iter().position(|c| *c == capture) {
+                            Some(id) => id,
+                            None => {
+                                self.stack.current_frame_mut().captures_mut().push(capture);
+                                self.stack.current_frame().captures().len() - 1
+                            }
+                        };
+
+                        Bound::Capture(BoundId::new(id))
+                    },
+                    None => {
+                        let ANFLocal::Normal(identifier) = identifier else {
+                            panic!()
+                        };
+
+                        let path = self.current_module_path.append(identifier);
+                        Bound::Absolute(path)
+                    },
+                }
+            },
+        }
     }
 
     fn lambda(&mut self, lambda: anf::LambdaExpression<Unresolved>) -> anf::LambdaExpression<Resolved> {
         let (variable, expression) = lambda.destruct();
 
         self.stack.push_frame();
-        self.stack.push_local(Identifier::Normal(variable));
+        self.stack.push_local(ANFLocal::Normal(variable));
         let expression = self.expression(expression);
         self.stack.pop_local();
         let captures = self.stack.pop_frame();
@@ -294,7 +330,7 @@ impl ANFResolver {
         let (variable, variable_expression, return_expression) = letin.destruct();
 
         let variable_expression = self.atom(variable_expression);
-        self.stack.push_local(Identifier::Normal(variable));
+        self.stack.push_local(ANFLocal::Normal(variable));
         let return_expression = self.expression(return_expression);
         self.stack.pop_local();
 
@@ -311,6 +347,57 @@ impl ANFResolver {
         self.stack.pop_local();
 
         anf::ApplicationExpression::new(variable, function, argument, expression)
+    }
+
+    pub fn module(&mut self, definitions: Vec<anf::ANFDefinition<Unresolved>>) -> Vec<anf::ANFDefinition<Resolved>> {
+        self.find_module_name(&definitions);
+        self.collect_names(&definitions);
+
+        let mut resolved_definitons = Vec::new();
+        for definition in definitions {
+            resolved_definitons.push(self.definition(definition));
+        }
+
+        resolved_definitons
+    }
+
+    fn find_module_name(&mut self, definitions: &[anf::ANFDefinition<Unresolved>]) {
+        for definition in definitions {
+            if let anf::ANFDefinition::Module(module) = definition {
+                let module_path = Path::from_parts(module.parts().to_vec());
+                self.modules.insert(module_path.clone(), Module::empty());
+                self.current_module_path = module_path;
+                return;
+            }
+        }
+
+        unreachable!()
+    }
+
+    fn collect_names(&mut self, definitions: &[anf::ANFDefinition<Unresolved>]) {
+        for definition in definitions {
+            if let anf::ANFDefinition::Name(name) = definition {
+                self
+                    .current_module_mut()
+                    .names_mut()
+                    .insert(name.identifier());
+            }
+        }
+    }
+
+    fn definition(&mut self, definition: anf::ANFDefinition<Unresolved>) -> anf::ANFDefinition<Resolved> {
+        match definition {
+            anf::ANFDefinition::Module(module) => anf::ANFDefinition::Module(module),
+            anf::ANFDefinition::Name(name) => anf::ANFDefinition::Name(self.let_definition(name)),
+        }
+    }
+
+    fn let_definition(&mut self, let_definition: anf::NameDefinition<Unresolved>) -> anf::NameDefinition<Resolved> {
+        let (identifier, expression) = let_definition.destruct();
+
+        let expression = self.expression(expression);
+
+        anf::NameDefinition::new(identifier, expression)
     }
 }
 

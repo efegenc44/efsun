@@ -51,7 +51,7 @@ impl<'interner> Compiler<'interner> {
     fn atom(&mut self, atom: &Atom<Resolved>) {
         match atom {
             Atom::String(id) => self.string(*id),
-            Atom::Identifier(identifier) => self.identifier(identifier),
+            Atom::Path(identifier) => self.identifier(identifier),
             Atom::Lambda(lambda) => self.lambda(lambda),
         }
     }
@@ -71,7 +71,7 @@ impl<'interner> Compiler<'interner> {
         self.write(Instruction::String(offset));
     }
 
-    fn identifier(&mut self, identifier: &anf::IdentifierExpression<Resolved>) {
+    fn identifier(&mut self, identifier: &anf::PathExpression<Resolved>) {
         match identifier.bound() {
             Bound::Local(id) => self.write(Instruction::GetLocal(id.value())),
             Bound::Capture(id) => self.write(Instruction::GetCapture(id.value())),

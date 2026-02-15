@@ -46,15 +46,23 @@ fn module(source: &str, _vm: &mut VM, interner: &mut Interner) -> Result<()> {
     let mut resolver = ExpressionResolver::new();
     let mut checker = TypeChecker::new();
 
-
     let definitions = parser.module()?;
-    let definitions = resolver.module(definitions)?;
+    let resolved_definitions = resolver.module(definitions.clone())?;
+    checker.module(&resolved_definitions)?;
 
     // for definiton in &definitions {
     //     definiton.print(interner, 0);
     // }
 
-    checker.module(&definitions)?;
+    let anf_transformer = ANFTransformer::new();
+    let mut anf_resolver = ANFResolver::new();
+
+    let anf_definitions = anf_transformer.module(definitions);
+    let anf_definitions = anf_resolver.module(anf_definitions);
+
+    for definiton in &anf_definitions {
+        definiton.print(interner, 0);
+    }
 
     Ok(())
 }
