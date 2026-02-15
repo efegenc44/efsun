@@ -1,6 +1,8 @@
 pub mod instruction;
 pub mod anf;
 
+use std::collections::HashMap;
+
 use crate::{
     interner::{InternId, Interner},
     resolution::{Resolved, bound::{Bound, Path}},
@@ -14,6 +16,7 @@ pub struct Compiler<'interner> {
     code: Vec<Instruction>,
     interns: Vec<InternId>,
     strings: Vec<String>,
+    name_exprs: HashMap<Path, ANF<Resolved>>,
     names: Vec<Path>,
     interner: &'interner Interner
 }
@@ -24,6 +27,7 @@ impl<'interner> Compiler<'interner> {
             code: Vec::new(),
             interns: Vec::new(),
             strings: Vec::new(),
+            name_exprs: HashMap::new(),
             names: Vec::new(),
             interner
         }
@@ -39,11 +43,7 @@ impl<'interner> Compiler<'interner> {
 
     pub fn program(mut self, modules: &[Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, Vec<String>) {
         for module in modules {
-            for definition in module {
-                if let ANFDefinition::Name(name) = definition {
-                    self.names.push(name.path().clone());
-                }
-            }
+            self.collect_names(module);
         }
 
         for module in modules {
@@ -67,18 +67,21 @@ impl<'interner> Compiler<'interner> {
         (self.code, self.strings)
     }
 
-    pub fn module(&mut self, definitions: &[ANFDefinition<Resolved>]) {
-        // for definition in definitions {
-        //     if let ANFDefinition::Name(name) = definition {
-        //         self.names.push(name.path().clone());
-        //     }
-        // }
+    fn collect_names(&mut self, definitions: &[ANFDefinition<Resolved>]) {
+        for definition in definitions {
+            if let ANFDefinition::Name(name) = definition {
+                self.name_exprs.insert(name.path().clone(), name.expression().clone());
+            }
+        }
+    }
 
+    pub fn module(&mut self, definitions: &[ANFDefinition<Resolved>]) {
         for definition in definitions {
             match definition {
                 ANFDefinition::Module(_) => (),
                 ANFDefinition::Name(name) => {
                     self.expression(name.expression());
+                    self.names.push(name.path().clone());
                 },
                 ANFDefinition::Import(_) => (),
             }
@@ -126,7 +129,16 @@ impl<'interner> Compiler<'interner> {
             Bound::Local(id) => self.write(Instruction::GetLocal(id.value())),
             Bound::Capture(id) => self.write(Instruction::GetCapture(id.value())),
             Bound::Absolute(path) => {
-                let id = self.names.iter().position(|p| p == path).unwrap();
+                let id = match self.names.iter().position(|p| p == path) {
+                    Some(id) => id,
+                    None => {
+                        let expr = self.name_exprs[path].clone();
+                        self.expression(&expr);
+                        let id = self.names.len();
+                        self.names.push(path.clone());
+                        id
+                    },
+                };
                 self.write(Instruction::GetAbsolute(id));
             },
         }
