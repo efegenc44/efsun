@@ -32,11 +32,11 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     // anf.print(0, interner);
 
     let compiler = Compiler::new(interner);
-    let (instructions, strings) = compiler.compile(&anf);
+    let (instructions, strings, lambdas) = compiler.compile(&anf);
 
-    display_instructions(&instructions, &strings);
+    display_instructions(&instructions, &strings, &lambdas);
 
-    let result = vm.run(&instructions);
+    let result = vm.run(&instructions, &lambdas, true);
 
     Ok((result, t, strings))
 }
@@ -66,11 +66,11 @@ fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result
 
     let compiler = Compiler::new(interner);
 
-    let (instructions, strings) = compiler.program(&anf_definitions);
+    let (instructions, strings, lambdas) = compiler.program(&anf_definitions);
 
-    display_instructions(&instructions, &strings);
+    display_instructions(&instructions, &strings, &lambdas);
 
-    let result = vm.run(&instructions);
+    let result = vm.run(&instructions, &lambdas, true);
 
     Ok((result, strings))
 }
@@ -99,6 +99,8 @@ pub fn repl() {
             Ok((result, t, strings)) => println!("= {} : {t}", result.display(&strings)),
             Err(error) => error.report("<interactive>", input, &interner),
         }
+
+        vm.reset_state();
     }
 }
 

@@ -1,9 +1,12 @@
 module Main
 
+let main = \a
+    Test2.test2 "AAAA" "HMMM"
+
 import Test2 (Test3 as test3)
+import Test2
+
+let id = \x \y \z x
 
 let b = a
 let a = "Merhaba"
-
-let main = \a
-    test3.id "Hello, World!"

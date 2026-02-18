@@ -13,35 +13,27 @@ use anf::{ANF, Atom, ANFDefinition};
 use instruction::Instruction;
 
 pub struct Compiler<'interner> {
-    code: Vec<Instruction>,
     interns: Vec<InternId>,
     strings: Vec<String>,
+    lambdas: Vec<Vec<Instruction>>,
     name_exprs: HashMap<Path, ANF<Resolved>>,
-    names: Vec<Path>,
+    names: Vec<(Path, Vec<Instruction>)>,
     interner: &'interner Interner
 }
 
 impl<'interner> Compiler<'interner> {
     pub fn new(interner: &'interner Interner) -> Self {
         Self {
-            code: Vec::new(),
             interns: Vec::new(),
             strings: Vec::new(),
+            lambdas: Vec::new(),
             name_exprs: HashMap::new(),
             names: Vec::new(),
             interner
         }
     }
 
-    fn write(&mut self, instruction: Instruction) {
-        self.code.push(instruction);
-    }
-
-    fn ip(&self) -> usize {
-        self.code.len()
-    }
-
-    pub fn program(mut self, modules: &[Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, Vec<String>) {
+    pub fn program(mut self, modules: &[Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, Vec<String>, Vec<Vec<Instruction>>) {
         for module in modules {
             self.collect_names(module);
         }
@@ -57,14 +49,22 @@ impl<'interner> Compiler<'interner> {
 
         let path = Path::from_parts(parts);
 
-        let id = self.names.iter().position(|p| p == &path).unwrap();
-        // TODO: Remove this instruction
-        self.write(Instruction::String(0));
-        self.write(Instruction::GetAbsolute(id));
-        // TODO: Enforce main symbol to have an arrow type
-        self.write(Instruction::Call);
+        let id = self.names.iter().position(|p| &p.0 == &path).unwrap();
 
-        (self.code, self.strings)
+        let mut instructions = self
+            .names
+            .into_iter()
+            .map(|(_, code)| code)
+            .flatten()
+            .collect::<Vec<_>>();
+
+        // TODO: Remove this instruction
+        instructions.push(Instruction::String(0));
+        instructions.push(Instruction::GetAbsolute(id));
+        // TODO: Enforce main symbol to have an arrow type
+        instructions.push(Instruction::Call);
+
+        (instructions, self.strings, self.lambdas)
     }
 
     fn collect_names(&mut self, definitions: &[ANFDefinition<Resolved>]) {
@@ -80,20 +80,23 @@ impl<'interner> Compiler<'interner> {
             match definition {
                 ANFDefinition::Module(_) => (),
                 ANFDefinition::Name(name) => {
-                    self.expression(name.expression());
-                    self.names.push(name.path().clone());
+                    if let Some((_, _)) = self.names.iter().find(|p| &p.0 == name.path()) {
+                    } else {
+                        let code = self.expression(name.expression());
+                        self.names.push((name.path().clone(), code));
+                    }
                 },
                 ANFDefinition::Import(_) => (),
             }
         }
     }
 
-    pub fn compile(mut self, expression: &ANF<Resolved>) -> (Vec<Instruction>, Vec<String>) {
-        self.expression(expression);
-        (self.code, self.strings)
+    pub fn compile(mut self, expression: &ANF<Resolved>) -> (Vec<Instruction>, Vec<String>, Vec<Vec<Instruction>>) {
+        (self.expression(expression), self.strings, self.lambdas)
     }
 
-    fn expression(&mut self, expression: &ANF<Resolved>) {
+    #[must_use]
+    fn expression(&mut self, expression: &ANF<Resolved>) -> Vec<Instruction> {
         match expression {
             ANF::Let(letin) => self.letin(letin),
             ANF::Application(application) => self.application(application),
@@ -101,7 +104,8 @@ impl<'interner> Compiler<'interner> {
         }
     }
 
-    fn atom(&mut self, atom: &Atom<Resolved>) {
+    #[must_use]
+    fn atom(&mut self, atom: &Atom<Resolved>) -> Vec<Instruction> {
         match atom {
             Atom::String(id) => self.string(*id),
             Atom::Path(identifier) => self.identifier(identifier),
@@ -109,7 +113,7 @@ impl<'interner> Compiler<'interner> {
         }
     }
 
-    fn string(&mut self, intern_id: InternId) {
+    fn string(&mut self, intern_id: InternId) -> Vec<Instruction> {
         let offset = match self.interns.iter().position(|id| *id == intern_id) {
             Some(offset) => offset,
             None => {
@@ -121,49 +125,62 @@ impl<'interner> Compiler<'interner> {
             },
         };
 
-        self.write(Instruction::String(offset));
+        vec![Instruction::String(offset)]
     }
 
-    fn identifier(&mut self, identifier: &anf::PathExpression<Resolved>) {
+    fn identifier(&mut self, identifier: &anf::PathExpression<Resolved>) -> Vec<Instruction> {
         match identifier.bound() {
-            Bound::Local(id) => self.write(Instruction::GetLocal(id.value())),
-            Bound::Capture(id) => self.write(Instruction::GetCapture(id.value())),
+            Bound::Local(id) => vec![Instruction::GetLocal(id.value())],
+            Bound::Capture(id) => vec![Instruction::GetCapture(id.value())],
             Bound::Absolute(path) => {
-                let id = match self.names.iter().position(|p| p == path) {
+                let mut instructions = vec![];
+
+                let id = match self.names.iter().position(|p| &p.0 == path) {
                     Some(id) => id,
                     None => {
                         let expr = self.name_exprs[path].clone();
-                        self.expression(&expr);
+                        let code = self.expression(&expr);
+                        instructions.extend(code.clone());
                         let id = self.names.len();
-                        self.names.push(path.clone());
+                        self.names.push((path.clone(), code));
                         id
                     },
                 };
-                self.write(Instruction::GetAbsolute(id));
+
+                vec![Instruction::GetAbsolute(id)]
             },
         }
     }
 
-    fn application(&mut self, application: &anf::ApplicationExpression<Resolved>) {
-        self.atom(application.argument());
-        self.atom(application.function());
-        self.write(Instruction::Call);
-        self.expression(application.expression());
+    fn application(&mut self, application: &anf::ApplicationExpression<Resolved>) -> Vec<Instruction> {
+        let mut instructions = vec![];
+
+        instructions.extend(self.atom(application.argument()));
+        instructions.extend(self.atom(application.function()));
+        instructions.push(Instruction::Call);
+        instructions.extend(self.expression(application.expression()));
+
+        instructions
     }
 
-    fn lambda(&mut self, lambda: &anf::LambdaExpression<Resolved>) {
-        self.write(Instruction::Jump(0));
-        let start = self.ip();
-        self.expression(lambda.expression());
-        self.write(Instruction::Return);
-        let end = self.ip();
-        self.write(Instruction::MakeLambda(start, lambda.captures().to_vec()));
+    fn lambda(&mut self, lambda: &anf::LambdaExpression<Resolved>) -> Vec<Instruction> {
+        let mut instructions = vec![];
 
-        self.code[start - 1] = Instruction::Jump(end);
+        instructions.extend(self.expression(lambda.expression()));
+        instructions.push(Instruction::Return);
+
+        let id = self.lambdas.len();
+        self.lambdas.push(instructions);
+
+        vec![Instruction::MakeLambda(id, lambda.captures().to_vec())]
     }
 
-    fn letin(&mut self, letin: &anf::LetExpression<Resolved>) {
-        self.atom(letin.variable_expression());
-        self.expression(letin.return_expression());
+    fn letin(&mut self, letin: &anf::LetExpression<Resolved>) -> Vec<Instruction> {
+        let mut instructions = vec![];
+
+        instructions.extend(self.atom(letin.variable_expression()));
+        instructions.extend(self.expression(letin.return_expression()));
+
+        instructions
     }
 }

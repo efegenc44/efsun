@@ -33,9 +33,11 @@ impl VM {
         self.current_frame_mut().stack.pop().unwrap()
     }
 
-    pub fn run(&mut self, instructions: &[Instruction]) -> Value {
+    pub fn reset_state(&mut self) {
         self.stack = vec![Frame::new()];
+    }
 
+    pub fn run(&mut self, instructions: &[Instruction], lambdas: &[Vec<Instruction>], is_main: bool) -> Value {
         let mut ip = 0;
 
         while ip < instructions.len() {
@@ -76,31 +78,27 @@ impl VM {
                     let value = self.stack.first().unwrap().stack[id].clone();
                     self.push(value);
                 }
-                Instruction::Jump(address) => {
-                    ip = address;
-                },
                 Instruction::Call => {
                     let (address, captures) = self.pop().into_lambda().destruct();
                     let argument = self.pop();
 
                     self.stack.push(Frame::new());
                     self.push(argument);
-
                     self.current_frame_mut().closure = captures;
-                    self.current_frame_mut().return_ip = ip;
 
-                    ip = address;
+                    // FIX THIS
+                    let value = self.run(&lambdas[address], lambdas, false);
+                    self.push(value);
                 },
                 Instruction::Return => {
                     let return_value = self.pop();
-                    let return_ip = self.stack.pop().unwrap().return_ip;
+                    self.stack.pop().unwrap();
                     self.push(return_value);
-                    ip = return_ip;
                 },
             }
         }
 
-        if self.stack.len() != 1 {
+        if self.stack.len() != 1 && is_main {
             println!("{:?}", self.current_frame().stack);
             panic!();
         }
@@ -112,7 +110,6 @@ impl VM {
 struct Frame {
     stack: Vec<Value>,
     closure: Rc<Vec<Value>>,
-    return_ip: usize,
 }
 
 impl Frame {
@@ -124,7 +121,6 @@ impl Frame {
         Self {
             stack: Vec::new(),
             closure: Rc::new(closure),
-            return_ip: 0
         }
     }
 }
