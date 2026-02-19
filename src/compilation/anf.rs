@@ -1,15 +1,13 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use crate::{
-    parse::{definition::{Definition, ImportDefinition}, expression::Expression},
+    parse::{definition::Definition, expression::Expression},
     interner::{InternId, Interner},
     resolution::{Resolved, Unresolved, bound::{Bound, Capture, Path}}
 };
 
 pub enum ANFDefinition<State> {
-    Module(ModuleDefinition),
     Name(NameDefinition<State>),
-    Import(ImportDefinition)
 }
 
 impl<T> ANFDefinition<T> {
@@ -18,46 +16,27 @@ impl<T> ANFDefinition<T> {
         let indent = depth*2;
 
         match self {
-            ANFDefinition::Module(module) => {
-                let path_string = module.parts
-                    .iter()
-                    .map(|id| interner.lookup(*id))
-                    .collect::<Vec<_>>()
-                    .join(".");
-
-                println!("{:indent$}module {}", "", path_string);
-            },
             ANFDefinition::Name(name) => {
                 println!("{:indent$}Let:", "");
                 println!("{:indent$}{}", "", interner.lookup(name.identifier), indent=indent + 2);
                 name.expression.print(depth + 1, interner);
             },
-            ANFDefinition::Import(_) => todo!(),
         }
-    }
-}
-
-pub struct ModuleDefinition {
-    parts: Vec<InternId>
-}
-
-impl ModuleDefinition {
-    pub fn new(parts: Vec<InternId>) -> Self {
-        Self { parts }
-    }
-
-    pub fn parts(&self) -> &[InternId] {
-        &self.parts
     }
 }
 
 pub struct NameDefinition<T> {
     identifier: InternId,
     expression: ANF<T>,
-    path: Option<Path>
+    path: Path
 }
 
 impl<T> NameDefinition<T> {
+    pub fn new(identifier: InternId, expression: ANF<T>, path: Path) -> Self {
+        Self { identifier, expression, path }
+    }
+
+    #[allow(unused)]
     pub fn identifier(&self) -> InternId {
         self.identifier
     }
@@ -65,53 +44,17 @@ impl<T> NameDefinition<T> {
     pub fn expression(&self) -> &ANF<T> {
         &self.expression
     }
-}
-
-impl NameDefinition<Resolved> {
-    pub fn new(identifier: InternId, expression: ANF<Resolved>, path: Path) -> Self {
-        Self { identifier, expression, path: Some(path) }
-    }
 
     pub fn path(&self) -> &Path {
-        self.path.as_ref().unwrap()
+        &self.path
     }
 }
 
 impl NameDefinition<Unresolved> {
-    pub fn new(identifier: InternId, expression: ANF<Unresolved>) -> Self {
-        Self { identifier, expression, path: None }
-    }
-
     pub fn destruct(self) -> (InternId, ANF<Unresolved>) {
         (self.identifier, self.expression)
     }
 }
-
-// #[derive(Clone)]
-// pub struct ImportDefinition {
-//     module_path: Vec<InternId>,
-//     name: Option<ImportName>
-// }
-
-// impl ImportDefinition {
-//     pub fn new(module_path: Vec<InternId>, name: Option<ImportName>) -> Self {
-//         Self { module_path, name }
-//     }
-
-//     pub fn module_path(&self) -> &[InternId] {
-//         &self.module_path
-//     }
-
-//     pub fn name(&self) -> Option<&ImportName> {
-//         self.name.as_ref()
-//     }
-// }
-
-// #[derive(Clone)]
-// pub enum ImportName {
-//     As(InternId),
-//     Import(Vec<ImportDefinition>)
-// }
 
 #[derive(Clone)]
 pub enum ANF<State> {
@@ -288,8 +231,16 @@ pub struct PathExpression<T> {
 }
 
 impl PathExpression<Unresolved> {
-    fn new(path: ANFPath) -> Self {
+    fn new(path: ANFPath, bound: Bound) -> Self {
+        Self { path, bound: Some(bound), state: PhantomData }
+    }
+
+    fn local(path: ANFPath) -> Self {
         Self { path, bound: None, state: PhantomData }
+    }
+
+    pub fn bound(&self) -> &Option<Bound> {
+        &self.bound
     }
 
     pub fn resolve(self, bound: Bound) -> PathExpression<Resolved> {
@@ -351,37 +302,45 @@ impl ANFTransformer {
         Self { counter: RefCell::new(0) }
     }
 
-    pub fn module(&self, definitions: Vec<Definition<Unresolved>>) -> Vec<ANFDefinition<Unresolved>> {
+    pub fn module(&self, definitions: Vec<Definition<Resolved>>) -> Vec<ANFDefinition<Unresolved>> {
         let mut anf_definitions = Vec::new();
 
         for definition in definitions {
             match definition {
-                Definition::Module(module) => {
-                    let module = ModuleDefinition::new(module.parts().data().to_vec());
-                    let definition = ANFDefinition::Module(module);
-                    anf_definitions.push(definition);
-                },
                 Definition::Name(name) => {
+                    let path = name.path().clone();
                     let (identifier, expression) = name.destruct();
                     let expression = self.convert(expression.destruct().0);
-                    let definition = NameDefinition::<Unresolved>::new(*identifier.data(), expression);
+                    let definition = NameDefinition::new(*identifier.data(), expression, path);
                     anf_definitions.push(ANFDefinition::Name(definition))
                 },
-                Definition::Import(import) => {
-                    let definition = ANFDefinition::Import(import);
-                    anf_definitions.push(definition);
-                },
+                Definition::Module(_) |
+                Definition::Import(_) => ()
             }
         }
 
         anf_definitions
     }
 
-    fn anf(&self, e: Expression<Unresolved>, k: Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + '_>) -> ANF<Unresolved> {
+    fn anf(&self, e: Expression<Resolved>, k: Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + '_>) -> ANF<Unresolved> {
         match e {
             Expression::String(id) => k(Atom::String(id)),
             Expression::Path(path) => {
-                k(Atom::Path(PathExpression::new(ANFPath::Normal(path.parts().data().to_vec()))))
+                match path.bound() {
+                    Bound::Absolute(_) => {
+                        k(Atom::Path(PathExpression::new(
+                            ANFPath::Normal(path.parts().data().to_vec()),
+                            path.bound().clone()
+                        )))
+                    },
+                    Bound::Local(_) |
+                    Bound::Capture(_) => {
+                        k(Atom::Path(PathExpression::local(
+                            ANFPath::Normal(path.parts().data().to_vec()),
+                        )))
+                    },
+                }
+
             },
             Expression::Application(application) => {
                 let (function, argument) = application.destruct();
@@ -395,7 +354,7 @@ impl ANFTransformer {
                             variable.clone(),
                             function,
                             argument.clone(),
-                            k(Atom::Path(PathExpression::new(ANFPath::ANF(id)))))
+                            k(Atom::Path(PathExpression::local(ANFPath::ANF(id)))))
                         )
                     }))
                 }))
@@ -416,7 +375,7 @@ impl ANFTransformer {
         }
     }
 
-    pub fn convert(&self, e: Expression<Unresolved>) -> ANF<Unresolved> {
+    pub fn convert(&self, e: Expression<Resolved>) -> ANF<Unresolved> {
         self.anf(e, Box::new(ANF::Atom))
     }
 }

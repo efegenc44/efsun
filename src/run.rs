@@ -20,13 +20,13 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     let expression = parser.expression()?;
 
     expression_resolver.interactive_module(interner);
-    let resolved = expression_resolver.expression(expression.clone())?;
+    let resolved = expression_resolver.expression(expression)?;
     resolved.data().print(interner, 0);
 
     let t = checker.infer(&resolved)?;
 
     let converter = ANFTransformer::new();
-    let anf = converter.convert(expression.destruct().0);
+    let anf = converter.convert(resolved.destruct().0);
     let anf = anf_resolver.expression(anf);
 
     // anf.print(0, interner);
@@ -58,7 +58,7 @@ fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result
     let mut anf_resolver = ANFResolver::new();
 
     let mut anf_modules = vec![];
-    for module in modules {
+    for module in resolved_definitions {
         anf_modules.push(anf_transformer.module(module));
     }
 

@@ -69,6 +69,7 @@ impl<'interner> Compiler<'interner> {
 
     fn collect_names(&mut self, definitions: &[ANFDefinition<Resolved>]) {
         for definition in definitions {
+            #[allow(irrefutable_let_patterns)]
             if let ANFDefinition::Name(name) = definition {
                 self.name_exprs.insert(name.path().clone(), name.expression().clone());
             }
@@ -78,7 +79,6 @@ impl<'interner> Compiler<'interner> {
     pub fn module(&mut self, definitions: &[ANFDefinition<Resolved>]) {
         for definition in definitions {
             match definition {
-                ANFDefinition::Module(_) => (),
                 ANFDefinition::Name(name) => {
                     if let Some((_, _)) = self.names.iter().find(|p| &p.0 == name.path()) {
                     } else {
@@ -86,7 +86,6 @@ impl<'interner> Compiler<'interner> {
                         self.names.push((name.path().clone(), code));
                     }
                 },
-                ANFDefinition::Import(_) => (),
             }
         }
     }

@@ -141,15 +141,15 @@ impl<T> LambdaExpression<T> {
     pub fn expression(&self) -> &Located<Expression<T>> {
         &self.expression
     }
+
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>) {
+        (self.variable, *self.expression)
+    }
 }
 
 impl LambdaExpression<Unresolved> {
     pub fn new(variable: Located<InternId>, expression: Located<Expression<Unresolved>>) -> Self {
         Self { variable, expression: Box::new(expression), captures: None }
-    }
-
-    pub fn destruct(self) -> (Located<InternId>, Located<Expression<Unresolved>>) {
-        (self.variable, *self.expression)
     }
 }
 
@@ -186,6 +186,10 @@ impl<T> LetExpression<T> {
     pub fn return_expression(&self) -> &Located<Expression<T>> {
         &self.return_expression
     }
+
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>, Located<Expression<T>>) {
+        (self.variable, *self.variable_expression, *self.return_expression)
+    }
 }
 
 impl LetExpression<Unresolved> {
@@ -200,10 +204,6 @@ impl LetExpression<Unresolved> {
             return_expression: Box::new(return_expression),
             captures: None
         }
-    }
-
-    pub fn destruct(self) -> (Located<InternId>, Located<Expression<Unresolved>>, Located<Expression<Unresolved>>) {
-        (self.variable, *self.variable_expression, *self.return_expression)
     }
 }
 

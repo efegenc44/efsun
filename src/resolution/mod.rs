@@ -303,9 +303,6 @@ impl ExpressionResolver {
 
 pub struct ANFResolver {
     stack: Stack<anf::ANFLocal>,
-
-    modules: HashMap<Path, Module>,
-    current_module_path: Path
 }
 
 impl ANFResolver {
@@ -315,17 +312,7 @@ impl ANFResolver {
 
         ANFResolver {
             stack,
-            modules: HashMap::new(),
-            current_module_path: Path::empty()
         }
-    }
-
-    fn current_module(&mut self) -> &Module {
-        &self.modules[&self.current_module_path]
-    }
-
-    fn current_module_mut(&mut self) -> &mut Module {
-        self.modules.get_mut(&self.current_module_path).unwrap()
     }
 
     pub fn expression(&mut self, anf: ANF<Unresolved>) -> ANF<Resolved> {
@@ -345,30 +332,24 @@ impl ANFResolver {
     }
 
     fn path(&mut self, path: anf::PathExpression<Unresolved>) -> anf::PathExpression<Resolved> {
-        let bound = match path.path() {
-            anf::ANFPath::ANF(id) => {
-                self.identifier(ANFLocal::ANF(*id))
-            },
-            anf::ANFPath::Normal(parts) => {
-                match &parts[..] {
-                    [] => unreachable!(),
-                    [identifier] => self.identifier(ANFLocal::Normal(*identifier)),
-                    [base, mid@.., name] => {
-                        if let Some(path) = self.current_module().imports().get(base) {
-                            let mut module_path = path.append_parts(mid.to_vec());
-                            module_path.push(*name);
-                            Bound::Absolute(module_path)
-                        } else {
-                            let mut module_path = Path::from_parts(mid.to_vec());
-                            module_path.push(*name);
-                            Bound::Absolute(module_path)
-                        }
-                    },
-                }
-            },
-        };
+        if let Some(bound) = path.bound() {
+            let bound = bound.clone();
+            path.resolve(bound)
+        } else {
+            let bound = match path.path() {
+                anf::ANFPath::ANF(id) => {
+                    self.identifier(ANFLocal::ANF(*id))
+                },
+                anf::ANFPath::Normal(parts) => {
+                    match &parts[..] {
+                        [identifier] => self.identifier(ANFLocal::Normal(*identifier)),
+                        _ => unreachable!(),
+                    }
+                },
+            };
 
-        path.resolve(bound)
+            path.resolve(bound)
+        }
     }
 
     fn identifier(&mut self, identifier: ANFLocal) -> Bound {
@@ -388,12 +369,7 @@ impl ANFResolver {
                         Bound::Capture(BoundId::new(id))
                     },
                     None => {
-                        let ANFLocal::Normal(identifier) = identifier else {
-                            panic!()
-                        };
-
-                        let path = self.current_module_path.append(identifier);
-                        Bound::Absolute(path)
+                        unreachable!()
                     },
                 }
             },
@@ -436,15 +412,8 @@ impl ANFResolver {
     }
 
     pub fn program(&mut self, modules: Vec<Vec<anf::ANFDefinition<Unresolved>>>) -> Result<Vec<Vec<anf::ANFDefinition<Resolved>>>> {
-        let mut module_paths = vec![];
-        for module in &modules {
-            self.find_module_name(module, &mut module_paths);
-            self.collect_names(module);
-        }
-
         let mut resolved_modules = Vec::new();
-        for (module, module_path) in modules.into_iter().zip(module_paths) {
-            self.current_module_path = module_path;
+        for module in modules {
             resolved_modules.push(self.module(module));
         }
 
@@ -452,9 +421,6 @@ impl ANFResolver {
     }
 
     pub fn module(&mut self, definitions: Vec<anf::ANFDefinition<Unresolved>>) -> Vec<anf::ANFDefinition<Resolved>> {
-        // self.find_module_name(&definitions);
-        // self.collect_names(&definitions);
-
         let mut resolved_definitons = Vec::new();
         for definition in definitions {
             resolved_definitons.push(self.definition(definition));
@@ -463,89 +429,19 @@ impl ANFResolver {
         resolved_definitons
     }
 
-    fn find_module_name(&mut self, definitions: &[anf::ANFDefinition<Unresolved>], paths: &mut Vec<Path>) {
-        for definition in definitions {
-            if let anf::ANFDefinition::Module(module) = definition {
-                let module_path = Path::from_parts(module.parts().to_vec());
-                self.modules.insert(module_path.clone(), Module::empty());
-                self.current_module_path = module_path.clone();
-                paths.push(module_path);
-                return;
-            }
-        }
-
-        unreachable!()
-    }
-
-    fn collect_names(&mut self, definitions: &[anf::ANFDefinition<Unresolved>]) {
-        for definition in definitions {
-            if let anf::ANFDefinition::Name(name) = definition {
-                self
-                    .current_module_mut()
-                    .names_mut()
-                    .insert(name.identifier());
-            }
-
-            if let anf::ANFDefinition::Import(import) = definition {
-                let base = Path::from_parts(import.module_path().to_vec());
-
-                match import.name() {
-                    Some(import_name) => {
-                        self.collect_import_name(import_name, &base);
-                    },
-                    None => {
-                        self.current_module_mut().imports_mut().insert(
-                            *import.module_path().last().unwrap(),
-                            base
-                        );
-                    },
-                }
-            }
-        }
-    }
-
-    fn collect_import_name(&mut self, import_name: &ImportName, base: &Path) {
-        match import_name {
-            ImportName::As(as_name) => {
-                self.current_module_mut().imports_mut().insert(
-                    *as_name, base.clone()
-                );
-            },
-            ImportName::Import(imports) => {
-                for import in imports {
-                    let base = base.append_parts(import.module_path().to_vec());
-
-                    match import.name() {
-                        Some(import_name) => {
-                            self.collect_import_name(import_name, &base);
-                        },
-                        None => {
-                            self.current_module_mut().imports_mut().insert(
-                                *import.module_path().last().unwrap(),
-                                base
-                            );
-                        },
-                    }
-                }
-            },
-        }
-    }
-
     fn definition(&mut self, definition: anf::ANFDefinition<Unresolved>) -> anf::ANFDefinition<Resolved> {
         match definition {
-            anf::ANFDefinition::Module(module) => anf::ANFDefinition::Module(module),
             anf::ANFDefinition::Name(name) => anf::ANFDefinition::Name(self.let_definition(name)),
-            anf::ANFDefinition::Import(import) => anf::ANFDefinition::Import(import),
         }
     }
 
     fn let_definition(&mut self, let_definition: anf::NameDefinition<Unresolved>) -> anf::NameDefinition<Resolved> {
+        let path = let_definition.path().clone();
         let (identifier, expression) = let_definition.destruct();
 
         let expression = self.expression(expression);
-        let path = self.current_module_path.append(identifier);
 
-        anf::NameDefinition::<Resolved>::new(identifier, expression, path)
+        anf::NameDefinition::new(identifier, expression, path)
     }
 }
 

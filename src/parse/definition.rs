@@ -69,15 +69,15 @@ impl<T> NameDefinition<T> {
     pub fn expression(&self) -> &Located<Expression<T>> {
         &self.expression
     }
+
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>) {
+        (self.identifier, self.expression)
+    }
 }
 
 impl NameDefinition<Unresolved> {
     pub fn new(identifier: Located<InternId>, expression: Located<Expression<Unresolved>>) -> Self {
         Self { identifier, expression, path: None }
-    }
-
-    pub fn destruct(self) -> (Located<InternId>, Located<Expression<Unresolved>>) {
-        (self.identifier, self.expression)
     }
 }
 
