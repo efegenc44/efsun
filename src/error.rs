@@ -35,11 +35,14 @@ impl Error {
                 },
             },
             Self::Resolution(error) => match error {
-                ResolutionError::UnboundIdentifier(id) => {
-                    format!("Identifier `{}` is not bound.", interner.lookup(*id))
+                ResolutionError::UnboundPath(path) => {
+                    format!("`{}` is not bound.", path.display(interner))
                 },
                 ResolutionError::MissingModuleDefinition => {
                     "Module definiton is missing.".to_string()
+                },
+                ResolutionError::UnresolvedImport(path) => {
+                    format!("Import `{}` could not be resolved.", path.display(interner))
                 },
             },
             Self::Check(error) => match error {

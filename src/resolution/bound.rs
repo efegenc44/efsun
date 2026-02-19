@@ -69,6 +69,10 @@ impl Path {
         self.0.push(identifier);
     }
 
+    pub fn pop(&mut self) -> InternId {
+        self.0.pop().unwrap()
+    }
+
     pub fn append(&self, identifier: InternId) -> Self {
         let mut clone = self.clone();
         clone.0.push(identifier);
@@ -81,7 +85,7 @@ impl Path {
         clone
     }
 
-    fn display(&self, interner: &Interner) -> String {
+    pub fn display(&self, interner: &Interner) -> String {
         self.0
             .iter()
             .map(|id| interner.lookup(*id))

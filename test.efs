@@ -9,4 +9,4 @@ import Test2
 let id = \x \y \z x
 
 let b = a
-let a = "Merhaba"
+let a = aaa.bbb "Merhaba"
