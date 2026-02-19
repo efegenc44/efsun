@@ -238,11 +238,9 @@ impl TypeChecker {
         let variable_type = self.infer(letin.variable_expression())?;
         let variable_type = variable_type.generalize();
 
-        self.push_frame(letin.captures().to_vec());
         self.push_local(variable_type);
         let return_type = self.infer(letin.return_expression())?;
         self.pop_local();
-        self.pop_frame();
 
         Ok(self.substitute(return_type))
     }

@@ -168,9 +168,9 @@ impl ExpressionResolver {
         self.stack.push_local(*variable.data());
         let return_expression = self.expression(return_expression)?;
         self.stack.pop_local();
-        let captures = self.stack.pop_frame();
+        self.stack.pop_frame();
 
-        Ok(LetExpression::<Resolved>::new(variable, variable_expression, return_expression, captures))
+        Ok(LetExpression::new(variable, variable_expression, return_expression))
     }
 
     pub fn program(&mut self, modules: Vec<Vec<Definition<Unresolved>>>) -> Result<Vec<Vec<Definition<Resolved>>>> {
