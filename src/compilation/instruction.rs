@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::resolution::bound::Capture;
+use crate::{compilation::ConstantPool, resolution::bound::Capture};
 
 #[derive(Clone)]
 pub enum Instruction {
@@ -39,19 +39,19 @@ impl Display for Instruction {
 }
 
 #[allow(unused)]
-pub fn display_instructions(instructions: &[Instruction], strings: &[String], lambdas: &[Vec<Instruction>]) {
+pub fn display_instructions(instructions: &[Instruction], pool: &ConstantPool) {
     println!("  ====== CODE ======");
     for (index, instruction) in instructions.iter().enumerate() {
         println!("    {index:#>05x} | {instruction}");
     }
 
     println!("  ====== STRINGS ======");
-    for (index, string) in strings.iter().enumerate() {
+    for (index, string) in pool.strings.iter().enumerate() {
         println!("    {index:#>05x} | {string}");
     }
 
     println!("  ====== LAMBDAS ======");
-    for (index, lambda) in lambdas.iter().enumerate() {
+    for (index, lambda) in pool.lambdas.iter().enumerate() {
         println!("    <lambda {index}>:");
         for (index, instruction) in lambda.iter().enumerate() {
             println!("    {index:#>05x} | {instruction}");

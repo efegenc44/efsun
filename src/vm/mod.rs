@@ -2,7 +2,7 @@ pub mod value;
 
 use std::rc::Rc;
 
-use crate::{compilation::instruction::Instruction, resolution::bound::Capture};
+use crate::{compilation::{ConstantPool, instruction::Instruction}, resolution::bound::Capture};
 
 use value::{Value, LambdaValue};
 
@@ -37,7 +37,7 @@ impl VM {
         self.stack = vec![Frame::new()];
     }
 
-    pub fn run(&mut self, instructions: &[Instruction], lambdas: &[Vec<Instruction>], is_main: bool) -> Value {
+    pub fn run(&mut self, instructions: &[Instruction], pool: &ConstantPool, is_main: bool) -> Value {
         let mut ip = 0;
 
         while ip < instructions.len() {
@@ -87,7 +87,7 @@ impl VM {
                     self.current_frame_mut().closure = captures;
 
                     // FIX THIS
-                    let value = self.run(&lambdas[address], lambdas, false);
+                    let value = self.run(&pool.lambdas()[address], pool, false);
                     self.push(value);
                 },
                 Instruction::Return => {

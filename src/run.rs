@@ -2,7 +2,7 @@ use std::{fs, io::{self, Write}};
 
 use crate::{
     check::{TypeChecker, typ::MonoType},
-    compilation::{Compiler, instruction::display_instructions},
+    compilation::{Compiler, instruction::display_instructions, ConstantPool},
     interner::Interner,
     parse::Parser,
     resolution::{ExpressionResolver, ANFResolver},
@@ -11,7 +11,7 @@ use crate::{
     compilation::anf::ANFTransformer,
 };
 
-fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, Vec<String>)> {
+fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, ConstantPool)> {
     let mut parser = Parser::from_source(source, interner);
     let mut expression_resolver = ExpressionResolver::new();
     let mut anf_resolver = ANFResolver::new();
@@ -32,16 +32,16 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     // anf.print(0, interner);
 
     let compiler = Compiler::new(interner);
-    let (instructions, strings, lambdas) = compiler.compile(&anf);
+    let (instructions, pool) = compiler.compile(&anf);
 
-    display_instructions(&instructions, &strings, &lambdas);
+    display_instructions(&instructions, &pool);
 
-    let result = vm.run(&instructions, &lambdas, true);
+    let result = vm.run(&instructions, &pool, true);
 
-    Ok((result, t, strings))
+    Ok((result, t, pool))
 }
 
-fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result<(Value, Vec<String>)> {
+fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result<(Value, ConstantPool)> {
     let mut resolver = ExpressionResolver::new();
     let mut checker = TypeChecker::new();
 
@@ -66,13 +66,13 @@ fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result
 
     let compiler = Compiler::new(interner);
 
-    let (instructions, strings, lambdas) = compiler.program(&anf_definitions);
+    let (instructions, pool) = compiler.program(&anf_definitions);
 
-    display_instructions(&instructions, &strings, &lambdas);
+    display_instructions(&instructions, &pool);
 
-    let result = vm.run(&instructions, &lambdas, true);
+    let result = vm.run(&instructions, &pool, true);
 
-    Ok((result, strings))
+    Ok((result, pool))
 }
 
 pub fn repl() {
@@ -96,7 +96,7 @@ pub fn repl() {
         }
 
         match expression(input, &mut vm, &mut interner) {
-            Ok((result, t, strings)) => println!("= {} : {t}", result.display(&strings)),
+            Ok((result, t, pool)) => println!("= {} : {t}", result.display(pool.strings())),
             Err(error) => error.report("<interactive>", input, &interner),
         }
 
@@ -119,7 +119,7 @@ pub fn from_file(file_paths: Vec<String>) {
     let mut vm = VM::new();
 
     match program(sources, &mut vm, &mut interner) {
-        Ok((result, strings)) => println!("= {}", result.display(&strings)),
+        Ok((result, pool)) => println!("= {}", result.display(pool.strings())),
         Err(error) => error.report(&file_path, &source, &interner),
     }
 }

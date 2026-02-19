@@ -14,8 +14,7 @@ use instruction::Instruction;
 
 pub struct Compiler<'interner> {
     interns: Vec<InternId>,
-    strings: Vec<String>,
-    lambdas: Vec<Vec<Instruction>>,
+    constant_pool: ConstantPool,
     name_exprs: HashMap<Path, ANF<Resolved>>,
     names: Vec<(Path, Vec<Instruction>)>,
     interner: &'interner Interner
@@ -25,15 +24,14 @@ impl<'interner> Compiler<'interner> {
     pub fn new(interner: &'interner Interner) -> Self {
         Self {
             interns: Vec::new(),
-            strings: Vec::new(),
-            lambdas: Vec::new(),
+            constant_pool: ConstantPool::new(),
             name_exprs: HashMap::new(),
             names: Vec::new(),
             interner
         }
     }
 
-    pub fn program(mut self, modules: &[Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, Vec<String>, Vec<Vec<Instruction>>) {
+    pub fn program(mut self, modules: &[Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, ConstantPool) {
         for module in modules {
             self.collect_names(module);
         }
@@ -64,7 +62,7 @@ impl<'interner> Compiler<'interner> {
         // TODO: Enforce main symbol to have an arrow type
         instructions.push(Instruction::Call);
 
-        (instructions, self.strings, self.lambdas)
+        (instructions, self.constant_pool)
     }
 
     fn collect_names(&mut self, definitions: &[ANFDefinition<Resolved>]) {
@@ -90,8 +88,8 @@ impl<'interner> Compiler<'interner> {
         }
     }
 
-    pub fn compile(mut self, expression: &ANF<Resolved>) -> (Vec<Instruction>, Vec<String>, Vec<Vec<Instruction>>) {
-        (self.expression(expression), self.strings, self.lambdas)
+    pub fn compile(mut self, expression: &ANF<Resolved>) -> (Vec<Instruction>, ConstantPool) {
+        (self.expression(expression), self.constant_pool)
     }
 
     #[must_use]
@@ -117,8 +115,7 @@ impl<'interner> Compiler<'interner> {
             Some(offset) => offset,
             None => {
                 let string = self.interner.lookup(intern_id).to_string();
-                let offset = self.strings.len();
-                self.strings.push(string);
+                let offset = self.constant_pool.add_string(string);
                 self.interns.push(intern_id);
                 offset
             },
@@ -168,8 +165,7 @@ impl<'interner> Compiler<'interner> {
         instructions.extend(self.expression(lambda.expression()));
         instructions.push(Instruction::Return);
 
-        let id = self.lambdas.len();
-        self.lambdas.push(instructions);
+        let id = self.constant_pool.add_lambda(instructions);
 
         vec![Instruction::MakeLambda(id, lambda.captures().to_vec())]
     }
@@ -183,3 +179,38 @@ impl<'interner> Compiler<'interner> {
         instructions
     }
 }
+
+pub struct ConstantPool {
+    strings: Vec<String>,
+    lambdas: Vec<Vec<Instruction>>
+}
+
+impl ConstantPool {
+    fn new() -> Self {
+        Self {
+            strings: Vec::new(),
+            lambdas: Vec::new()
+        }
+    }
+
+    pub fn strings(&self) -> &[String] {
+        &self.strings
+    }
+
+    pub fn lambdas(&self) -> &[Vec<Instruction>] {
+        &self.lambdas
+    }
+
+    fn add_string(&mut self, string: String) -> usize {
+        let id = self.strings.len();
+        self.strings.push(string);
+        id
+    }
+
+    fn add_lambda(&mut self, lambda: Vec<Instruction>) -> usize {
+        let id = self.lambdas.len();
+        self.lambdas.push(lambda);
+        id
+    }
+}
+
