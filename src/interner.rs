@@ -8,6 +8,10 @@ pub struct Interner {
 pub struct InternId(usize);
 
 impl InternId {
+    pub fn new(value: usize) -> Self {
+        Self(value)
+    }
+
     pub fn dummy() -> Self {
         Self(0)
     }

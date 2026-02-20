@@ -1,0 +1,4 @@
+module Main
+
+let main = \a
+    (\x \y y) (let a = "AAA" in a) (let a = "BBB" in a)

@@ -94,6 +94,18 @@ impl PathExpression<Resolved> {
     pub fn bound(&self) -> &Bound {
         self.bound.as_ref().unwrap()
     }
+
+    pub fn rename(self, name: InternId) -> Self {
+        let (mut data, start, end) = self.parts.destruct();
+
+        *data.last_mut().unwrap() = name;
+
+        Self {
+            parts: Located::new(data, start, end),
+            bound: self.bound,
+            state: PhantomData,
+        }
+    }
 }
 
 #[derive(Clone)]

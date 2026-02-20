@@ -2,7 +2,10 @@ use std::{fs, io::{self, Write}};
 
 use crate::{
     check::{TypeChecker, typ::MonoType},
-    compilation::{Compiler, instruction::display_instructions, ConstantPool},
+    compilation::{
+        Compiler, instruction::display_instructions, ConstantPool,
+        renamer::Renamer,
+    },
     interner::Interner,
     parse::Parser,
     resolution::{ExpressionResolver, ANFResolver},
@@ -25,11 +28,16 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
 
     let t = checker.infer(&resolved)?;
 
+    let mut renamer = Renamer::new();
+    let resolved = renamer.expression(resolved);
+
+    resolved.data().print(interner, 0);
+
     let converter = ANFTransformer::new();
     let anf = converter.convert(resolved.destruct().0);
     let anf = anf_resolver.expression(anf);
 
-    // anf.print(0, interner);
+    anf.print(0, interner);
 
     let compiler = Compiler::new(interner);
     let (instructions, pool) = compiler.compile(&anf);
@@ -53,6 +61,9 @@ fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result
 
     let resolved_definitions = resolver.program(modules.clone())?;
     checker.program(&resolved_definitions)?;
+
+    let mut renamer = Renamer::new();
+    let resolved_definitions= renamer.program(resolved_definitions);
 
     let anf_transformer = ANFTransformer::new();
     let mut anf_resolver = ANFResolver::new();
