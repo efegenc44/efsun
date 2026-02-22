@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     interner::{InternId, Interner},
     location::Located,
-    resolution::{Resolved, Unresolved, bound::{Bound, Capture}},
+    resolution::{Resolved, Unresolved, Renamed, bound::{Bound, Capture}},
 };
 
 #[derive(Clone)]
@@ -95,16 +95,30 @@ impl PathExpression<Resolved> {
         self.bound.as_ref().unwrap()
     }
 
-    pub fn rename(self, name: InternId) -> Self {
+    pub fn rename(self, name: InternId) -> PathExpression<Renamed> {
         let (mut data, start, end) = self.parts.destruct();
 
         *data.last_mut().unwrap() = name;
 
-        Self {
+        PathExpression {
             parts: Located::new(data, start, end),
             bound: self.bound,
             state: PhantomData,
         }
+    }
+
+    pub fn rename_absolute(self) -> PathExpression<Renamed> {
+        PathExpression {
+            parts: self.parts,
+            bound: self.bound,
+            state: PhantomData
+        }
+    }
+}
+
+impl PathExpression<Renamed> {
+    pub fn bound(&self) -> &Bound {
+        self.bound.as_ref().unwrap()
     }
 }
 
@@ -170,7 +184,11 @@ impl LambdaExpression<Resolved> {
     }
 }
 
-
+impl LambdaExpression<Renamed> {
+    pub fn new(variable: Located<InternId>, expression: Located<Expression<Renamed>>, captures: Vec<Capture>) -> Self {
+        Self { variable, expression: Box::new(expression), captures: Some(captures) }
+    }
+}
 
 #[derive(Clone)]
 pub struct LetExpression<T> {

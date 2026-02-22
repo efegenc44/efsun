@@ -3,7 +3,7 @@ use std::{cell::RefCell, marker::PhantomData};
 use crate::{
     parse::{definition::Definition, expression::Expression},
     interner::{InternId, Interner},
-    resolution::{Resolved, Unresolved, bound::{Bound, Capture, Path}}
+    resolution::{Resolved, Unresolved, Renamed, bound::{Bound, Capture, Path}}
 };
 
 pub enum ANFDefinition<State> {
@@ -302,7 +302,7 @@ impl ANFTransformer {
         Self { counter: RefCell::new(0) }
     }
 
-    pub fn program(&self, modules: Vec<Vec<Definition<Resolved>>>) -> Vec<Vec<ANFDefinition<Unresolved>>> {
+    pub fn program(&self, modules: Vec<Vec<Definition<Renamed>>>) -> Vec<Vec<ANFDefinition<Unresolved>>> {
         let mut anf = Vec::new();
         for module in modules {
             anf.push(self.module(module));
@@ -311,7 +311,7 @@ impl ANFTransformer {
         anf
     }
 
-    pub fn module(&self, definitions: Vec<Definition<Resolved>>) -> Vec<ANFDefinition<Unresolved>> {
+    pub fn module(&self, definitions: Vec<Definition<Renamed>>) -> Vec<ANFDefinition<Unresolved>> {
         let mut anf_definitions = Vec::new();
 
         for definition in definitions {
@@ -331,7 +331,7 @@ impl ANFTransformer {
         anf_definitions
     }
 
-    fn anf(&self, e: Expression<Resolved>, k: Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + '_>) -> ANF<Unresolved> {
+    fn anf(&self, e: Expression<Renamed>, k: Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + '_>) -> ANF<Unresolved> {
         match e {
             Expression::String(id) => k(Atom::String(id)),
             Expression::Path(path) => {
@@ -384,7 +384,7 @@ impl ANFTransformer {
         }
     }
 
-    pub fn convert(&self, e: Expression<Resolved>) -> ANF<Unresolved> {
+    pub fn convert(&self, e: Expression<Renamed>) -> ANF<Unresolved> {
         self.anf(e, Box::new(ANF::Atom))
     }
 }

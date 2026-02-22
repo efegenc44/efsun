@@ -8,7 +8,7 @@ use crate::{
     },
     interner::InternId,
     location::Located,
-    resolution::{Resolved, bound::{Bound, Capture}},
+    resolution::{Resolved, Renamed, bound::{Bound, Capture}},
 };
 
 pub struct Renamer {
@@ -50,11 +50,11 @@ impl Renamer {
         self.frames.last_mut().unwrap().locals.pop();
     }
 
-    pub fn expression(&mut self, expression: Located<Expression<Resolved>>) -> Located<Expression<Resolved>> {
+    pub fn expression(&mut self, expression: Located<Expression<Resolved>>) -> Located<Expression<Renamed>> {
         let (data, start, end) = expression.destruct();
 
         let expression = match data {
-            Expression::String(_) => data,
+            Expression::String(id) => Expression::String(id),
             Expression::Path(path) => Expression::Path(self.path(path)),
             Expression::Application(application) => Expression::Application(self.application(application)),
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)),
@@ -64,7 +64,7 @@ impl Renamer {
         Located::new(expression, start, end)
     }
 
-    fn path(&mut self, path: PathExpression<Resolved>) -> PathExpression<Resolved> {
+    fn path(&mut self, path: PathExpression<Resolved>) -> PathExpression<Renamed> {
         match path.bound() {
             Bound::Local(id) => {
                 let index = self.current_frame().locals.len() - 1 - id.value();
@@ -78,7 +78,7 @@ impl Renamer {
 
                 path.rename(name)
             }
-            Bound::Absolute(_) => path,
+            Bound::Absolute(_) => path.rename_absolute(),
         }
     }
 
@@ -102,7 +102,7 @@ impl Renamer {
         }
     }
 
-    fn application(&mut self, application: ApplicationExpression<Resolved>) -> ApplicationExpression<Resolved> {
+    fn application(&mut self, application: ApplicationExpression<Resolved>) -> ApplicationExpression<Renamed> {
         let (function, argument) = application.destruct();
 
         let function = self.expression(function);
@@ -111,7 +111,7 @@ impl Renamer {
         ApplicationExpression::new(function, argument)
     }
 
-    fn lambda(&mut self, lambda: LambdaExpression<Resolved>) -> LambdaExpression<Resolved> {
+    fn lambda(&mut self, lambda: LambdaExpression<Resolved>) -> LambdaExpression<Renamed> {
         let captures = lambda.captures().to_vec();
         let (variable, experssion) = lambda.destruct();
 
@@ -123,14 +123,14 @@ impl Renamer {
         self.pop_local();
         self.pop_frame();
 
-        LambdaExpression::<Resolved>::new(
+        LambdaExpression::<Renamed>::new(
             Located::new(newname, variable.start(), variable.end()),
             expression,
             captures
         )
     }
 
-    fn letin(&mut self, letin: LetExpression<Resolved>) -> LetExpression<Resolved> {
+    fn letin(&mut self, letin: LetExpression<Resolved>) -> LetExpression<Renamed> {
         let (variable, vexpr, rexpr) = letin.destruct();
 
         let vexpr = self.expression(vexpr);
@@ -148,7 +148,7 @@ impl Renamer {
         )
     }
 
-    pub fn program(&mut self, modules: Vec<Vec<Definition<Resolved>>>) -> Vec<Vec<Definition<Resolved>>> {
+    pub fn program(&mut self, modules: Vec<Vec<Definition<Resolved>>>) -> Vec<Vec<Definition<Renamed>>> {
         let mut renamed_modules = vec![];
 
         for module in modules {
@@ -158,7 +158,7 @@ impl Renamer {
         renamed_modules
     }
 
-    pub fn module(&mut self, definitions: Vec<Definition<Resolved>>) -> Vec<Definition<Resolved>> {
+    pub fn module(&mut self, definitions: Vec<Definition<Resolved>>) -> Vec<Definition<Renamed>> {
         let mut renamed_definitions = vec![];
 
         for definition in definitions {
@@ -174,13 +174,13 @@ impl Renamer {
         renamed_definitions
     }
 
-    fn let_definition(&mut self, let_definition: NameDefinition<Resolved>) -> NameDefinition<Resolved> {
+    fn let_definition(&mut self, let_definition: NameDefinition<Resolved>) -> NameDefinition<Renamed> {
         let path = let_definition.path().clone();
         let (name, expression) = let_definition.destruct();
 
         let expression = self.expression(expression);
 
-        NameDefinition::<Resolved>::new(name, expression, path)
+        NameDefinition::<Renamed>::new(name, expression, path)
     }
 }
 

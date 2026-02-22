@@ -1,7 +1,7 @@
 use crate::{
     interner::{InternId, Interner},
     location::Located,
-    parse::expression::Expression, resolution::{Unresolved, Resolved, bound::Path}
+    parse::expression::Expression, resolution::{Unresolved, Resolved, Renamed, bound::Path}
 };
 
 #[derive(Clone)]
@@ -88,6 +88,18 @@ impl NameDefinition<Resolved> {
 
     pub fn path(&self) -> &Path {
         self.path.as_ref().unwrap()
+    }
+}
+
+impl NameDefinition<Renamed> {
+    pub fn path(&self) -> &Path {
+        self.path.as_ref().unwrap()
+    }
+}
+
+impl NameDefinition<Renamed> {
+    pub fn new(identifier: Located<InternId>, expression: Located<Expression<Renamed>>, path: Path) -> Self {
+        Self { identifier, expression, path: Some(path) }
     }
 }
 

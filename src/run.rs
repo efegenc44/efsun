@@ -2,13 +2,10 @@ use std::{fs, io::{self, Write}};
 
 use crate::{
     check::{TypeChecker, typ::MonoType},
-    compilation::{
-        Compiler, ConstantPool,
-        renamer::Renamer,
-    },
+    compilation::{Compiler, ConstantPool},
     interner::Interner,
     parse::Parser,
-    resolution::{ExpressionResolver, ANFResolver},
+    resolution::{ExpressionResolver, ANFResolver, renamer::Renamer},
     vm::{VM, value::Value},
     error::Result,
     compilation::anf::ANFTransformer,

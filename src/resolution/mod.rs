@@ -1,5 +1,6 @@
 pub mod frame;
 pub mod bound;
+pub mod renamer;
 
 use std::{collections::HashMap, fmt::Debug};
 
@@ -24,6 +25,8 @@ use frame::Stack;
 pub struct Resolved;
 #[derive(Clone, Copy)]
 pub struct Unresolved;
+#[derive(Clone, Copy)]
+pub struct Renamed;
 
 pub struct ExpressionResolver {
     stack: Stack<InternId>,

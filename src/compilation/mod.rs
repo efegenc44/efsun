@@ -1,6 +1,5 @@
 pub mod instruction;
 pub mod anf;
-pub mod renamer;
 
 use std::collections::HashMap;
 
