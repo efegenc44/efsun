@@ -8,18 +8,21 @@ use crate::{
     },
     interner::InternId,
     location::Located,
-    resolution::{Resolved, Renamed, bound::{Bound, Capture}},
+    resolution::{Resolved, Renamed, frame::CheckStack, bound::Bound},
 };
 
 pub struct Renamer {
-    frames: Vec<Frame>,
+    stack: CheckStack<InternId>,
     newname_counter: usize,
 }
 
 impl Renamer {
     pub fn new() -> Self {
+        let mut stack = CheckStack::new();
+        stack.push_frame(vec![]);
+
         Self {
-            frames: vec![Frame::with_captures(vec![])],
+            stack,
             newname_counter: 0,
         }
     }
@@ -28,26 +31,6 @@ impl Renamer {
         let id = InternId::new(self.newname_counter);
         self.newname_counter += 1;
         id
-    }
-
-    fn current_frame(&self) -> &Frame {
-        self.frames.last().unwrap()
-    }
-
-    fn push_frame(&mut self, captures: Vec<Capture>) {
-        self.frames.push(Frame::with_captures(captures));
-    }
-
-    fn pop_frame(&mut self) {
-        self.frames.pop().unwrap();
-    }
-
-    fn push_local(&mut self, local: InternId) {
-        self.frames.last_mut().unwrap().locals.push(local);
-    }
-
-    fn pop_local(&mut self) {
-        self.frames.last_mut().unwrap().locals.pop();
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Resolved>>) -> Located<Expression<Renamed>> {
@@ -67,38 +50,14 @@ impl Renamer {
     fn path(&mut self, path: PathExpression<Resolved>) -> PathExpression<Renamed> {
         match path.bound() {
             Bound::Local(id) => {
-                let index = self.current_frame().locals.len() - 1 - id.value();
-                let name = self.current_frame().locals[index].clone();
-
+                let name = self.stack.get_local(*id);
                 path.rename(name)
             },
-            Bound::Capture(capture) => {
-                let capture = self.current_frame().captures[capture.value()];
-                let name = self.get_capture(capture);
-
+            Bound::Capture(id) => {
+                let name = self.stack.get_capture(*id);
                 path.rename(name)
             }
             Bound::Absolute(_) => path.rename_absolute(),
-        }
-    }
-
-    fn get_capture(&mut self, capture: Capture) -> InternId {
-        self.get_capture_in_frame(capture, 1)
-    }
-
-    fn get_capture_in_frame(&mut self, capture: Capture, frame_depth: usize) -> InternId {
-        let index = self.frames.len() - 1 - frame_depth;
-
-        match capture {
-            Capture::Local(id) => {
-                let local_index = self.frames[index].locals.len() - 1 - id.value();
-                let t = self.frames[index].locals[local_index].clone();
-                t
-            },
-            Capture::Outer(id) => {
-                let capture = self.frames[index].captures[id.value()];
-                self.get_capture_in_frame(capture, frame_depth + 1)
-            },
         }
     }
 
@@ -117,11 +76,11 @@ impl Renamer {
 
         let newname = self.newname();
 
-        self.push_frame(captures.clone());
-        self.push_local(newname);
+        self.stack.push_frame(captures.clone());
+        self.stack.push_local(newname);
         let expression = self.expression(experssion);
-        self.pop_local();
-        self.pop_frame();
+        self.stack.pop_local();
+        self.stack.pop_frame();
 
         LambdaExpression::<Renamed>::new(
             Located::new(newname, variable.start(), variable.end()),
@@ -137,9 +96,9 @@ impl Renamer {
 
         let newname = self.newname();
 
-        self.push_local(newname);
+        self.stack.push_local(newname);
         let rexpr = self.expression(rexpr);
-        self.pop_local();
+        self.stack.pop_local();
 
         LetExpression::new(
             Located::new(newname, variable.start(), variable.end()),
@@ -181,19 +140,5 @@ impl Renamer {
         let expression = self.expression(expression);
 
         NameDefinition::<Renamed>::new(name, expression, path)
-    }
-}
-
-struct Frame {
-    locals: Vec<InternId>,
-    captures: Vec<Capture>,
-}
-
-impl Frame {
-    pub fn with_captures(captures: Vec<Capture>) -> Self {
-        Self {
-            locals: Vec::new(),
-            captures,
-        }
     }
 }

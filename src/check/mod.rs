@@ -11,14 +11,14 @@ use crate::{
         definition::{Definition, NameDefinition}
     },
     location::{Located, SourceLocation},
-    resolution::{Resolved, bound::{Bound, Capture, Path}},
+    resolution::{Resolved, frame::CheckStack, bound::{Bound, Path}},
     error::{Result, located_error}
 };
 
 use typ::{Type, MonoType, ArrowType};
 
 pub struct TypeChecker {
-    frames: Vec<Frame>,
+    stack: CheckStack<Type>,
     name_exprs: HashMap<Path, (Located<Expression<Resolved>>, bool)>,
     names: HashMap<Path, Type>,
     newvar_counter: usize,
@@ -27,37 +27,16 @@ pub struct TypeChecker {
 
 impl TypeChecker {
     pub fn new() -> Self {
+        let mut stack = CheckStack::new();
+        stack.push_frame(vec![]);
+
         Self {
-            frames: vec![Frame::with_captures(vec![])],
+            stack,
             name_exprs: HashMap::new(),
             names: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default()
         }
-    }
-
-    fn current_frame(&self) -> &Frame {
-        self.frames.last().unwrap()
-    }
-
-    fn current_frame_mut(&mut self) -> &mut Frame {
-        self.frames.last_mut().unwrap()
-    }
-
-    fn push_frame(&mut self, captures: Vec<Capture>) {
-        self.frames.push(Frame::with_captures(captures));
-    }
-
-    fn pop_frame(&mut self) {
-        self.frames.pop().unwrap();
-    }
-
-    fn push_local(&mut self, local: Type) {
-        self.frames.last_mut().unwrap().locals.push(local);
-    }
-
-    fn pop_local(&mut self) {
-        self.frames.last_mut().unwrap().locals.pop();
     }
 
     fn newvar(&mut self) -> MonoType {
@@ -95,7 +74,6 @@ impl TypeChecker {
     }
 
     fn unify(&mut self, t1: &MonoType, t2: &MonoType) -> result::Result<(), (MonoType, MonoType)> {
-
         match (t1, t2) {
             (MonoType::Variable(id1), MonoType::Variable(id2)) => {
                 match (self.unification_table.get(id1), self.unification_table.get(id2)) {
@@ -136,18 +114,12 @@ impl TypeChecker {
     fn path(&mut self, path: &PathExpression<Resolved>) -> Result<MonoType> {
         match path.bound() {
             Bound::Local(id) => {
-                let index = self.current_frame().locals.len() - 1 - id.value();
-
-                if let Type::Mono(mono) = &self.current_frame().locals[index] {
-                    self.current_frame_mut().locals[index] = Type::Mono(self.substitute(mono.clone()));
-                }
-
-                let t = self.current_frame().locals[index].clone();
+                let t = self.stack.get_local(*id);
                 Ok(self.instantiate(t))
             },
-            Bound::Capture(capture) => {
-                let capture = self.current_frame().captures[capture.value()];
-                Ok(self.get_capture(capture))
+            Bound::Capture(id) => {
+                let t = self.stack.get_capture(*id);
+                Ok(self.instantiate(t))
             }
             Bound::Absolute(path) => {
                 if let Some(t) = self.names.get(path) {
@@ -171,26 +143,6 @@ impl TypeChecker {
                     Ok(self.instantiate(t))
                 }
             }
-        }
-    }
-
-    fn get_capture(&mut self, capture: Capture) -> MonoType {
-        self.get_capture_in_frame(capture, 1)
-    }
-
-    fn get_capture_in_frame(&mut self, capture: Capture, frame_depth: usize) -> MonoType {
-        let index = self.frames.len() - 1 - frame_depth;
-
-        match capture {
-            Capture::Local(id) => {
-                let local_index = self.frames[index].locals.len() - 1 - id.value();
-                let t = self.frames[index].locals[local_index].clone();
-                self.instantiate(t)
-            },
-            Capture::Outer(id) => {
-                let capture = self.frames[index].captures[id.value()];
-                self.get_capture_in_frame(capture, frame_depth + 1)
-            },
         }
     }
 
@@ -220,11 +172,11 @@ impl TypeChecker {
     fn lambda(&mut self, lambda: &LambdaExpression<Resolved>) -> Result<MonoType> {
         let argument = self.newvar();
 
-        self.push_frame(lambda.captures().to_vec());
-        self.push_local(Type::Mono(argument.clone()));
+        self.stack.push_frame(lambda.captures().to_vec());
+        self.stack.push_local(Type::Mono(argument.clone()));
         let return_type = self.infer(lambda.expression())?;
-        self.pop_local();
-        self.pop_frame();
+        self.stack.pop_local();
+        self.stack.pop_frame();
 
         let arrow = ArrowType::new(
             self.substitute(argument),
@@ -238,9 +190,9 @@ impl TypeChecker {
         let variable_type = self.infer(letin.variable_expression())?;
         let variable_type = variable_type.generalize();
 
-        self.push_local(variable_type);
+        self.stack.push_local(variable_type);
         let return_type = self.infer(letin.return_expression())?;
-        self.pop_local();
+        self.stack.pop_local();
 
         Ok(self.substitute(return_type))
     }
@@ -258,8 +210,6 @@ impl TypeChecker {
     }
 
     pub fn module(&mut self, definitions: &[Definition<Resolved>]) -> Result<()> {
-        // self.collect_names(definitions)?;
-
         for definition in definitions {
             match definition {
                 Definition::Module(_) => (),
@@ -291,20 +241,6 @@ impl TypeChecker {
         self.name_exprs.get_mut(let_definition.path()).unwrap().1 = false;
 
         Ok(())
-    }
-}
-
-struct Frame {
-    locals: Vec<Type>,
-    captures: Vec<Capture>,
-}
-
-impl Frame {
-    pub fn with_captures(captures: Vec<Capture>) -> Self {
-        Self {
-            locals: Vec::new(),
-            captures,
-        }
     }
 }
 

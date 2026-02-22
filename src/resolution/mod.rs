@@ -18,8 +18,8 @@ use crate::{
     compilation::anf::{self, Atom, ANF, ANFLocal},
 };
 
-use bound::{Bound, BoundId, Path, Module};
-use frame::Stack;
+use bound::{Bound, Path, Module};
+use frame::ResolutionStack;
 
 #[derive(Clone, Copy)]
 pub struct Resolved;
@@ -29,7 +29,7 @@ pub struct Unresolved;
 pub struct Renamed;
 
 pub struct ExpressionResolver {
-    stack: Stack<InternId>,
+    stack: ResolutionStack<InternId>,
 
     modules: HashMap<Path, Module>,
     current_module_path: Path
@@ -37,7 +37,7 @@ pub struct ExpressionResolver {
 
 impl ExpressionResolver {
     pub fn new() -> Self {
-        let mut stack = Stack::new();
+        let mut stack = ResolutionStack::new();
         stack.push_frame();
 
         ExpressionResolver {
@@ -82,29 +82,14 @@ impl ExpressionResolver {
     }
 
     fn identifier(&mut self, identifier: InternId, start: SourceLocation, end: SourceLocation) -> Result<Bound> {
-        match self.stack.current_frame().resolve(identifier) {
-            Some(id) => Ok(Bound::Local(id)),
+        match self.stack.locally_resolve(identifier) {
+            Some(bound) => Ok(bound),
             None => {
-                match self.stack.capture(identifier) {
-                    Some(capture) => {
-                        let id = match self.stack.current_frame().captures().iter().position(|c| *c == capture) {
-                            Some(id) => id,
-                            None => {
-                                self.stack.current_frame_mut().captures_mut().push(capture);
-                                self.stack.current_frame().captures().len() - 1
-                            }
-                        };
-
-                        Ok(Bound::Capture(BoundId::new(id)))
-                    },
-                    None => {
-                        if self.current_module().names().contains(&identifier) {
-                            Ok(Bound::Absolute(self.current_module_path.append(identifier)))
-                        } else {
-                            let error = ResolutionError::UnboundPath(Path::from_parts(vec![identifier]));
-                            Err(located_error(error, start, end))
-                        }
-                    }
+                if self.current_module().names().contains(&identifier) {
+                    Ok(Bound::Absolute(self.current_module_path.append(identifier)))
+                } else {
+                    let error = ResolutionError::UnboundPath(Path::from_parts(vec![identifier]));
+                    Err(located_error(error, start, end))
                 }
             },
         }
@@ -335,12 +320,12 @@ impl ExpressionResolver {
 }
 
 pub struct ANFResolver {
-    stack: Stack<anf::ANFLocal>,
+    stack: ResolutionStack<anf::ANFLocal>,
 }
 
 impl ANFResolver {
     pub fn new() -> Self {
-        let mut stack = Stack::new();
+        let mut stack = ResolutionStack::new();
         stack.push_frame();
 
         ANFResolver {
@@ -386,27 +371,7 @@ impl ANFResolver {
     }
 
     fn identifier(&mut self, identifier: ANFLocal) -> Bound {
-        match self.stack.current_frame().resolve(identifier) {
-            Some(id) => Bound::Local(id),
-            None => {
-                match self.stack.capture(identifier) {
-                    Some(capture) => {
-                        let id = match self.stack.current_frame().captures().iter().position(|c| *c == capture) {
-                            Some(id) => id,
-                            None => {
-                                self.stack.current_frame_mut().captures_mut().push(capture);
-                                self.stack.current_frame().captures().len() - 1
-                            }
-                        };
-
-                        Bound::Capture(BoundId::new(id))
-                    },
-                    None => {
-                        unreachable!()
-                    },
-                }
-            },
-        }
+        self.stack.locally_resolve(identifier).unwrap()
     }
 
     fn lambda(&mut self, lambda: anf::LambdaExpression<Unresolved>) -> anf::LambdaExpression<Resolved> {
