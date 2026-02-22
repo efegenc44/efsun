@@ -3,7 +3,7 @@ use std::{fs, io::{self, Write}};
 use crate::{
     check::{TypeChecker, typ::MonoType},
     compilation::{
-        Compiler, instruction::display_instructions, ConstantPool,
+        Compiler, ConstantPool,
         renamer::Renamer,
     },
     interner::Interner,
@@ -15,73 +15,30 @@ use crate::{
 };
 
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, ConstantPool)> {
-    let mut parser = Parser::from_source(source, interner);
-    let mut expression_resolver = ExpressionResolver::new();
-    let mut anf_resolver = ANFResolver::new();
-    let mut checker = TypeChecker::new();
-
-    let expression = parser.expression()?;
-
-    expression_resolver.interactive_module(interner);
-    let resolved = expression_resolver.expression(expression)?;
-    resolved.data().print(interner, 0);
-
-    let t = checker.infer(&resolved)?;
-
-    let mut renamer = Renamer::new();
-    let resolved = renamer.expression(resolved);
-
-    resolved.data().print(interner, 0);
-
-    let converter = ANFTransformer::new();
-    let anf = converter.convert(resolved.destruct().0);
-    let anf = anf_resolver.expression(anf);
-
-    anf.print(0, interner);
-
-    let compiler = Compiler::new(interner);
-    let (instructions, pool) = compiler.compile(&anf);
-
-    display_instructions(&instructions, &pool);
-
-    let result = vm.run(&instructions, &pool, true);
+    let expression   = Parser::from_source(source, interner).expression()?;
+    let resolved     = ExpressionResolver::interactive(interner).expression(expression)?;
+    let t            = TypeChecker::new().infer(&resolved)?;
+    let renamed      = Renamer::new().expression(resolved);
+    let anf          = ANFTransformer::new().convert(renamed.destruct().0);
+    let resolved_anf = ANFResolver::new().expression(anf);
+    let (code, pool) = Compiler::new(interner).compile(&resolved_anf);
+    let result       = vm.run(&code, &pool, true);
 
     Ok((result, t, pool))
 }
 
 fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result<(Value, ConstantPool)> {
-    let mut resolver = ExpressionResolver::new();
-    let mut checker = TypeChecker::new();
-
-    let mut modules = vec![];
-    for source in sources {
-        let mut parser = Parser::from_source(&source, interner);
-        modules.push(parser.module()?);
-    }
-
-    let resolved_definitions = resolver.program(modules.clone())?;
-    checker.program(&resolved_definitions)?;
-
-    let mut renamer = Renamer::new();
-    let resolved_definitions= renamer.program(resolved_definitions);
-
-    let anf_transformer = ANFTransformer::new();
-    let mut anf_resolver = ANFResolver::new();
-
-    let mut anf_modules = vec![];
-    for module in resolved_definitions {
-        anf_modules.push(anf_transformer.module(module));
-    }
-
-    let anf_definitions = anf_resolver.program(anf_modules)?;
-
-    let compiler = Compiler::new(interner);
-
-    let (instructions, pool) = compiler.program(&anf_definitions);
-
-    display_instructions(&instructions, &pool);
-
-    let result = vm.run(&instructions, &pool, true);
+    let modules = sources
+        .iter()
+        .map(|source| Parser::from_source(source, interner).module())
+        .collect::<Result<_>>()?;
+    let resolved     = ExpressionResolver::new().program(modules)?;
+    let _            = TypeChecker::new().program(&resolved)?;
+    let renamed      = Renamer::new().program(resolved);
+    let anf          = ANFTransformer::new().program(renamed);
+    let resolved_anf = ANFResolver::new().program(anf);
+    let (code, pool) = Compiler::new(interner).program(&resolved_anf);
+    let result       = vm.run(&code, &pool, true);
 
     Ok((result, pool))
 }

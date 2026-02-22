@@ -44,13 +44,16 @@ impl ExpressionResolver {
         }
     }
 
-    pub fn interactive_module(&mut self, interner: &mut Interner) {
+    pub fn interactive(interner: &mut Interner) -> Self {
+        let mut resolver = Self::new();
         let interactive_id = interner.intern(String::from("interactive"));
         let path = Path::from_parts(vec![interactive_id]);
         let module = Module::empty();
 
-        self.modules.insert(path.clone(), module);
-        self.current_module_path = path;
+        resolver.modules.insert(path.clone(), module);
+        resolver.current_module_path = path;
+
+        resolver
     }
 
     fn current_module(&self) -> &Module {
@@ -438,13 +441,13 @@ impl ANFResolver {
         anf::ApplicationExpression::new(variable, function, argument, expression)
     }
 
-    pub fn program(&mut self, modules: Vec<Vec<anf::ANFDefinition<Unresolved>>>) -> Result<Vec<Vec<anf::ANFDefinition<Resolved>>>> {
+    pub fn program(&mut self, modules: Vec<Vec<anf::ANFDefinition<Unresolved>>>) -> Vec<Vec<anf::ANFDefinition<Resolved>>> {
         let mut resolved_modules = Vec::new();
         for module in modules {
             resolved_modules.push(self.module(module));
         }
 
-        Ok(resolved_modules)
+        resolved_modules
     }
 
     pub fn module(&mut self, definitions: Vec<anf::ANFDefinition<Unresolved>>) -> Vec<anf::ANFDefinition<Resolved>> {

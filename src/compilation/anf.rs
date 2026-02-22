@@ -302,6 +302,15 @@ impl ANFTransformer {
         Self { counter: RefCell::new(0) }
     }
 
+    pub fn program(&self, modules: Vec<Vec<Definition<Resolved>>>) -> Vec<Vec<ANFDefinition<Unresolved>>> {
+        let mut anf = Vec::new();
+        for module in modules {
+            anf.push(self.module(module));
+        }
+
+        anf
+    }
+
     pub fn module(&self, definitions: Vec<Definition<Resolved>>) -> Vec<ANFDefinition<Unresolved>> {
         let mut anf_definitions = Vec::new();
 
