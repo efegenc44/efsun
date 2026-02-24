@@ -15,7 +15,7 @@ use instruction::Instruction;
 pub struct Compiler<'interner, 'anf> {
     interns: Vec<InternId>,
     constant_pool: ConstantPool,
-    name_exprs: HashMap<Path, &'anf ANF<Resolved>>,
+    name_anfs: HashMap<Path, &'anf ANF<Resolved>>,
     names: Vec<(Path, Vec<Instruction>)>,
     interner: &'interner Interner
 }
@@ -25,7 +25,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         Self {
             interns: Vec::new(),
             constant_pool: ConstantPool::new(),
-            name_exprs: HashMap::new(),
+            name_anfs: HashMap::new(),
             names: Vec::new(),
             interner
         }
@@ -69,7 +69,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         for definition in definitions {
             #[allow(irrefutable_let_patterns)]
             if let ANFDefinition::Name(name) = definition {
-                self.name_exprs.insert(name.path().clone(), name.expression());
+                self.name_anfs.insert(name.path().clone(), name.expression());
             }
         }
     }
@@ -129,14 +129,10 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             Bound::Local(id) => vec![Instruction::GetLocal(id.value())],
             Bound::Capture(id) => vec![Instruction::GetCapture(id.value())],
             Bound::Absolute(path) => {
-                let mut instructions = vec![];
-
                 let id = match self.names.iter().position(|p| &p.0 == path) {
                     Some(id) => id,
                     None => {
-                        let expr = self.name_exprs[path];
-                        let code = self.expression(&expr);
-                        instructions.extend(code.clone());
+                        let code = self.expression(self.name_anfs[path]);
                         let id = self.names.len();
                         self.names.push((path.clone(), code));
                         id

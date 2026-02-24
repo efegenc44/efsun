@@ -49,6 +49,9 @@ impl Error {
                 TypeCheckError::TypeMismatch { first, second } => {
                     format!("Couldn't match type `{first}` with `{second}`")
                 },
+                TypeCheckError::CyclicDefinition(path) => {
+                    format!("`{}` is defined cyclically", path.display(interner))
+                },
             },
         }
     }

@@ -19,7 +19,7 @@ use typ::{Type, MonoType, ArrowType};
 
 pub struct TypeChecker<'ast> {
     stack: CheckStack<Type>,
-    name_exprs: HashMap<Path, (&'ast Located<Expression<Resolved>>, bool)>,
+    name_expressions: ExpressionMap<'ast>,
     names: HashMap<Path, Type>,
     newvar_counter: usize,
     unification_table: HashMap<usize, MonoType>
@@ -32,7 +32,7 @@ impl<'ast> TypeChecker<'ast> {
 
         Self {
             stack,
-            name_exprs: HashMap::new(),
+            name_expressions: ExpressionMap::new(),
             names: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default()
@@ -62,7 +62,7 @@ impl<'ast> TypeChecker<'ast> {
     pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> Result<MonoType> {
         match expression.data() {
             Expression::String(_) => Ok(MonoType::String),
-            Expression::Path(path) => self.path(path),
+            Expression::Path(path) => self.path(path, expression.start(), expression.end()),
             Expression::Application(application) => self.application(application, expression.start(), expression.end()),
             Expression::Lambda(lambda) => self.lambda(lambda),
             Expression::Let(letin) => self.letin(letin),
@@ -111,7 +111,12 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn path(&mut self, path: &PathExpression<Resolved>) -> Result<MonoType> {
+    fn path(
+        &mut self,
+        path: &PathExpression<Resolved>,
+        start: SourceLocation,
+        end: SourceLocation,
+    ) -> Result<MonoType> {
         match path.bound() {
             Bound::Local(id) => {
                 let t = self.stack.get_local(*id);
@@ -125,17 +130,14 @@ impl<'ast> TypeChecker<'ast> {
                 if let Some(t) = self.names.get(path) {
                     Ok(self.instantiate(t.clone()))
                 } else {
-                    let (expr, status) = self.name_exprs[path];
-
-                    if status {
-                        panic!("Cyclic definition");
+                    if self.name_expressions.is_currently_visiting(path) {
+                        let error = TypeCheckError::CyclicDefinition(path.clone());
+                        return Err(located_error(error, start, end));
                     }
 
-                    self.name_exprs.get_mut(path).unwrap().1 = true;
-
-                    let m = self.infer(&expr)?;
-
-                    self.name_exprs.get_mut(path).unwrap().1 = false;
+                    self.name_expressions.visiting(path);
+                    let m = self.infer(self.name_expressions.get(path))?;
+                    self.name_expressions.leaving(path);
 
                     let t = m.generalize();
                     self.names.insert(path.clone(), t.clone());
@@ -223,7 +225,7 @@ impl<'ast> TypeChecker<'ast> {
     fn collect_names(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
         for definition in definitions {
             if let Definition::Name(name) = definition {
-                self.name_exprs.insert(name.path().clone(), (name.expression(), false));
+                self.name_expressions.add(name.path().clone(), name.expression());
             }
         }
 
@@ -231,15 +233,43 @@ impl<'ast> TypeChecker<'ast> {
     }
 
     fn let_definition(&mut self, let_definition: &NameDefinition<Resolved>) -> Result<()> {
-        self.name_exprs.get_mut(let_definition.path()).unwrap().1 = true;
-
+        self.name_expressions.visiting(let_definition.path());
         let m = self.infer(let_definition.expression())?;
         let t = m.generalize();
         self.names.insert(let_definition.path().clone(), t);
-
-        self.name_exprs.get_mut(let_definition.path()).unwrap().1 = false;
+        self.name_expressions.leaving(let_definition.path());
 
         Ok(())
+    }
+}
+
+pub struct ExpressionMap<'ast> {
+    map: HashMap<Path, (&'ast Located<Expression<Resolved>>, bool)>,
+}
+
+impl<'ast> ExpressionMap<'ast> {
+    fn new() -> Self {
+        Self { map: HashMap::new() }
+    }
+
+    fn add(&mut self, path: Path, expression: &'ast Located<Expression<Resolved>>) {
+        self.map.insert(path, (expression, false));
+    }
+
+    fn get(&self, path: &Path) -> &'ast Located<Expression<Resolved>> {
+        self.map.get(path).unwrap().0
+    }
+
+    fn is_currently_visiting(&self, path: &Path) -> bool {
+        self.map.get(path).unwrap().1
+    }
+
+    fn visiting(&mut self, path: &Path) {
+        self.map.get_mut(path).unwrap().1 = true;
+    }
+
+    fn leaving(&mut self, path: &Path) {
+        self.map.get_mut(path).unwrap().1 = false;
     }
 }
 
@@ -248,5 +278,6 @@ pub enum TypeCheckError {
     TypeMismatch {
         first: MonoType,
         second: MonoType,
-    }
+    },
+    CyclicDefinition(Path),
 }
