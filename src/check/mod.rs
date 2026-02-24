@@ -17,15 +17,15 @@ use crate::{
 
 use typ::{Type, MonoType, ArrowType};
 
-pub struct TypeChecker {
+pub struct TypeChecker<'ast> {
     stack: CheckStack<Type>,
-    name_exprs: HashMap<Path, (Located<Expression<Resolved>>, bool)>,
+    name_exprs: HashMap<Path, (&'ast Located<Expression<Resolved>>, bool)>,
     names: HashMap<Path, Type>,
     newvar_counter: usize,
     unification_table: HashMap<usize, MonoType>
 }
 
-impl TypeChecker {
+impl<'ast> TypeChecker<'ast> {
     pub fn new() -> Self {
         let mut stack = CheckStack::new();
         stack.push_frame(vec![]);
@@ -125,8 +125,7 @@ impl TypeChecker {
                 if let Some(t) = self.names.get(path) {
                     Ok(self.instantiate(t.clone()))
                 } else {
-                    // TODO: Ideally don't clone here
-                    let (expr, status) = self.name_exprs[path].clone();
+                    let (expr, status) = self.name_exprs[path];
 
                     if status {
                         panic!("Cyclic definition");
@@ -197,7 +196,7 @@ impl TypeChecker {
         Ok(self.substitute(return_type))
     }
 
-    pub fn program(&mut self, modules: &[Vec<Definition<Resolved>>]) -> Result<()> {
+    pub fn program(&mut self, modules: &'ast [Vec<Definition<Resolved>>]) -> Result<()> {
         for module in modules {
             self.collect_names(module)?;
         }
@@ -221,10 +220,10 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn collect_names(&mut self, definitions: &[Definition<Resolved>]) -> Result<()> {
+    fn collect_names(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
         for definition in definitions {
             if let Definition::Name(name) = definition {
-                self.name_exprs.insert(name.path().clone(), (name.expression().clone(), false));
+                self.name_exprs.insert(name.path().clone(), (name.expression(), false));
             }
         }
 

@@ -12,15 +12,15 @@ use anf::{ANF, Atom, ANFDefinition};
 
 use instruction::Instruction;
 
-pub struct Compiler<'interner> {
+pub struct Compiler<'interner, 'anf> {
     interns: Vec<InternId>,
     constant_pool: ConstantPool,
-    name_exprs: HashMap<Path, ANF<Resolved>>,
+    name_exprs: HashMap<Path, &'anf ANF<Resolved>>,
     names: Vec<(Path, Vec<Instruction>)>,
     interner: &'interner Interner
 }
 
-impl<'interner> Compiler<'interner> {
+impl<'interner, 'anf> Compiler<'interner, 'anf> {
     pub fn new(interner: &'interner Interner) -> Self {
         Self {
             interns: Vec::new(),
@@ -31,7 +31,7 @@ impl<'interner> Compiler<'interner> {
         }
     }
 
-    pub fn program(mut self, modules: &[Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, ConstantPool) {
+    pub fn program(mut self, modules: &'anf [Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, ConstantPool) {
         for module in modules {
             self.collect_names(module);
         }
@@ -65,11 +65,11 @@ impl<'interner> Compiler<'interner> {
         (instructions, self.constant_pool)
     }
 
-    fn collect_names(&mut self, definitions: &[ANFDefinition<Resolved>]) {
+    fn collect_names(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
             #[allow(irrefutable_let_patterns)]
             if let ANFDefinition::Name(name) = definition {
-                self.name_exprs.insert(name.path().clone(), name.expression().clone());
+                self.name_exprs.insert(name.path().clone(), name.expression());
             }
         }
     }
@@ -134,7 +134,7 @@ impl<'interner> Compiler<'interner> {
                 let id = match self.names.iter().position(|p| &p.0 == path) {
                     Some(id) => id,
                     None => {
-                        let expr = self.name_exprs[path].clone();
+                        let expr = self.name_exprs[path];
                         let code = self.expression(&expr);
                         instructions.extend(code.clone());
                         let id = self.names.len();
