@@ -15,7 +15,7 @@ use instruction::Instruction;
 pub struct Compiler<'interner, 'anf> {
     interns: Vec<InternId>,
     constant_pool: ConstantPool,
-    name_anfs: HashMap<Path, &'anf ANF<Resolved>>,
+    name_anfs: HashMap<&'anf Path, &'anf ANF<Resolved>>,
     names: Vec<(Path, Vec<Instruction>)>,
     interner: &'interner Interner
 }
@@ -46,7 +46,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             .collect::<Vec<_>>();
 
         let path = Path::from_parts(parts);
-
+        // TODO: Error when main function is not present
         let id = self.names.iter().position(|p| &p.0 == &path).unwrap();
 
         let mut instructions = self
@@ -69,7 +69,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         for definition in definitions {
             #[allow(irrefutable_let_patterns)]
             if let ANFDefinition::Name(name) = definition {
-                self.name_anfs.insert(name.path().clone(), name.expression());
+                self.name_anfs.insert(name.path(), name.expression());
             }
         }
     }
@@ -78,8 +78,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         for definition in definitions {
             match definition {
                 ANFDefinition::Name(name) => {
-                    if let Some((_, _)) = self.names.iter().find(|p| &p.0 == name.path()) {
-                    } else {
+                    if self.names.iter().find(|p| &p.0 == name.path()).is_none() {
                         let code = self.expression(name.expression());
                         self.names.push((name.path().clone(), code));
                     }

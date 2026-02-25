@@ -117,8 +117,8 @@ impl PathExpression<Resolved> {
 }
 
 impl PathExpression<Renamed> {
-    pub fn bound(&self) -> &Bound {
-        self.bound.as_ref().unwrap()
+    pub fn destruct(self) -> (Located<Vec<InternId>>, Bound) {
+        (self.parts, self.bound.unwrap())
     }
 }
 

@@ -225,7 +225,7 @@ impl<'ast> TypeChecker<'ast> {
     fn collect_names(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
         for definition in definitions {
             if let Definition::Name(name) = definition {
-                self.name_expressions.add(name.path().clone(), name.expression());
+                self.name_expressions.add(name.path(), name.expression());
             }
         }
 
@@ -244,7 +244,7 @@ impl<'ast> TypeChecker<'ast> {
 }
 
 pub struct ExpressionMap<'ast> {
-    map: HashMap<Path, (&'ast Located<Expression<Resolved>>, bool)>,
+    map: HashMap<&'ast Path, (&'ast Located<Expression<Resolved>>, bool)>,
 }
 
 impl<'ast> ExpressionMap<'ast> {
@@ -252,7 +252,7 @@ impl<'ast> ExpressionMap<'ast> {
         Self { map: HashMap::new() }
     }
 
-    fn add(&mut self, path: Path, expression: &'ast Located<Expression<Resolved>>) {
+    fn add(&mut self, path: &'ast Path, expression: &'ast Located<Expression<Resolved>>) {
         self.map.insert(path, (expression, false));
     }
 

@@ -45,16 +45,20 @@ pub fn display_instructions(instructions: &[Instruction], pool: &ConstantPool) {
         println!("    {index:#>05x} | {instruction}");
     }
 
-    println!("  ====== STRINGS ======");
-    for (index, string) in pool.strings.iter().enumerate() {
-        println!("    {index:#>05x} | {string}");
+    if !pool.strings.is_empty() {
+        println!("  ====== STRINGS ======");
+        for (index, string) in pool.strings.iter().enumerate() {
+            println!("    {index:#>05x} | {string}");
+        }
     }
 
-    println!("  ====== LAMBDAS ======");
-    for (index, lambda) in pool.lambdas.iter().enumerate() {
-        println!("    <lambda {index}>:");
-        for (index, instruction) in lambda.iter().enumerate() {
-            println!("    {index:#>05x} | {instruction}");
+    if !pool.lambdas.is_empty() {
+        println!("  ====== LAMBDAS ======");
+        for (index, lambda) in pool.lambdas.iter().enumerate() {
+            println!("    <lambda {index}>:");
+            for (index, instruction) in lambda.iter().enumerate() {
+                println!("    {index:#>05x} | {instruction}");
+            }
         }
     }
 }

@@ -108,8 +108,9 @@ impl ExpressionResolver {
                 let mut module_path = if let Some(path) = self.current_module().imports().get(base) {
                     path.append_parts(mid.to_vec())
                 } else {
-                    let path = Path::from_parts(vec![*base]);
-                    path.append_parts(mid.to_vec())
+                    let mut parts = vec![*base];
+                    parts.extend_from_slice(mid);
+                    Path::from_parts(parts)
                 };
 
                 let Some(module) = self.modules.get(&module_path) else {
@@ -165,7 +166,7 @@ impl ExpressionResolver {
     pub fn program(&mut self, modules: Vec<Vec<Definition<Unresolved>>>) -> Result<Vec<Vec<Definition<Resolved>>>> {
         let mut module_paths = vec![];
         for module in &modules {
-            self.find_module_name(module, &mut module_paths)?;
+            module_paths.push(self.find_module_name(module)?);
             self.collect_names(module)?;
         }
 
@@ -189,15 +190,14 @@ impl ExpressionResolver {
         Ok(resolved_definitons)
     }
 
-    fn find_module_name(&mut self, definitions: &[Definition<Unresolved>], paths: &mut Vec<Path>) -> Result<()> {
+    fn find_module_name(&mut self, definitions: &[Definition<Unresolved>]) -> Result<Path> {
         for definition in definitions {
             if let Definition::Module(module) = definition {
                 let module_path = Path::from_parts(module.parts().data().to_vec());
                 self.modules.insert(module_path.clone(), Module::empty());
                 self.current_module_path = module_path.clone();
-                paths.push(module_path);
 
-                return Ok(())
+                return Ok(module_path)
             }
         }
 
@@ -432,8 +432,7 @@ impl ANFResolver {
     }
 
     fn let_definition(&mut self, let_definition: anf::NameDefinition<Unresolved>) -> anf::NameDefinition<Resolved> {
-        let path = let_definition.path().clone();
-        let (identifier, expression) = let_definition.destruct();
+        let (identifier, expression, path) = let_definition.destruct();
 
         let expression = self.expression(expression);
 

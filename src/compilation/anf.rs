@@ -51,8 +51,8 @@ impl<T> NameDefinition<T> {
 }
 
 impl NameDefinition<Unresolved> {
-    pub fn destruct(self) -> (InternId, ANF<Unresolved>) {
-        (self.identifier, self.expression)
+    pub fn destruct(self) -> (InternId, ANF<Unresolved>, Path) {
+        (self.identifier, self.expression, self.path)
     }
 }
 
@@ -302,6 +302,12 @@ impl ANFTransformer {
         Self { counter: RefCell::new(0) }
     }
 
+    fn new_local_id(&self) -> usize {
+        let id = *self.counter.borrow();
+        *self.counter.borrow_mut() += 1;
+        id
+    }
+
     pub fn program(&self, modules: Vec<Vec<Definition<Renamed>>>) -> Vec<Vec<ANFDefinition<Unresolved>>> {
         let mut anf = Vec::new();
         for module in modules {
@@ -319,7 +325,7 @@ impl ANFTransformer {
                 Definition::Name(name) => {
                     let path = name.path().clone();
                     let (identifier, expression) = name.destruct();
-                    let expression = self.convert(expression.destruct().0);
+                    let expression = self.transform(expression.destruct().0);
                     let definition = NameDefinition::new(*identifier.data(), expression, path);
                     anf_definitions.push(ANFDefinition::Name(definition))
                 },
@@ -331,61 +337,61 @@ impl ANFTransformer {
         anf_definitions
     }
 
-    fn anf(&self, e: Expression<Renamed>, k: Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + '_>) -> ANF<Unresolved> {
+    fn expression(&self, e: Expression<Renamed>, k: Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + '_>) -> ANF<Unresolved> {
         match e {
             Expression::String(id) => k(Atom::String(id)),
             Expression::Path(path) => {
-                match path.bound() {
-                    Bound::Absolute(_) => {
-                        k(Atom::Path(PathExpression::new(
-                            ANFPath::Normal(path.parts().data().to_vec()),
-                            path.bound().clone()
-                        )))
-                    },
-                    Bound::Local(_) |
-                    Bound::Capture(_) => {
-                        k(Atom::Path(PathExpression::local(
-                            ANFPath::Normal(path.parts().data().to_vec()),
-                        )))
-                    },
-                }
+                let (parts, bound) = path.destruct();
+                let (parts, _, _) = parts.destruct();
 
+                let path_expression = match &bound {
+                    Bound::Absolute(_) => PathExpression::new(ANFPath::Normal(parts), bound),
+                    Bound::Local(_) |
+                    Bound::Capture(_) => PathExpression::local(ANFPath::Normal(parts)),
+                };
+
+                k(Atom::Path(path_expression))
             },
             Expression::Application(application) => {
                 let (function, argument) = application.destruct();
 
-                self.anf(argument.destruct().0, Box::new(|argument| {
-                    self.anf(function.data().clone(), Box::new(|function| {
-                        let id = *self.counter.borrow();
-                        let variable = ANFLocal::ANF(id);
-                        *self.counter.borrow_mut() += 1;
-                        ANF::Application(ApplicationExpression::new(
-                            variable.clone(),
-                            function,
-                            argument.clone(),
-                            k(Atom::Path(PathExpression::local(ANFPath::ANF(id)))))
-                        )
-                    }))
-                }))
+                let k1 = |argument: Atom<_>| {
+                    let k2 = |function| {
+                        let id = self.new_local_id();
+                        let path = Atom::Path(PathExpression::local(ANFPath::ANF(id)));
+                        let application = ApplicationExpression::new(ANFLocal::ANF(id), function, argument, k(path));
+                        ANF::Application(application)
+                    };
+
+                    let (function, _, _) = function.destruct();
+                    self.expression(function, Box::new(k2))
+                };
+
+                let (argument, _, _) = argument.destruct();
+                self.expression(argument, Box::new(k1))
             },
             Expression::Lambda(lambda) => {
                 let (variable, expression) = lambda.destruct();
+                let (expression, _, _) = expression.destruct();
 
-                let expression = self.convert(expression.destruct().0);
+                let expression = self.transform(expression);
                 k(Atom::Lambda(LambdaExpression::<Unresolved>::new(*variable.data(), expression)))
             },
             Expression::Let(letin) => {
                 let (variable, variable_expression, return_expression) = letin.destruct();
 
-                self.anf(variable_expression.destruct().0, Box::new(|vexpr| {
-                    ANF::Let(LetExpression::new(*variable.data(), vexpr, self.anf(return_expression.data().clone(), k)))
-                }))
+                let k1 = |variable_expression| {
+                    let return_expression = self.expression(return_expression.destruct().0, k);
+                    ANF::Let(LetExpression::new(*variable.data(), variable_expression, return_expression))
+                };
+
+                self.expression(variable_expression.destruct().0, Box::new(k1))
             },
         }
     }
 
-    pub fn convert(&self, e: Expression<Renamed>) -> ANF<Unresolved> {
-        self.anf(e, Box::new(ANF::Atom))
+    pub fn transform(&self, e: Expression<Renamed>) -> ANF<Unresolved> {
+        self.expression(e, Box::new(ANF::Atom))
     }
 }
 

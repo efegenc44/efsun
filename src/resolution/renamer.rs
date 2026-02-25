@@ -27,7 +27,7 @@ impl Renamer {
         }
     }
 
-    fn newname(&mut self) -> InternId {
+    fn new_name(&mut self) -> InternId {
         let id = InternId::new(self.newname_counter);
         self.newname_counter += 1;
         id
@@ -74,7 +74,7 @@ impl Renamer {
         let captures = lambda.captures().to_vec();
         let (variable, experssion) = lambda.destruct();
 
-        let newname = self.newname();
+        let newname = self.new_name();
 
         self.stack.push_frame(captures.clone());
         self.stack.push_local(newname);
@@ -90,20 +90,20 @@ impl Renamer {
     }
 
     fn letin(&mut self, letin: LetExpression<Resolved>) -> LetExpression<Renamed> {
-        let (variable, vexpr, rexpr) = letin.destruct();
+        let (variable, variable_expression, return_expression) = letin.destruct();
 
-        let vexpr = self.expression(vexpr);
+        let variable_expression = self.expression(variable_expression);
 
-        let newname = self.newname();
+        let new_name = self.new_name();
 
-        self.stack.push_local(newname);
-        let rexpr = self.expression(rexpr);
+        self.stack.push_local(new_name);
+        let return_expression = self.expression(return_expression);
         self.stack.pop_local();
 
         LetExpression::new(
-            Located::new(newname, variable.start(), variable.end()),
-            vexpr,
-            rexpr
+            Located::new(new_name, variable.start(), variable.end()),
+            variable_expression,
+            return_expression
         )
     }
 
@@ -122,10 +122,11 @@ impl Renamer {
 
         for definition in definitions {
             match definition {
-                Definition::Module(_) => (),
-                Definition::Name(name) => renamed_definitions.push(
-                    Definition::Name(self.let_definition(name))
-                ),
+                Definition::Name(name) => {
+                    let definition = Definition::Name(self.let_definition(name));
+                    renamed_definitions.push(definition);
+                },
+                Definition::Module(_) |
                 Definition::Import(_) => (),
             }
         }

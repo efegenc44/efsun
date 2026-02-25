@@ -57,13 +57,18 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         self.next().unwrap()
     }
 
-    fn peek_is(&mut self, expected: Token) -> Result<bool> {
+    fn next_if_peek(&mut self, expected: Token) -> Result<bool> {
         let Some(peek) = self.peek() else {
             return Ok(false);
         };
         let peek = peek?;
 
-        Ok(std::mem::discriminant(&expected) == std::mem::discriminant(peek.data()))
+        if std::mem::discriminant(&expected) == std::mem::discriminant(peek.data()) {
+            self.next();
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     fn expect(&mut self, expected: Token) -> Result<Located<Token>> {
@@ -145,8 +150,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let mut end = identifier.end();
         let mut parts = vec![*identifier.data()];
 
-        while self.peek_is(Token::Dot)? {
-            self.next();
+        while self.next_if_peek(Token::Dot)? {
             let part = self.expect_identifier()?;
             parts.push(*part.data());
             end = part.end();
@@ -231,8 +235,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let start = identifier.start();
         let mut end = identifier.end();
         let mut parts = vec![*identifier.data()];
-        while self.peek_is(Token::Dot)? {
-            self.next();
+        while self.next_if_peek(Token::Dot)? {
             let part = self.expect_identifier()?;
             parts.push(*part.data());
             end = part.end();
@@ -253,26 +256,21 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let identifier = self.expect_identifier()?;
         let mut parts = vec![*identifier.data()];
 
-        while self.peek_is(Token::Dot)? {
-            self.next();
+        while self.next_if_peek(Token::Dot)? {
             let part = self.expect_identifier()?;
             parts.push(*part.data());
         }
 
-        let import_name = if self.peek_is(Token::LeftParenthesis)? {
-            self.next();
+        let import_name = if self.next_if_peek(Token::LeftParenthesis)? {
             let mut imports = vec![];
             imports.push(self.import()?);
 
-            while !self.peek_is(Token::RightParenthesis)? {
+            while !self.next_if_peek(Token::RightParenthesis)? {
                 imports.push(self.import()?);
             }
 
-            self.expect(Token::RightParenthesis)?;
-
             Some(ImportName::Import(imports))
-        } else if self.peek_is(Token::AsKeyword)? {
-            self.next();
+        } else if self.next_if_peek(Token::AsKeyword)? {
             Some(ImportName::As(*self.expect_identifier()?.data()))
         } else {
             None
