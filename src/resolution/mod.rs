@@ -155,11 +155,9 @@ impl ExpressionResolver {
         let (variable, variable_expression, return_expression) = letin.destruct();
 
         let variable_expression = self.expression(variable_expression)?;
-        self.stack.push_frame();
         self.stack.push_local(*variable.data());
         let return_expression = self.expression(return_expression)?;
         self.stack.pop_local();
-        self.stack.pop_frame();
 
         Ok(LetExpression::new(variable, variable_expression, return_expression))
     }
