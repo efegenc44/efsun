@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use crate::{
     interner::{InternId, Interner},
     resolution::{Resolved, bound::{Bound, Path}},
+    parse::expression::Pattern,
 };
 
 use anf::{ANF, Atom, ANFDefinition};
@@ -96,6 +97,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         match expression {
             ANF::Let(letin) => self.letin(letin),
             ANF::Application(application) => self.application(application),
+            ANF::Match(matchlet) => self.matchlet(matchlet),
             ANF::Atom(atom) => self.atom(atom),
         }
     }
@@ -150,6 +152,28 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         instructions.extend(self.atom(application.function()));
         instructions.push(Instruction::Call);
         instructions.extend(self.expression(application.expression()));
+
+        instructions
+    }
+
+    fn matchlet(&mut self, matchlet: &anf::MatchExpression<Resolved>) -> Vec<Instruction> {
+        let mut instructions = vec![];
+
+        instructions.extend(self.atom(matchlet.variable_expression()));
+
+        for branch in matchlet.branches() {
+            match branch.pattern() {
+                Pattern::Any(_) => {
+                    // instructions.extend(self.expression(branch.expression()));
+                    // instructions.push(Instruction::Jump(0));
+                    // NOTE: Compiling other branches after an any branch is unnecessary
+                },
+                Pattern::String(string) => {
+                    // instructions.extend(self.string(*string));
+                    // instructions.push(Instruction::Jump(0));
+                },
+            }
+        }
 
         instructions
     }

@@ -9,7 +9,7 @@ use crate::{
     parse::{
         expression::{
             ApplicationExpression, Expression, PathExpression, LambdaExpression,
-            LetExpression
+            LetExpression, MatchExpression, MatchBranch, Pattern
         },
         definition::{Definition, NameDefinition, ImportName}
     },
@@ -76,6 +76,7 @@ impl ExpressionResolver {
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
             Expression::Application(application) => Expression::Application(self.application(application)?),
             Expression::Let(letin) => Expression::Let(self.letin(letin)?),
+            Expression::Match(matchlet) => Expression::Match(self.matchlet(matchlet)?),
         };
 
         Ok(Located::new(expression, span))
@@ -156,6 +157,37 @@ impl ExpressionResolver {
         self.stack.pop_local();
 
         Ok(LetExpression::new(variable, variable_expression, return_expression))
+    }
+
+    fn matchlet(&mut self, matchlet: MatchExpression<Unresolved>) -> Result<MatchExpression<Resolved>> {
+        let (expression, branches) = matchlet.destruct();
+
+        let expression = self.expression(expression)?;
+
+        let mut resolved_branches = Vec::new();
+        for branch in branches {
+            let (branch, span) = branch.destruct();
+            let branch = Located::new(self.match_branch(branch)?, span);
+            resolved_branches.push(branch);
+        }
+
+        Ok(MatchExpression::new(expression, resolved_branches))
+    }
+
+    fn match_branch(&mut self, branch: MatchBranch<Unresolved>) -> Result<MatchBranch<Resolved>> {
+        let (pattern, expression) = branch.destruct();
+
+        let expression = match pattern.data() {
+            Pattern::Any(id) => {
+                self.stack.push_local(*id);
+                let expression = self.expression(expression)?;
+                self.stack.pop_local();
+                expression
+            },
+            Pattern::String(_) => self.expression(expression)?,
+        };
+
+        Ok(MatchBranch::new(pattern, expression))
     }
 
     pub fn program(&mut self, modules: Vec<Vec<Definition<Unresolved>>>) -> Result<Vec<Vec<Definition<Resolved>>>> {
@@ -318,6 +350,7 @@ impl ANFResolver {
         match anf {
             ANF::Let(letin) => ANF::Let(self.letin(letin)),
             ANF::Application(application) => ANF::Application(self.application(application)),
+            ANF::Match(matchlet) => ANF::Match(self.matchlet(matchlet)),
             ANF::Atom(atom) => ANF::Atom(self.atom(atom)),
         }
     }
@@ -388,6 +421,22 @@ impl ANFResolver {
         self.stack.pop_local();
 
         anf::ApplicationExpression::new(variable, function, argument, expression)
+    }
+
+    fn matchlet(&mut self, matchlet: anf::MatchExpression<Unresolved>) -> anf::MatchExpression<Resolved> {
+        let (variable, variable_expression, branches) = matchlet.destruct();
+
+        let variable_expression = self.atom(variable_expression);
+        self.stack.push_local(variable);
+        let mut resolved_branches = Vec::new();
+        for branch in branches {
+            let (pattern, expression) = branch.destruct();
+            let expression = self.expression(expression);
+            resolved_branches.push(anf::MatchBranch::new(pattern, expression));
+        }
+        self.stack.pop_local();
+
+        anf::MatchExpression::new(variable, variable_expression, resolved_branches)
     }
 
     pub fn program(&mut self, modules: Vec<Vec<anf::ANFDefinition<Unresolved>>>) -> Vec<Vec<anf::ANFDefinition<Resolved>>> {

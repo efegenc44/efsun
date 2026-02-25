@@ -77,7 +77,10 @@ impl VM {
                 Instruction::GetAbsolute(id) => {
                     let value = self.stack.first().unwrap().stack[id].clone();
                     self.push(value);
-                }
+                },
+                Instruction::Jump(address) => {
+                    ip += address;
+                },
                 Instruction::Call => {
                     let (address, captures) = self.pop().into_lambda().destruct();
                     let argument = self.pop();

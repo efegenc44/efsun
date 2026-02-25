@@ -6,7 +6,7 @@ use crate::{
     parse::{
         expression::{
             ApplicationExpression, Expression, PathExpression,
-            LambdaExpression, LetExpression
+            LambdaExpression, LetExpression, MatchExpression, MatchBranch, Pattern
         },
         definition::{Definition, NameDefinition}
     },
@@ -66,6 +66,7 @@ impl<'ast> TypeChecker<'ast> {
             Expression::Application(application) => self.application(application, expression.span()),
             Expression::Lambda(lambda) => self.lambda(lambda),
             Expression::Let(letin) => self.letin(letin),
+            Expression::Match(matchlet) => self.matchlet(matchlet),
         }
     }
 
@@ -186,6 +187,40 @@ impl<'ast> TypeChecker<'ast> {
         self.stack.pop_local();
 
         Ok(self.substitute(return_type))
+    }
+
+    fn matchlet(&mut self, matchlet: &MatchExpression<Resolved>) -> Result<MonoType> {
+        let t = self.infer(matchlet.expression())?;
+
+        let return_type = self.newvar();
+
+        for branch in matchlet.branches() {
+            let t = self.match_branch(&t, branch.data())?;
+
+            if let Err((first, second)) = self.unify(&return_type, &t) {
+                let error = TypeCheckError::TypeMismatch {
+                    first: self.substitute(first),
+                    second: self.substitute(second)
+                };
+                return Err(located_error(error, branch.span()));
+            }
+        }
+
+        Ok(self.substitute(return_type))
+    }
+
+    fn match_branch(&mut self, t: &MonoType, branch: &MatchBranch<Resolved>) -> Result<MonoType> {
+        let t = match branch.pattern().data() {
+            Pattern::Any(_) => {
+                self.stack.push_local(Type::Mono(t.clone()));
+                let t = self.infer(branch.expression())?;
+                self.stack.pop_local();
+                t
+            },
+            Pattern::String(_) => self.infer(branch.expression())?,
+        };
+
+        Ok(t)
     }
 
     pub fn program(&mut self, modules: &'ast [Vec<Definition<Resolved>>]) -> Result<()> {

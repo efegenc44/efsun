@@ -2,7 +2,7 @@ use crate::{
     parse::{
         expression::{
             ApplicationExpression, Expression, PathExpression,
-            LambdaExpression, LetExpression
+            LambdaExpression, LetExpression, MatchExpression, MatchBranch, Pattern
         },
         definition::{Definition, NameDefinition}
     },
@@ -42,6 +42,7 @@ impl Renamer {
             Expression::Application(application) => Expression::Application(self.application(application)),
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)),
             Expression::Let(letin) => Expression::Let(self.letin(letin)),
+            Expression::Match(matchlet) => Expression::Match(self.matchlet(matchlet)),
         };
 
         Located::new(expression, span)
@@ -105,6 +106,38 @@ impl Renamer {
             variable_expression,
             return_expression
         )
+    }
+
+    fn matchlet(&mut self, matchlet: MatchExpression<Resolved>) -> MatchExpression<Renamed> {
+        let (expression, branches) = matchlet.destruct();
+
+        let expression = self.expression(expression);
+
+        let mut renamed_branches = Vec::new();
+        for branch in branches {
+            let (branch, span) = branch.destruct();
+            let branch = Located::new(self.match_branch(branch), span);
+            renamed_branches.push(branch);
+        }
+
+        MatchExpression::new(expression, renamed_branches)
+    }
+
+    fn match_branch(&mut self, branch: MatchBranch<Resolved>) -> MatchBranch<Renamed> {
+        let (pattern, expression) = branch.destruct();
+
+        let expression = match pattern.data() {
+            Pattern::Any(_) => {
+                let new_name = self.new_name();
+                self.stack.push_local(new_name);
+                let expression = self.expression(expression);
+                self.stack.pop_local();
+                expression
+            },
+            Pattern::String(_) => self.expression(expression),
+        };
+
+        MatchBranch::new(pattern, expression)
     }
 
     pub fn program(&mut self, modules: Vec<Vec<Definition<Resolved>>>) -> Vec<Vec<Definition<Renamed>>> {

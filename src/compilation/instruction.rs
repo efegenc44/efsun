@@ -9,6 +9,7 @@ pub enum Instruction {
     GetCapture(usize),
     GetLocal(usize),
     GetAbsolute(usize),
+    Jump(usize),
     Call,
     Return,
 }
@@ -32,6 +33,7 @@ impl Display for Instruction {
             Self::GetCapture(id) => write!(f, "GET_CAPTURE {id}"),
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
             Self::GetAbsolute(id) => write!(f, "GET_ABSOLUTE {id}"),
+            Self::Jump(address) => write!(f, "JUMP {address}"),
             Self::Call => write!(f, "CALL"),
             Self::Return => write!(f, "RETURN"),
         }

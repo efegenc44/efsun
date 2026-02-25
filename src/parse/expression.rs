@@ -13,6 +13,7 @@ pub enum Expression<State> {
     Application(ApplicationExpression<State>),
     Lambda(LambdaExpression<State>),
     Let(LetExpression<State>),
+    Match(MatchExpression<State>),
 }
 
 impl<T> Expression<T> {
@@ -58,7 +59,8 @@ impl<T> Expression<T> {
                 println!("{:indent$}{}", "", interner.lookup(*letin.variable.data()), indent=indent + 2);
                 letin.variable_expression.data().print(interner, depth + 2);
                 letin.return_expression.data().print(interner, depth + 1);
-            }
+            },
+            Self::Match(_) => todo!(),
         }
     }
 }
@@ -226,4 +228,59 @@ impl<T> LetExpression<T> {
     pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>, Located<Expression<T>>) {
         (self.variable, *self.variable_expression, *self.return_expression)
     }
+}
+
+#[derive(Clone)]
+pub struct MatchExpression<T> {
+    expression: Box<Located<Expression<T>>>,
+    branches: Vec<Located<MatchBranch<T>>>,
+}
+
+impl<T> MatchExpression<T> {
+    pub fn new(expression: Located<Expression<T>>, branches: Vec<Located<MatchBranch<T>>>) -> Self {
+        Self { expression: Box::new(expression), branches }
+    }
+
+    pub fn destruct(self) -> (Located<Expression<T>>, Vec<Located<MatchBranch<T>>>) {
+        (*self.expression, self.branches)
+    }
+
+    pub fn expression(&self) -> &Located<Expression<T>> {
+        &self.expression
+    }
+
+    pub fn branches(&self) -> &[Located<MatchBranch<T>>] {
+        &self.branches
+    }
+}
+
+#[derive(Clone)]
+pub struct MatchBranch<T> {
+    pattern: Located<Pattern>,
+    expression: Located<Expression<T>>,
+}
+
+impl<T> MatchBranch<T> {
+    pub fn new(pattern: Located<Pattern>, expression: Located<Expression<T>>) -> Self {
+        Self { pattern, expression }
+    }
+
+    pub fn destruct(self) -> (Located<Pattern>, Located<Expression<T>>) {
+        (self.pattern, self.expression)
+    }
+
+    pub fn pattern(&self) -> &Located<Pattern> {
+        &self.pattern
+    }
+
+    pub fn expression(&self) -> &Located<Expression<T>> {
+        &self.expression
+    }
+}
+
+#[derive(Clone)]
+pub enum Pattern {
+    Any(InternId),
+    #[allow(unused)]
+    String(InternId),
 }

@@ -15,7 +15,7 @@ use lex::{Lexer, token::Token};
 
 use expression::{
     ApplicationExpression, Expression, LambdaExpression, PathExpression,
-    LetExpression
+    LetExpression, MatchExpression, MatchBranch, Pattern
 };
 
 use definition::{
@@ -89,6 +89,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         match token.data() {
             Token::Backslash => self.lambda(),
             Token::LetKeyword => self.letin(),
+            Token::MatchKeyword => self.matchlet(),
             _ => self.application()
         }
     }
@@ -118,6 +119,49 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let expression = Located::new(Expression::Let(letin), Span::new(start, end));
 
         Ok(expression)
+    }
+
+    fn matchlet(&mut self) -> Result<Located<Expression<Unresolved>>> {
+        let start = self.expect(Token::MatchKeyword)?.span().start();
+        let expression = self.expression()?;
+        let mut end = expression.span().end();
+
+        let mut branches = Vec::new();
+        while self.next_if_peek(Token::LetKeyword)? {
+            let pattern = self.pattern()?;
+            let branch_start = pattern.span().start();
+            self.expect(Token::Equals)?;
+            let branch_expression = self.expression()?;
+            end = branch_expression.span().end();
+            let branch = Located::new(MatchBranch::new(pattern, branch_expression), Span::new(branch_start, end));
+            branches.push(branch);
+        }
+
+        let matchlet = MatchExpression::new(expression, branches);
+        let expression = Located::new(Expression::Match(matchlet), Span::new(start, end));
+
+        Ok(expression)
+    }
+
+    fn pattern(&mut self) -> Result<Located<Pattern>> {
+        let token = self.peek_some()?;
+
+        match token.data() {
+            Token::String(string) => {
+                self.next();
+                let literal = Pattern::String(*string);
+                Ok(Located::new(literal, token.span()))
+            },
+            Token::Identifier(id) => {
+                self.next();
+                let literal = Pattern::Any(*id);
+                Ok(Located::new(literal, token.span()))
+            },
+            unexpected => {
+                let error = ParseError::UnexpectedToken(*unexpected);
+                Err(located_error(error, token.span()))
+            }
+        }
     }
 
     fn primary(&mut self) -> Result<Located<Expression<Unresolved>>> {

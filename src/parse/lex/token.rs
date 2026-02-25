@@ -14,6 +14,7 @@ pub enum Token {
     ModuleKeyword,
     ImportKeyword,
     AsKeyword,
+    MatchKeyword,
 }
 
 impl Token {
@@ -31,6 +32,7 @@ impl Token {
             Self::ModuleKeyword => "module",
             Self::ImportKeyword => "import",
             Self::AsKeyword => "as",
+            Self::MatchKeyword => "match"
         }
     }
 }

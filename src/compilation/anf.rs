@@ -1,7 +1,7 @@
-use std::{cell::RefCell, marker::PhantomData};
+use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 
 use crate::{
-    parse::{definition::Definition, expression::Expression},
+    parse::{definition::Definition, expression::{Expression, Pattern}},
     interner::{InternId, Interner},
     resolution::{Resolved, Unresolved, Renamed, bound::{Bound, Capture, Path}}
 };
@@ -60,6 +60,7 @@ impl NameDefinition<Unresolved> {
 pub enum ANF<State> {
     Let(LetExpression<State>),
     Application(ApplicationExpression<State>),
+    Match(MatchExpression<State>),
     Atom(Atom<State>)
 }
 
@@ -71,7 +72,7 @@ impl<T> ANF<T> {
         match self {
             ANF::Let(letin) => {
                 print!("{:indent$}let {} = ", "", interner.lookup(letin.variable));
-                letin.variable_expression.print(0, interner);
+                letin.variable_expression.print(depth, interner);
                 println!(" in");
                 letin.return_expression.print(depth + 1, interner);
                 println!();
@@ -79,10 +80,20 @@ impl<T> ANF<T> {
             ,
             ANF::Application(application) => {
                 print!("{:indent$}let {} = ", "", application.variable.display(interner));
-                application.function.print(0, interner);
-                application.argument.print(0, interner);
+                application.function.print(depth, interner);
+                application.argument.print(depth, interner);
                 println!(" in");
                 application.expression.print(depth + 1, interner);
+                println!();
+            },
+            ANF::Match(matchlet) => {
+                println!("{:indent$}Match:", "");
+                print!("{:indent$}let {} = ", "", matchlet.variable.display(interner));
+                matchlet.variable_expression.print(depth, interner);
+                println!(" in");
+                for branch in &matchlet.branches {
+                    branch.expression.print(depth + 1, interner);
+                }
                 println!();
             },
             ANF::Atom(atom) => {
@@ -150,6 +161,59 @@ impl ApplicationExpression<Resolved> {
     }
 
     pub fn expression(&self) -> &ANF<Resolved> {
+        &self.expression
+    }
+}
+
+#[derive(Clone)]
+pub struct MatchExpression<T> {
+    variable: ANFLocal,
+    variable_expression: Atom<T>,
+    branches: Vec<MatchBranch<T>>,
+}
+
+impl<T> MatchExpression<T> {
+    pub fn new(
+        variable: ANFLocal,
+        variable_expression: Atom<T>,
+        branches: Vec<MatchBranch<T>>,
+    ) -> Self {
+        Self { variable, variable_expression, branches }
+    }
+
+    pub fn destruct(self) -> (ANFLocal, Atom<T>, Vec<MatchBranch<T>>) {
+        (self.variable, self.variable_expression, self.branches)
+    }
+
+    pub fn variable_expression(&self) -> &Atom<T> {
+        &self.variable_expression
+    }
+
+    pub fn branches(&self) -> &[MatchBranch<T>] {
+        &self.branches
+    }
+}
+
+#[derive(Clone)]
+pub struct MatchBranch<T> {
+    pattern: Pattern,
+    expression: ANF<T>
+}
+
+impl<T> MatchBranch<T> {
+    pub fn new(pattern: Pattern, expression: ANF<T>) -> Self {
+        Self { pattern, expression }
+    }
+
+    pub fn destruct(self) -> (Pattern, ANF<T>) {
+        (self.pattern, self.expression)
+    }
+
+    pub fn pattern(&self) -> &Pattern {
+        &self.pattern
+    }
+
+    pub fn expression(&self) -> &ANF<T> {
         &self.expression
     }
 }
@@ -337,7 +401,7 @@ impl ANFTransformer {
         anf_definitions
     }
 
-    fn expression(&self, e: Expression<Renamed>, k: Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + '_>) -> ANF<Unresolved> {
+    fn expression(&self, e: Expression<Renamed>, k: Rc<Box<dyn Fn(Atom<Unresolved>) -> ANF<Unresolved> + '_>>) -> ANF<Unresolved> {
         match e {
             Expression::String(id) => k(Atom::String(id)),
             Expression::Path(path) => {
@@ -358,14 +422,14 @@ impl ANFTransformer {
                     let k2 = |function| {
                         let id = self.new_local_id();
                         let path = Atom::Path(PathExpression::local(ANFPath::ANF(id)));
-                        let application = ApplicationExpression::new(ANFLocal::ANF(id), function, argument, k(path));
+                        let application = ApplicationExpression::new(ANFLocal::ANF(id), function, argument.clone(), k(path));
                         ANF::Application(application)
                     };
 
-                    self.expression(function.as_data(), Box::new(k2))
+                    self.expression(function.clone().as_data(), Rc::new(Box::new(k2)))
                 };
 
-                self.expression(argument.as_data(), Box::new(k1))
+                self.expression(argument.as_data(), Rc::new(Box::new(k1)))
             },
             Expression::Lambda(lambda) => {
                 let (variable, expression) = lambda.destruct();
@@ -377,17 +441,50 @@ impl ANFTransformer {
                 let (variable, variable_expression, return_expression) = letin.destruct();
 
                 let k1 = |variable_expression| {
-                    let return_expression = self.expression(return_expression.destruct().0, k);
-                    ANF::Let(LetExpression::new(*variable.data(), variable_expression, return_expression))
+                    let return_expression = self.expression(return_expression.clone().as_data(), k.clone());
+                    ANF::Let(LetExpression::new(variable.as_data(), variable_expression, return_expression))
                 };
 
-                self.expression(variable_expression.destruct().0, Box::new(k1))
+                self.expression(variable_expression.as_data(), Rc::new(Box::new(k1)))
             },
+            Expression::Match(matchlet) => {
+                let (expression, branches) = matchlet.destruct();
+
+                let k1 = |expression: Atom<Unresolved>| {
+                    // TODO: dont duplicate external context
+                    let id = self.new_local_id();
+                    let path = Atom::Path(PathExpression::local(ANFPath::ANF(id)));
+
+                    let mut branch_anfs = Vec::new();
+                    for branch in branches.clone() {
+                        let (pattern, branch_expression) = branch.as_data().destruct();
+
+                        let anf = match pattern.data() {
+                            Pattern::Any(id) => {
+                                ANF::Let(LetExpression::new(
+                                    *id,
+                                    path.clone(),
+                                    self.expression(branch_expression.as_data(), k.clone())
+                                ))
+                            },
+                            Pattern::String(_) => {
+                                self.expression(branch_expression.as_data(), k.clone())
+                            },
+                        };
+
+                        let branch = MatchBranch::new(pattern.as_data(), anf);
+                        branch_anfs.push(branch);
+                    }
+
+                    ANF::Match(MatchExpression::new(ANFLocal::ANF(id), expression, branch_anfs))
+                };
+
+                self.expression(expression.as_data(), Rc::new(Box::new(k1)))
+            }
         }
     }
 
     pub fn transform(&self, e: Expression<Renamed>) -> ANF<Unresolved> {
-        self.expression(e, Box::new(ANF::Atom))
+        self.expression(e, Rc::new(Box::new(ANF::Atom)))
     }
 }
-
