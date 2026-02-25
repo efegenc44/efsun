@@ -3,7 +3,7 @@ use crate::{
     interner::Interner,
     parse::{ParseError, lex::LexError},
     resolution::ResolutionError,
-    location::{Located, SourceLocation}
+    location::{Located, Span}
 };
 
 #[derive(Clone)]
@@ -26,7 +26,6 @@ impl Error {
                 }
             }
             Self::Parse(error) => match error {
-                ParseError::LexError(error) => Self::Lex(*error).description(interner),
                 ParseError::UnexpectedEOF => {
                     "Encountered unexpected EOF.".to_string()
                 },
@@ -81,15 +80,22 @@ impl From<TypeCheckError> for Error {
     }
 }
 
-pub fn located_error<T: Into<Error>>(error: T, start: SourceLocation, end: SourceLocation) -> Located<Error> {
-    Located::new(error.into(), start, end)
+pub fn located_error<T: Into<Error>>(error: T, span: Span) -> Located<Error> {
+    Located::new(error.into(), span)
+}
+
+pub fn eof_error<T: Into<Error>>(error: T) -> Located<Error> {
+    Located::new(error.into(), Span::eof())
 }
 
 impl Located<Error> {
     pub fn report(&self, source_name: &str, source: &str, interner: &Interner) {
         let mut lines = source.lines();
 
-        if self.start().is_eof() {
+        let start = self.span().start();
+        let end = self.span().end();
+
+        if self.span().is_eof() {
             eprintln!();
             eprintln!("        | [{source_name}]");
             eprintln!("        |");
@@ -97,29 +103,29 @@ impl Located<Error> {
             return;
         }
 
-        let first_line_number = self.start().row();
+        let first_line_number = start.row();
 
         eprintln!();
-        eprintln!("        | [{source_name}:{first_line_number}:{}] ", self.start().column());
+        eprintln!("        | [{source_name}:{first_line_number}:{}] ", start.column());
         eprintln!("        |");
 
-        if self.start().row() == self.end().row() {
+        if start.row() == end.row() {
             let first_line = lines.nth(first_line_number - 1).unwrap();
             eprintln!("  {first_line_number:>5} | {first_line}");
             eprintln!("        | {:spaces$}{:^^carrots$}", "", "",
-                spaces = (1..self.start().column()).len(),
-                carrots = (self.start().column()..self.end().column()).len()
+                spaces = (1..start.column()).len(),
+                carrots = (start.column()..end.column()).len()
             );
             eprintln!("        | {}", self.data().description(interner))
         } else {
             let first_line = lines.nth(first_line_number - 1).unwrap();
             eprintln!("  {first_line_number:>5} | {first_line}");
             eprintln!("        | {:spaces$}{:^^carrots$}", "", "",
-                spaces = (1..self.start().column()).len(),
-                carrots = (self.start().column()..first_line.chars().count() + 1).len()
+                spaces = (1..start.column()).len(),
+                carrots = (start.column()..first_line.chars().count() + 1).len()
             );
 
-            for line_number in (first_line_number + 1)..self.end().row() {
+            for line_number in (first_line_number + 1)..end.row() {
                 let line = lines.next().unwrap();
                 eprintln!("  {line_number:>5} | {line}");
                 eprintln!("        | {:^^carrots$}", "",
@@ -128,9 +134,9 @@ impl Located<Error> {
             }
 
             let last_line = lines.next().unwrap();
-            eprintln!("  {:>5} | {last_line}", self.end().row());
+            eprintln!("  {:>5} | {last_line}", end.row());
             eprintln!("        | {:^^carrots$}", "",
-                carrots = (1..self.end().column()).len()
+                carrots = (1..end.column()).len()
             );
             eprintln!("        | {}", self.data().description(interner))
         }

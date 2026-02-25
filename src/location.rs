@@ -11,14 +11,6 @@ impl SourceLocation {
         Self { row: 1, column: 1 }
     }
 
-    pub fn eof() -> Self {
-        Self { row: 0, column: 0 }
-    }
-
-    pub fn is_eof(&self) -> bool {
-        self.row == 0 && self.column == 0
-    }
-
     pub fn row(&self) -> usize {
         self.row
     }
@@ -44,23 +36,23 @@ impl Display for SourceLocation {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Located<T> {
-    data: T,
+pub struct Span {
     start: SourceLocation,
     end: SourceLocation
 }
 
-impl<T> Located<T> {
-    pub fn new(data: T, start: SourceLocation, end: SourceLocation) -> Self {
-        Self { data, start, end }
+impl Span {
+    pub fn new(start: SourceLocation, end: SourceLocation) -> Self {
+        Self { start, end }
     }
 
-    pub fn destruct(self) -> (T, SourceLocation, SourceLocation) {
-        (self.data, self.start, self.end)
+    pub fn eof() -> Self {
+        let zero = SourceLocation { row: 0, column: 0 };
+        Self { start: zero, end: zero }
     }
 
-    pub fn data(&self) -> &T {
-        &self.data
+    pub fn is_eof(&self) -> bool {
+        self.start.row == 0
     }
 
     pub fn start(&self) -> SourceLocation {
@@ -72,8 +64,42 @@ impl<T> Located<T> {
     }
 }
 
+impl Display for Span {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} {}", self.start, self.end)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Located<T> {
+    data: T,
+    span: Span,
+}
+
+impl<T> Located<T> {
+    pub fn new(data: T, span: Span) -> Self {
+        Self { data, span }
+    }
+
+    pub fn destruct(self) -> (T, Span) {
+        (self.data, self.span)
+    }
+
+    pub fn as_data(self) -> T {
+        self.data
+    }
+
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+
+    pub fn span(&self) -> Span {
+        self.span
+    }
+}
+
 impl<T: Display> Display for Located<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} {} {}", self.data, self.start, self.end)
+        write!(f, "{} {}", self.data, self.span)
     }
 }

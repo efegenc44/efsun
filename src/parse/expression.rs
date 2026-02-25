@@ -96,12 +96,12 @@ impl PathExpression<Resolved> {
     }
 
     pub fn rename(self, name: InternId) -> PathExpression<Renamed> {
-        let (mut data, start, end) = self.parts.destruct();
+        let (mut data, span) = self.parts.destruct();
 
         *data.last_mut().unwrap() = name;
 
         PathExpression {
-            parts: Located::new(data, start, end),
+            parts: Located::new(data, span),
             bound: self.bound,
             state: PhantomData,
         }

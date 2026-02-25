@@ -342,12 +342,11 @@ impl ANFTransformer {
             Expression::String(id) => k(Atom::String(id)),
             Expression::Path(path) => {
                 let (parts, bound) = path.destruct();
-                let (parts, _, _) = parts.destruct();
 
                 let path_expression = match &bound {
-                    Bound::Absolute(_) => PathExpression::new(ANFPath::Normal(parts), bound),
+                    Bound::Absolute(_) => PathExpression::new(ANFPath::Normal(parts.as_data()), bound),
                     Bound::Local(_) |
-                    Bound::Capture(_) => PathExpression::local(ANFPath::Normal(parts)),
+                    Bound::Capture(_) => PathExpression::local(ANFPath::Normal(parts.as_data())),
                 };
 
                 k(Atom::Path(path_expression))
@@ -363,18 +362,15 @@ impl ANFTransformer {
                         ANF::Application(application)
                     };
 
-                    let (function, _, _) = function.destruct();
-                    self.expression(function, Box::new(k2))
+                    self.expression(function.as_data(), Box::new(k2))
                 };
 
-                let (argument, _, _) = argument.destruct();
-                self.expression(argument, Box::new(k1))
+                self.expression(argument.as_data(), Box::new(k1))
             },
             Expression::Lambda(lambda) => {
                 let (variable, expression) = lambda.destruct();
-                let (expression, _, _) = expression.destruct();
 
-                let expression = self.transform(expression);
+                let expression = self.transform(expression.as_data());
                 k(Atom::Lambda(LambdaExpression::<Unresolved>::new(*variable.data(), expression)))
             },
             Expression::Let(letin) => {

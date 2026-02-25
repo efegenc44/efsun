@@ -5,7 +5,7 @@ pub mod renamer;
 use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
-    error::{Result, located_error},
+    error::{Result, located_error, eof_error},
     parse::{
         expression::{
             ApplicationExpression, Expression, PathExpression, LambdaExpression,
@@ -14,7 +14,7 @@ use crate::{
         definition::{Definition, NameDefinition, ImportName}
     },
     interner::{Interner, InternId},
-    location::{Located, SourceLocation},
+    location::{Located, Span},
     compilation::anf::{self, Atom, ANF, ANFLocal},
 };
 
@@ -68,20 +68,20 @@ impl ExpressionResolver {
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
-        let (expression, start, end) = expression.destruct();
+        let (expression, span) = expression.destruct();
 
         let expression = match expression {
             Expression::String(string) => Expression::String(string),
-            Expression::Path(path) => Expression::Path(self.path(path, start, end)?),
+            Expression::Path(path) => Expression::Path(self.path(path, span)?),
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
             Expression::Application(application) => Expression::Application(self.application(application)?),
             Expression::Let(letin) => Expression::Let(self.letin(letin)?),
         };
 
-        Ok(Located::new(expression, start, end))
+        Ok(Located::new(expression, span))
     }
 
-    fn identifier(&mut self, identifier: InternId, start: SourceLocation, end: SourceLocation) -> Result<Bound> {
+    fn identifier(&mut self, identifier: InternId, span: Span) -> Result<Bound> {
         match self.stack.locally_resolve(identifier) {
             Some(bound) => Ok(bound),
             None => {
@@ -89,21 +89,16 @@ impl ExpressionResolver {
                     Ok(Bound::Absolute(self.current_module_path.append(identifier)))
                 } else {
                     let error = ResolutionError::UnboundPath(Path::from_parts(vec![identifier]));
-                    Err(located_error(error, start, end))
+                    Err(located_error(error, span))
                 }
             },
         }
     }
 
-    fn path(
-        &mut self,
-        path: PathExpression<Unresolved>,
-        start: SourceLocation,
-        end: SourceLocation
-    ) -> Result<PathExpression<Resolved>> {
+    fn path(&mut self, path: PathExpression<Unresolved>, span: Span) -> Result<PathExpression<Resolved>> {
         let bound = match &path.parts().data()[..] {
             [] => unreachable!(),
-            [identifier] => self.identifier(*identifier, start, end),
+            [identifier] => self.identifier(*identifier, span),
             [base, mid@.., name] => {
                 let mut module_path = if let Some(path) = self.current_module().imports().get(base) {
                     path.append_parts(mid.to_vec())
@@ -115,7 +110,7 @@ impl ExpressionResolver {
 
                 let Some(module) = self.modules.get(&module_path) else {
                     let error = ResolutionError::UnboundPath(module_path);
-                    return Err(located_error(error, start, end));
+                    return Err(located_error(error, span));
                 };
 
                 module_path.push(*name);
@@ -123,7 +118,7 @@ impl ExpressionResolver {
                     Ok(Bound::Absolute(module_path))
                 } else {
                     let error = ResolutionError::UnboundPath(module_path);
-                    Err(located_error(error, start, end))
+                    Err(located_error(error, span))
                 }
             }
         };
@@ -202,11 +197,7 @@ impl ExpressionResolver {
         }
 
         // TODO: Check for duplicate module definition
-        Err(located_error(
-            ResolutionError::MissingModuleDefinition,
-            SourceLocation::eof(),
-            SourceLocation::eof())
-        )
+        Err(eof_error(ResolutionError::MissingModuleDefinition))
     }
 
     fn collect_names(&mut self, definitions: &[Definition<Unresolved>]) -> Result<()> {
@@ -276,19 +267,11 @@ impl ExpressionResolver {
                     let name = module.pop();
 
                     let Some(module) = self.modules.get(&module) else {
-                        return Err(located_error(
-                            ResolutionError::UnresolvedImport(import.clone()),
-                            SourceLocation::eof(),
-                            SourceLocation::eof()
-                        ));
+                        return Err(eof_error(ResolutionError::UnresolvedImport(import.clone())));
                     };
 
                     let true = module.names().contains(&name) else {
-                        return Err(located_error(
-                            ResolutionError::UnresolvedImport(import.clone()),
-                            SourceLocation::eof(),
-                            SourceLocation::eof()
-                        ));
+                        return Err(eof_error(ResolutionError::UnresolvedImport(import.clone())));
                     };
                 }
             }

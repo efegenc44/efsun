@@ -16,7 +16,7 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     let resolved     = ExpressionResolver::interactive(interner).expression(expression)?;
     let t            = TypeChecker::new().infer(&resolved)?;
     let renamed      = Renamer::new().expression(resolved);
-    let anf          = ANFTransformer::new().transform(renamed.destruct().0);
+    let anf          = ANFTransformer::new().transform(renamed.as_data());
     let resolved_anf = ANFResolver::new().expression(anf);
     let (code, pool) = Compiler::new(interner).compile(&resolved_anf);
     let result       = vm.run(&code, &pool, true);

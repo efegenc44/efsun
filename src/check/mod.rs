@@ -10,7 +10,7 @@ use crate::{
         },
         definition::{Definition, NameDefinition}
     },
-    location::{Located, SourceLocation},
+    location::{Located, Span},
     resolution::{Resolved, frame::CheckStack, bound::{Bound, Path}},
     error::{Result, located_error}
 };
@@ -62,8 +62,8 @@ impl<'ast> TypeChecker<'ast> {
     pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> Result<MonoType> {
         match expression.data() {
             Expression::String(_) => Ok(MonoType::String),
-            Expression::Path(path) => self.path(path, expression.start(), expression.end()),
-            Expression::Application(application) => self.application(application, expression.start(), expression.end()),
+            Expression::Path(path) => self.path(path, expression.span()),
+            Expression::Application(application) => self.application(application, expression.span()),
             Expression::Lambda(lambda) => self.lambda(lambda),
             Expression::Let(letin) => self.letin(letin),
         }
@@ -111,12 +111,7 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn path(
-        &mut self,
-        path: &PathExpression<Resolved>,
-        start: SourceLocation,
-        end: SourceLocation,
-    ) -> Result<MonoType> {
+    fn path(&mut self, path: &PathExpression<Resolved>, span: Span) -> Result<MonoType> {
         match path.bound() {
             Bound::Local(id) => {
                 let t = self.stack.get_local(*id);
@@ -132,7 +127,7 @@ impl<'ast> TypeChecker<'ast> {
                 } else {
                     if self.name_expressions.is_currently_visiting(path) {
                         let error = TypeCheckError::CyclicDefinition(path.clone());
-                        return Err(located_error(error, start, end));
+                        return Err(located_error(error, span));
                     }
 
                     self.name_expressions.visiting(path);
@@ -147,12 +142,7 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn application(
-        &mut self,
-        application: &ApplicationExpression<Resolved>,
-        start: SourceLocation,
-        end: SourceLocation
-    ) -> Result<MonoType> {
+    fn application(&mut self, application: &ApplicationExpression<Resolved>, span: Span) -> Result<MonoType> {
         let return_type = self.newvar();
         let function = self.infer(application.function())?;
         let argument = self.infer(application.argument())?;
@@ -164,7 +154,7 @@ impl<'ast> TypeChecker<'ast> {
                 first: self.substitute(first),
                 second: self.substitute(second)
             };
-            Err(located_error(error, start, end))
+            Err(located_error(error, span))
         } else {
             Ok(self.substitute(return_type))
         }

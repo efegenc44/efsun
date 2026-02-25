@@ -34,7 +34,7 @@ impl Renamer {
     }
 
     pub fn expression(&mut self, expression: Located<Expression<Resolved>>) -> Located<Expression<Renamed>> {
-        let (data, start, end) = expression.destruct();
+        let (data, span) = expression.destruct();
 
         let expression = match data {
             Expression::String(id) => Expression::String(id),
@@ -44,7 +44,7 @@ impl Renamer {
             Expression::Let(letin) => Expression::Let(self.letin(letin)),
         };
 
-        Located::new(expression, start, end)
+        Located::new(expression, span)
     }
 
     fn path(&mut self, path: PathExpression<Resolved>) -> PathExpression<Renamed> {
@@ -83,7 +83,7 @@ impl Renamer {
         self.stack.pop_frame();
 
         LambdaExpression::<Renamed>::new(
-            Located::new(newname, variable.start(), variable.end()),
+            Located::new(newname, variable.span()),
             expression,
             captures
         )
@@ -101,7 +101,7 @@ impl Renamer {
         self.stack.pop_local();
 
         LetExpression::new(
-            Located::new(new_name, variable.start(), variable.end()),
+            Located::new(new_name, variable.span()),
             variable_expression,
             return_expression
         )

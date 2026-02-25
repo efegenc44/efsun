@@ -4,7 +4,7 @@ use std::{iter::Peekable, str::Chars};
 
 use crate::{
     interner::Interner,
-    location::{Located, SourceLocation},
+    location::{Located, SourceLocation, Span},
     error::{Result, located_error}
 };
 
@@ -65,7 +65,7 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
             }
         };
 
-        Located::new(token, start, end)
+        Located::new(token, Span::new(start, end))
     }
 
     fn string(&mut self) -> Result<Located<Token>> {
@@ -88,13 +88,13 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
             };
 
             let error = LexError::UnterminatedStringLiteral;
-            return Err(located_error(error, start, end));
+            return Err(located_error(error, Span::new(start, end)));
         };
 
         let end = self.location;
 
         let string = Token::String(self.interner.intern(string));
-        Ok(Located::new(string, start, end))
+        Ok(Located::new(string, Span::new(start, end)))
     }
 
     fn single(&mut self, token: Token) -> Located<Token> {
@@ -102,7 +102,7 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
         self.next();
         let end = self.location;
 
-        Located::new(token, start, end)
+        Located::new(token, Span::new(start, end))
     }
 
     fn skip_whitespace(&mut self) {
@@ -141,7 +141,7 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
                 let end = self.location;
 
                 let error = LexError::UnknownStartOfAToken(unknown);
-                return Some(Err(located_error(error, start, end)));
+                return Some(Err(located_error(error, Span::new(start, end))));
             }
         };
 
