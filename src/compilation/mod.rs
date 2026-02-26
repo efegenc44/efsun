@@ -98,6 +98,8 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             ANF::Let(letin) => self.letin(letin),
             ANF::Application(application) => self.application(application),
             ANF::Match(matchlet) => self.matchlet(matchlet),
+            ANF::Join(join) => self.join(join),
+            ANF::Jump(jump) => self.jump(jump),
             ANF::Atom(atom) => self.atom(atom),
         }
     }
@@ -164,16 +166,51 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         for branch in matchlet.branches() {
             match branch.pattern() {
                 Pattern::Any(_) => {
-                    // instructions.extend(self.expression(branch.expression()));
-                    // instructions.push(Instruction::Jump(0));
+                    instructions.extend(self.expression(branch.expression()));
+
                     // NOTE: Compiling other branches after an any branch is unnecessary
                 },
                 Pattern::String(string) => {
-                    // instructions.extend(self.string(*string));
-                    // instructions.push(Instruction::Jump(0));
+                    instructions.extend(self.atom(branch.matched()));
+                    instructions.extend(self.string(*string));
+                    instructions.push(Instruction::StringEquals);
+                    let expression = self.expression(branch.expression());
+                    instructions.push(Instruction::SkipIfFalse(expression.len()));
+                    instructions.extend(expression);
                 },
             }
         }
+
+        instructions
+    }
+
+    fn join(&mut self, join: &anf::Join<Resolved>) -> Vec<Instruction> {
+        let mut instructions = vec![];
+
+        let mut join_instructions = self.expression(join.join());
+
+        let len = join_instructions.len();
+        for (index, instruction) in join_instructions.iter_mut().enumerate() {
+            if let Instruction::Jump(label) = instruction {
+                if *label == join.label() {
+                    *instruction = Instruction::Skip(len - (index + 1))
+                }
+            }
+        }
+
+        instructions.push(Instruction::EnterFrame);
+        instructions.extend(join_instructions);
+        instructions.push(Instruction::ExitFrame);
+        instructions.extend(self.expression(join.expression()));
+
+        instructions
+    }
+
+    fn jump(&mut self, jump: &anf::Jump<Resolved>) -> Vec<Instruction> {
+        let mut instructions = vec![];
+
+        instructions.extend(self.atom(jump.expression()));
+        instructions.push(Instruction::Jump(jump.to()));
 
         instructions
     }

@@ -3,14 +3,16 @@ use std::rc::Rc;
 #[derive(Clone, Debug)]
 pub enum Value {
     Lambda(LambdaValue),
-    String(usize)
+    String(usize),
+    Bool(bool)
 }
 
 impl Value {
     pub fn display(&self, strings: &[String]) -> String {
         match self {
-            Value::Lambda(lambda) => format!("<lambda@{}>", lambda.address),
-            Value::String(offset) => strings[*offset].to_string(),
+            Self::Lambda(lambda) => format!("<lambda@{}>", lambda.address),
+            Self::String(offset) => strings[*offset].to_string(),
+            Self::Bool(bool) => bool.to_string(),
         }
     }
 
@@ -20,6 +22,22 @@ impl Value {
         };
 
         lambda
+    }
+
+    pub fn into_string(self) -> usize {
+        let Self::String(string) = self else {
+            panic!()
+        };
+
+        string
+    }
+
+    pub fn into_bool(self) -> bool {
+        let Self::Bool(bool) = self else {
+            panic!()
+        };
+
+        bool
     }
 }
 #[derive(Clone, Debug)]

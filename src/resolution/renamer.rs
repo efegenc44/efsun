@@ -126,15 +126,15 @@ impl Renamer {
     fn match_branch(&mut self, branch: MatchBranch<Resolved>) -> MatchBranch<Renamed> {
         let (pattern, expression) = branch.destruct();
 
-        let expression = match pattern.data() {
+        let (pattern, expression) = match pattern.data() {
             Pattern::Any(_) => {
                 let new_name = self.new_name();
                 self.stack.push_local(new_name);
                 let expression = self.expression(expression);
                 self.stack.pop_local();
-                expression
+                (Located::new(Pattern::Any(new_name), pattern.span()), expression)
             },
-            Pattern::String(_) => self.expression(expression),
+            Pattern::String(_) => (pattern, self.expression(expression)),
         };
 
         MatchBranch::new(pattern, expression)

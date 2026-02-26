@@ -351,6 +351,8 @@ impl ANFResolver {
             ANF::Let(letin) => ANF::Let(self.letin(letin)),
             ANF::Application(application) => ANF::Application(self.application(application)),
             ANF::Match(matchlet) => ANF::Match(self.matchlet(matchlet)),
+            ANF::Join(join) => ANF::Join(self.join(join)),
+            ANF::Jump(jump) => ANF::Jump(self.jump(jump)),
             ANF::Atom(atom) => ANF::Atom(self.atom(atom)),
         }
     }
@@ -430,13 +432,34 @@ impl ANFResolver {
         self.stack.push_local(variable);
         let mut resolved_branches = Vec::new();
         for branch in branches {
-            let (pattern, expression) = branch.destruct();
+            let (pattern, matched, expression) = branch.destruct();
+            let matched = self.atom(matched);
             let expression = self.expression(expression);
-            resolved_branches.push(anf::MatchBranch::new(pattern, expression));
+            resolved_branches.push(anf::MatchBranch::new(pattern, matched, expression));
         }
         self.stack.pop_local();
 
+
         anf::MatchExpression::new(variable, variable_expression, resolved_branches)
+    }
+
+    fn join(&mut self, join: anf::Join<Unresolved>) -> anf::Join<Resolved> {
+        let (label, variable, join, expression) = join.destruct();
+
+        let join = self.expression(join);
+        self.stack.push_local(variable);
+        let expression = self.expression(expression);
+        self.stack.pop_local();
+
+        anf::Join::new(label, variable, join, expression)
+    }
+
+    fn jump(&mut self, jump: anf::Jump<Unresolved>) -> anf::Jump<Resolved> {
+        let (to, expression) = jump.destruct();
+
+        let expression = self.atom(expression);
+
+        anf::Jump::new(to, expression)
     }
 
     pub fn program(&mut self, modules: Vec<Vec<anf::ANFDefinition<Unresolved>>>) -> Vec<Vec<anf::ANFDefinition<Resolved>>> {

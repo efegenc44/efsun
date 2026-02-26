@@ -78,9 +78,31 @@ impl VM {
                     let value = self.stack.first().unwrap().stack[id].clone();
                     self.push(value);
                 },
-                Instruction::Jump(address) => {
-                    ip += address;
+                Instruction::Jump(_label) => {
+                    panic!()
                 },
+                Instruction::StringEquals => {
+                    let s1 = &pool.strings()[self.pop().into_string()];
+                    let s2 = &pool.strings()[self.pop().into_string()];
+
+                    self.push(Value::Bool(s1 == s2));
+                }
+                Instruction::Skip(count) => {
+                    ip += count;
+                }
+                Instruction::SkipIfFalse(count) => {
+                    if !self.pop().into_bool() {
+                        ip += count;
+                    }
+                }
+                Instruction::EnterFrame => {
+                    self.stack.push(Frame::new());
+                }
+                Instruction::ExitFrame => {
+                    let return_value = self.pop();
+                    self.stack.pop().unwrap();
+                    self.push(return_value);
+                }
                 Instruction::Call => {
                     let (address, captures) = self.pop().into_lambda().destruct();
                     let argument = self.pop();

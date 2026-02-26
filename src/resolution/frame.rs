@@ -131,9 +131,7 @@ impl<T> CheckStack<T> {
 impl<T: Clone> CheckStack<T> {
     pub fn get_local(&self, id: BoundId) -> T {
         let current_frame = &self.0.last().unwrap();
-        let index = current_frame.locals.len() - 1 - id.value();
-
-        current_frame.locals[index].clone()
+        current_frame.locals[id.value()].clone()
     }
 
     pub fn get_capture(&mut self, id: BoundId) -> T {
@@ -148,8 +146,7 @@ impl<T: Clone> CheckStack<T> {
 
         match capture {
             Capture::Local(id) => {
-                let local_index = current_frame.locals.len() - 1 - id.value();
-                current_frame.locals[local_index].clone()
+                current_frame.locals[id.value()].clone()
             },
             Capture::Outer(id) => {
                 let capture = current_frame.captures[id.value()];

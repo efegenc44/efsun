@@ -2,7 +2,7 @@ use std::{fs, io::{self, Write}};
 
 use crate::{
     check::{TypeChecker, typ::MonoType},
-    compilation::{Compiler, ConstantPool},
+    compilation::{Compiler, ConstantPool, instruction::display_instructions},
     interner::Interner,
     parse::Parser,
     resolution::{ExpressionResolver, ANFResolver, renamer::Renamer},
@@ -18,10 +18,10 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     let renamed      = Renamer::new().expression(resolved);
     let anf          = ANFTransformer::new().transform(renamed.as_data());
     let resolved_anf = ANFResolver::new().expression(anf);
-
-    resolved_anf.print(0, interner);
-
     let (code, pool) = Compiler::new(interner).compile(&resolved_anf);
+
+    display_instructions(&code, &pool);
+
     let result       = vm.run(&code, &pool, true);
 
     Ok((result, t, pool))
