@@ -1,4 +1,4 @@
-use std::{fs, io::{self, Write}};
+use std::{collections::HashMap, fs, io::{self, Write}};
 
 use crate::{
     check::{TypeChecker, typ::MonoType},
@@ -12,7 +12,7 @@ use crate::{
 };
 
 fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Value, MonoType, ConstantPool)> {
-    let expression   = Parser::from_source(source, interner).expression()?;
+    let expression   = Parser::from_source("<interactive>".to_string(), source, interner).expression()?;
     let resolved     = ExpressionResolver::interactive(interner).expression(expression)?;
     let t            = TypeChecker::new().infer(&resolved)?;
     let renamed      = Renamer::new().expression(resolved);
@@ -27,10 +27,10 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
     Ok((result, t, pool))
 }
 
-fn program(sources: Vec<String>, vm: &mut VM, interner: &mut Interner) -> Result<(Value, ConstantPool)> {
+fn program(sources: &HashMap<String, String>, vm: &mut VM, interner: &mut Interner) -> Result<(Value, ConstantPool)> {
     let modules = sources
         .iter()
-        .map(|source| Parser::from_source(source, interner).module())
+        .map(|(source_name, source)| Parser::from_source(source_name.clone(), source, interner).module())
         .collect::<Result<_>>()?;
     let resolved     = ExpressionResolver::new().program(modules)?;
     let _            = TypeChecker::new().program(&resolved)?;
@@ -65,7 +65,7 @@ pub fn repl() {
 
         match expression(input, &mut vm, &mut interner) {
             Ok((result, t, pool)) => println!("= {} : {t}", result.display(pool.strings())),
-            Err(error) => error.report("<interactive>", input, &interner),
+            Err((error, source_name)) => error.report(&source_name, input, &interner),
         }
 
         vm.reset_state();
@@ -73,21 +73,18 @@ pub fn repl() {
 }
 
 pub fn from_file(file_paths: Vec<String>) {
-    let file_path = file_paths[0].clone();
+    let mut sources = HashMap::new();
 
-    let mut sources = vec![];
     for file_path in file_paths {
-        let source = fs::read_to_string(file_path).unwrap();
-        sources.push(source);
+        let source = fs::read_to_string(&file_path).unwrap();
+        sources.insert(file_path, source);
     }
-
-    let source = sources[0].clone();
 
     let mut interner = Interner::new();
     let mut vm = VM::new();
 
-    match program(sources, &mut vm, &mut interner) {
+    match program(&sources, &mut vm, &mut interner) {
         Ok((result, pool)) => println!("= {}", result.display(pool.strings())),
-        Err(error) => error.report(&file_path, &source, &interner),
+        Err((error, source_name)) => error.report(&source_name, &sources[&source_name], &interner),
     }
 }

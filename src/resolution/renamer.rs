@@ -140,10 +140,10 @@ impl Renamer {
         MatchBranch::new(pattern, expression)
     }
 
-    pub fn program(&mut self, modules: Vec<Vec<Definition<Resolved>>>) -> Vec<Vec<Definition<Renamed>>> {
+    pub fn program(&mut self, modules: Vec<(Vec<Definition<Resolved>>, String)>) -> Vec<Vec<Definition<Renamed>>> {
         let mut renamed_modules = vec![];
 
-        for module in modules {
+        for (module, _) in modules {
             renamed_modules.push(self.module(module));
         }
 

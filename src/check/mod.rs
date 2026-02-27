@@ -22,7 +22,8 @@ pub struct TypeChecker<'ast> {
     name_expressions: ExpressionMap<'ast>,
     names: HashMap<Path, Type>,
     newvar_counter: usize,
-    unification_table: HashMap<usize, MonoType>
+    unification_table: HashMap<usize, MonoType>,
+    current_source_name: String,
 }
 
 impl<'ast> TypeChecker<'ast> {
@@ -35,7 +36,8 @@ impl<'ast> TypeChecker<'ast> {
             name_expressions: ExpressionMap::new(),
             names: HashMap::new(),
             newvar_counter: 0,
-            unification_table: HashMap::default()
+            unification_table: HashMap::default(),
+            current_source_name: String::new(),
         }
     }
 
@@ -128,7 +130,7 @@ impl<'ast> TypeChecker<'ast> {
                 } else {
                     if self.name_expressions.is_currently_visiting(path) {
                         let error = TypeCheckError::CyclicDefinition(path.clone());
-                        return Err(located_error(error, span));
+                        return Err(located_error(error, span, self.current_source_name.clone()));
                     }
 
                     self.name_expressions.visiting(path);
@@ -155,7 +157,7 @@ impl<'ast> TypeChecker<'ast> {
                 first: self.substitute(first),
                 second: self.substitute(second)
             };
-            Err(located_error(error, span))
+            Err(located_error(error, span, self.current_source_name.clone()))
         } else {
             Ok(self.substitute(return_type))
         }
@@ -202,7 +204,7 @@ impl<'ast> TypeChecker<'ast> {
                     first: self.substitute(first),
                     second: self.substitute(second)
                 };
-                return Err(located_error(error, branch.span()));
+                return Err(located_error(error, branch.span(), self.current_source_name.clone()));
             }
         }
 
@@ -223,12 +225,13 @@ impl<'ast> TypeChecker<'ast> {
         Ok(t)
     }
 
-    pub fn program(&mut self, modules: &'ast [Vec<Definition<Resolved>>]) -> Result<()> {
-        for module in modules {
+    pub fn program(&mut self, modules: &'ast [(Vec<Definition<Resolved>>, String)]) -> Result<()> {
+        for (module, _) in modules {
             self.collect_names(module)?;
         }
 
-        for module in modules {
+        for (module, source_name) in modules {
+            self.current_source_name = source_name.clone();
             self.module(module)?;
         }
 

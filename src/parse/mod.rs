@@ -25,11 +25,15 @@ use definition::{
 
 pub struct Parser<'source, 'interner> {
     tokens: Peekable<Lexer<'source, 'interner>>,
+    source_name: String,
 }
 
 impl<'source, 'interner> Parser<'source, 'interner> {
-    pub fn from_source(source: &'source str, interner: &'interner mut Interner) -> Self {
-        Self { tokens: Lexer::new(source, interner).peekable() }
+    pub fn from_source(source_name: String, source: &'source str, interner: &'interner mut Interner) -> Self {
+        Self {
+            tokens: Lexer::new(source_name.clone(), source, interner).peekable(),
+            source_name
+        }
     }
 
     fn peek(&mut self) -> Option<Result<Located<Token>>> {
@@ -43,7 +47,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn peek_some(&mut self) -> Result<Located<Token>> {
         self
             .peek()
-            .unwrap_or_else(|| Err(eof_error(ParseError::UnexpectedEOF)))
+            .unwrap_or_else(|| Err(eof_error(ParseError::UnexpectedEOF, self.source_name.clone())))
     }
 
     fn next_some(&mut self) -> Result<Located<Token>> {
@@ -72,7 +76,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Ok(token)
         } else {
             let error = ParseError::UnexpectedToken(*token.data());
-            Err(located_error(error, token.span()))
+            Err(located_error(error, token.span(), self.source_name.clone()))
         }
     }
 
@@ -159,7 +163,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             },
             unexpected => {
                 let error = ParseError::UnexpectedToken(*unexpected);
-                Err(located_error(error, token.span()))
+                Err(located_error(error, token.span(), self.source_name.clone()))
             }
         }
     }
@@ -177,7 +181,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Token::LeftParenthesis => self.grouping(),
             unexpected => {
                 let error = ParseError::UnexpectedToken(*unexpected);
-                Err(located_error(error, token.span()))
+                Err(located_error(error, token.span(), self.source_name.clone()))
             }
         }
     }
@@ -216,11 +220,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         loop {
             let argument = match self.primary() {
                 Ok(expression) => expression,
-                Err(error) => {
+                Err((error, source_name)) => {
                     match error.data() {
                         Error::Parse(ParseError::UnexpectedEOF) |
                         Error::Parse(ParseError::UnexpectedToken(_)) => break,
-                        _ => return Err(error),
+                        _ => return Err((error, source_name)),
                     }
                 }
             };
@@ -233,14 +237,14 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(function)
     }
 
-    pub fn module(&mut self) -> Result<Vec<Definition<Unresolved>>> {
+    pub fn module(&mut self) -> Result<(Vec<Definition<Unresolved>>, String)> {
         let mut definitions = Vec::new();
 
         while self.peek().is_some() {
             definitions.push(self.definiton()?);
         }
 
-        Ok(definitions)
+        Ok((definitions, self.source_name.clone()))
     }
 
     fn definiton(&mut self) -> Result<Definition<Unresolved>> {
@@ -252,7 +256,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Token::ImportKeyword => self.import_definition(),
             unexpected => {
                 let error = ParseError::UnexpectedToken(*unexpected);
-                Err(located_error(error, token.span()))
+                Err(located_error(error, token.span(), self.source_name.clone()))
             }
         }
     }

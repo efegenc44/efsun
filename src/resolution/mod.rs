@@ -51,7 +51,7 @@ impl ExpressionResolver {
         let mut resolver = Self::new();
         let interactive_id = interner.intern(String::from("interactive"));
         let path = Path::from_parts(vec![interactive_id]);
-        let module = Module::empty();
+        let module = Module::empty("<interactive>".to_string());
 
         resolver.modules.insert(path.clone(), module);
         resolver.current_module_path = path;
@@ -90,7 +90,7 @@ impl ExpressionResolver {
                     Ok(Bound::Absolute(self.current_module_path.append(identifier)))
                 } else {
                     let error = ResolutionError::UnboundPath(Path::from_parts(vec![identifier]));
-                    Err(located_error(error, span))
+                    Err(located_error(error, span, self.current_module().source_name().to_string()))
                 }
             },
         }
@@ -111,7 +111,7 @@ impl ExpressionResolver {
 
                 let Some(module) = self.modules.get(&module_path) else {
                     let error = ResolutionError::UnboundPath(module_path);
-                    return Err(located_error(error, span));
+                    return Err(located_error(error, span, self.current_module().source_name().to_string()));
                 };
 
                 module_path.push(*name);
@@ -119,7 +119,7 @@ impl ExpressionResolver {
                     Ok(Bound::Absolute(module_path))
                 } else {
                     let error = ResolutionError::UnboundPath(module_path);
-                    Err(located_error(error, span))
+                    Err(located_error(error, span, self.current_module().source_name().to_string()))
                 }
             }
         };
@@ -190,19 +190,19 @@ impl ExpressionResolver {
         Ok(MatchBranch::new(pattern, expression))
     }
 
-    pub fn program(&mut self, modules: Vec<Vec<Definition<Unresolved>>>) -> Result<Vec<Vec<Definition<Resolved>>>> {
+    pub fn program(&mut self, modules: Vec<(Vec<Definition<Unresolved>>, String)>) -> Result<Vec<(Vec<Definition<Resolved>>, String)>> {
         let mut module_paths = vec![];
-        for module in &modules {
-            module_paths.push(self.find_module_name(module)?);
+        for (module, source_name) in &modules {
+            module_paths.push(self.find_module_name((module, source_name))?);
             self.collect_names(module)?;
         }
 
         self.check_if_imports_exist()?;
 
         let mut resolved_modules = Vec::new();
-        for (module, module_path) in modules.into_iter().zip(module_paths) {
+        for ((module, source_name), module_path) in modules.into_iter().zip(module_paths) {
             self.current_module_path = module_path;
-            resolved_modules.push(self.module(module)?);
+            resolved_modules.push((self.module(module)?, source_name));
         }
 
         Ok(resolved_modules)
@@ -217,11 +217,11 @@ impl ExpressionResolver {
         Ok(resolved_definitons)
     }
 
-    fn find_module_name(&mut self, definitions: &[Definition<Unresolved>]) -> Result<Path> {
-        for definition in definitions {
+    fn find_module_name(&mut self, definitions: (&[Definition<Unresolved>], &String)) -> Result<Path> {
+        for definition in definitions.0 {
             if let Definition::Module(module) = definition {
                 let module_path = Path::from_parts(module.parts().data().to_vec());
-                self.modules.insert(module_path.clone(), Module::empty());
+                self.modules.insert(module_path.clone(), Module::empty(definitions.1.clone()));
                 self.current_module_path = module_path.clone();
 
                 return Ok(module_path)
@@ -229,7 +229,7 @@ impl ExpressionResolver {
         }
 
         // TODO: Check for duplicate module definition
-        Err(eof_error(ResolutionError::MissingModuleDefinition))
+        Err(eof_error(ResolutionError::MissingModuleDefinition, definitions.1.clone()))
     }
 
     fn collect_names(&mut self, definitions: &[Definition<Unresolved>]) -> Result<()> {
@@ -299,11 +299,17 @@ impl ExpressionResolver {
                     let name = module.pop();
 
                     let Some(module) = self.modules.get(&module) else {
-                        return Err(eof_error(ResolutionError::UnresolvedImport(import.clone())));
+                        return Err(eof_error(
+                            ResolutionError::UnresolvedImport(import.clone()),
+                            self.current_module().source_name().to_string()
+                        ));
                     };
 
                     let true = module.names().contains(&name) else {
-                        return Err(eof_error(ResolutionError::UnresolvedImport(import.clone())));
+                        return Err(eof_error(
+                            ResolutionError::UnresolvedImport(import.clone()),
+                            self.current_module().source_name().to_string()
+                        ));
                     };
                 }
             }

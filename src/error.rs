@@ -80,12 +80,12 @@ impl From<TypeCheckError> for Error {
     }
 }
 
-pub fn located_error<T: Into<Error>>(error: T, span: Span) -> Located<Error> {
-    Located::new(error.into(), span)
+pub fn located_error<T: Into<Error>>(error: T, span: Span, source_name: String) -> (Located<Error>, String) {
+    (Located::new(error.into(), span), source_name)
 }
 
-pub fn eof_error<T: Into<Error>>(error: T) -> Located<Error> {
-    Located::new(error.into(), Span::eof())
+pub fn eof_error<T: Into<Error>>(error: T, source_name: String) -> (Located<Error>, String) {
+    (Located::new(error.into(), Span::eof()), source_name)
 }
 
 impl Located<Error> {
@@ -143,5 +143,5 @@ impl Located<Error> {
     }
 }
 
-pub type Result<T> = std::result::Result<T, Located<Error>>;
+pub type Result<T> = std::result::Result<T, (Located<Error>, String)>;
 

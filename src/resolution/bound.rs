@@ -96,12 +96,17 @@ impl Path {
 
 pub struct Module {
     names: HashSet<InternId>,
-    imports: HashMap<InternId, Path>
+    imports: HashMap<InternId, Path>,
+    source_name: String,
 }
 
 impl Module {
-    pub fn empty() -> Self {
-        Self { names: HashSet::new(), imports: HashMap::new() }
+    pub fn empty(source_name: String) -> Self {
+        Self {
+            names: HashSet::new(),
+            imports: HashMap::new(),
+            source_name
+        }
     }
 
     pub fn names(&self) -> &HashSet<InternId> {
@@ -118,6 +123,10 @@ impl Module {
 
     pub fn imports_mut(&mut self) -> &mut HashMap<InternId, Path> {
         &mut self.imports
+    }
+
+    pub fn source_name(&self) -> &str {
+        &self.source_name
     }
 }
 

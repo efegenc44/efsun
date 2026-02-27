@@ -12,14 +12,16 @@ use token::Token;
 
 pub struct Lexer<'source, 'interner> {
     chars: Peekable<Chars<'source>>,
+    source_name: String,
     interner: &'interner mut Interner,
     location: SourceLocation,
 }
 
 impl<'source, 'interner> Lexer<'source, 'interner> {
-    pub fn new(source: &'source str, interner: &'interner mut Interner) -> Self {
+    pub fn new(source_name: String, source: &'source str, interner: &'interner mut Interner) -> Self {
         Self {
             chars: source.chars().peekable(),
+            source_name,
             interner,
             location: SourceLocation::start()
         }
@@ -89,7 +91,7 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
             };
 
             let error = LexError::UnterminatedStringLiteral;
-            return Err(located_error(error, Span::new(start, end)));
+            return Err(located_error(error, Span::new(start, end), self.source_name.clone()));
         };
 
         let end = self.location;
@@ -142,7 +144,7 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
                 let end = self.location;
 
                 let error = LexError::UnknownStartOfAToken(unknown);
-                return Some(Err(located_error(error, Span::new(start, end))));
+                return Some(Err(located_error(error, Span::new(start, end), self.source_name.clone())));
             }
         };
 
