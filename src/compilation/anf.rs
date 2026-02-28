@@ -225,21 +225,21 @@ impl<T> MatchExpression<T> {
 
 #[derive(Clone)]
 pub struct MatchBranch<T> {
-    pattern: Pattern,
+    pattern: Pattern<Renamed>,
     matched: Atom<T>,
     expression: ANF<T>
 }
 
 impl<T> MatchBranch<T> {
-    pub fn new(pattern: Pattern, matched: Atom<T>, expression: ANF<T>) -> Self {
+    pub fn new(pattern: Pattern<Renamed>, matched: Atom<T>, expression: ANF<T>) -> Self {
         Self { pattern, matched, expression }
     }
 
-    pub fn destruct(self) -> (Pattern, Atom<T>, ANF<T>) {
+    pub fn destruct(self) -> (Pattern<Renamed>, Atom<T>, ANF<T>) {
         (self.pattern, self.matched, self.expression)
     }
 
-    pub fn pattern(&self) -> &Pattern {
+    pub fn pattern(&self) -> &Pattern<Renamed> {
         &self.pattern
     }
 
@@ -568,6 +568,9 @@ impl ANFTransformer {
                                 ))
                             },
                             Pattern::String(_) => {
+                                self.expression(branch_expression.as_data(), Rc::new(Box::new(k)))
+                            },
+                            Pattern::Structure(_) => {
                                 self.expression(branch_expression.as_data(), Rc::new(Box::new(k)))
                             },
                         };

@@ -274,17 +274,58 @@ impl<'ast> TypeChecker<'ast> {
     }
 
     fn match_branch(&mut self, t: &MonoType, branch: &MatchBranch<Resolved>) -> Result<MonoType> {
-        let t = match branch.pattern().data() {
+        let len = self.stack.len();
+        self.pattern(t, branch.pattern().data())?;
+        let m = self.infer(branch.expression())?;
+        self.stack.truncate(len);
+
+        Ok(m)
+    }
+
+    fn pattern(&mut self, t: &MonoType, pattern: &Pattern<Resolved>) -> Result<()> {
+        match pattern {
             Pattern::Any(_) => {
                 self.stack.push_local(Type::Mono(t.clone()));
-                let t = self.infer(branch.expression())?;
-                self.stack.pop_local();
-                t
             },
-            Pattern::String(_) => self.infer(branch.expression())?,
-        };
+            Pattern::String(_) => {
+                let Ok(_) = self.unify(t, &MonoType::String) else {
+                    todo!("Error");
+                };
+            },
+            Pattern::Structure(structure) => {
+                let type_path = structure.type_path();
 
-        Ok(t)
+                let mut arguments = Vec::new();
+                for _ in 0..self.types[type_path] {
+                    arguments.push(self.newvar());
+                }
+
+                let structure_t = StructureType::new(type_path.clone(), arguments);
+                let structure_t = MonoType::Structure(structure_t);
+
+                let Ok(_) = self.unify(t, &structure_t) else {
+                    todo!("Error");
+                };
+
+                let constructor = structure.parts().data().last().unwrap();
+                let constructor_path = type_path.append(*constructor);
+
+                let m = self.instantiate(self.names[&constructor_path].clone());
+                if let MonoType::Arrow(constructor) = m {
+                    let mut t = &constructor;
+                    for argument in structure.arguments() {
+                        self.pattern(t.from(), argument.data())?;
+                        if let MonoType::Arrow(arrow) = t.to() {
+                            t = arrow;
+                        }
+                    }
+                } else {
+                    assert!(matches!(m, MonoType::Structure(_)));
+                }
+            },
+        }
+
+        Ok(())
     }
 
     pub fn program(&mut self, modules: &'ast [(Vec<Definition<Resolved>>, String)]) -> Result<()> {

@@ -16,7 +16,8 @@ use lex::{Lexer, token::Token};
 
 use expression::{
     ApplicationExpression, Expression, LambdaExpression, PathExpression,
-    LetExpression, MatchExpression, MatchBranch, Pattern
+    LetExpression, MatchExpression, MatchBranch, Pattern,
+    StructurePattern
 };
 
 use type_expression::{
@@ -136,7 +137,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let mut end = expression.span().end();
 
         let mut branches = Vec::new();
-        while self.next_if_peek(Token::LetKeyword)? {
+        while self.next_if_peek(Token::Bar)? {
             let pattern = self.pattern()?;
             let branch_start = pattern.span().start();
             self.expect(Token::Equals)?;
@@ -152,7 +153,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(expression)
     }
 
-    fn pattern(&mut self) -> Result<Located<Pattern>> {
+    fn pattern(&mut self) -> Result<Located<Pattern<Unresolved>>> {
         let token = self.peek_some()?;
 
         match token.data() {
@@ -161,16 +162,54 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 let literal = Pattern::String(*string);
                 Ok(Located::new(literal, token.span()))
             },
-            Token::Identifier(id) => {
+            Token::Tilde => {
                 self.next();
-                let literal = Pattern::Any(*id);
-                Ok(Located::new(literal, token.span()))
+                let identifier = self.expect_identifier()?;
+                let literal = Pattern::Any(*identifier.data());
+                Ok(Located::new(literal, Span::new(token.span().start(), identifier.span().end())))
             },
+            Token::Identifier(_) => self.structure_pattern(),
             unexpected => {
                 let error = ParseError::UnexpectedToken(*unexpected);
                 Err(located_error(error, token.span(), self.source_name.clone()))
             }
         }
+    }
+
+    fn structure_pattern(&mut self) -> Result<Located<Pattern<Unresolved>>> {
+        let identifier = self.expect_identifier()?;
+        let start = identifier.span().start();
+        let mut end = identifier.span().end();
+        let mut parts = vec![*identifier.data()];
+
+        while self.next_if_peek(Token::Dot)? {
+            let part = self.expect_identifier()?;
+            parts.push(*part.data());
+            end = part.span().end();
+        }
+
+        let mut arguments = Vec::new();
+        loop {
+            let Some(result) = self.peek() else {
+                break;
+            };
+
+            let token = result?;
+            match token.data() {
+                Token::Identifier(_) |
+                Token::Tilde |
+                Token::String(_) => (),
+                _ => break
+            }
+
+            arguments.push(self.pattern()?);
+        }
+
+        let parts = Located::new(parts, Span::new(start, end));
+        let structure = StructurePattern::<Unresolved>::new(parts, arguments);
+        let pattern = Located::new(Pattern::Structure(structure), Span::new(start, end));
+
+        Ok(pattern)
     }
 
     fn primary(&mut self) -> Result<Located<Expression<Unresolved>>> {

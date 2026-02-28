@@ -106,7 +106,6 @@ impl ConstructorValue {
 
 #[derive(Clone, Debug)]
 pub struct StructureValue {
-    #[allow(unused)]
     order: usize,
     values: Rc<Vec<Value>>,
 }
@@ -116,8 +115,15 @@ impl StructureValue {
         Self { order, values: Rc::new(values) }
     }
 
-    #[allow(unused)]
     pub fn destruct(self) -> (usize, Rc<Vec<Value>>) {
         (self.order, self.values)
+    }
+
+    pub fn order(&self) -> usize {
+        self.order
+    }
+
+    pub fn values(&self) -> &Vec<Value> {
+        &self.values
     }
 }

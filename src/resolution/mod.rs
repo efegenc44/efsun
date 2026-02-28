@@ -2,14 +2,15 @@ pub mod frame;
 pub mod bound;
 pub mod renamer;
 
-use std::{collections::{HashMap, HashSet}, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
     error::{Result, located_error, eof_error},
     parse::{
         expression::{
             ApplicationExpression, Expression, PathExpression, LambdaExpression,
-            LetExpression, MatchExpression, MatchBranch, Pattern
+            LetExpression, MatchExpression, MatchBranch, Pattern,
+            StructurePattern
         },
         type_expression::{
             TypeExpression, PathTypeExpression, ApplicationTypeExpression
@@ -215,18 +216,66 @@ impl ExpressionResolver {
 
     fn match_branch(&mut self, branch: MatchBranch<Unresolved>) -> Result<MatchBranch<Resolved>> {
         let (pattern, expression) = branch.destruct();
+        let (pattern, span) = pattern.destruct();
 
-        let expression = match pattern.data() {
+        let len = self.stack.len();
+        let pattern = self.pattern(pattern)?;
+        let expression = self.expression(expression)?;
+        self.stack.truncate(len);
+
+        Ok(MatchBranch::new(Located::new(pattern, span), expression))
+    }
+
+    fn pattern(&mut self, pattern: Pattern<Unresolved>) -> Result<Pattern<Resolved>> {
+        match pattern {
             Pattern::Any(id) => {
-                self.stack.push_local(*id);
-                let expression = self.expression(expression)?;
-                self.stack.pop_local();
-                expression
+                self.stack.push_local(id);
+                Ok(Pattern::Any(id))
             },
-            Pattern::String(_) => self.expression(expression)?,
-        };
+            Pattern::String(id) => Ok(Pattern::String(id)),
+            Pattern::Structure(structure) => {
+                let (parts, arguments) = structure.destruct();
 
-        Ok(MatchBranch::new(pattern, expression))
+                let mut renamed_arguments = Vec::new();
+                for argument in arguments {
+                    let (argument, span) = argument.destruct();
+                    renamed_arguments.push(Located::new(self.pattern(argument)?, span));
+                }
+
+                let (type_path, order) = match &parts.data()[..] {
+                    [] | [_] => unreachable!(),
+                    [t, c] => {
+                        let Some(constructors) = self.current_module().types().get(t) else {
+                            todo!("Error");
+                        };
+
+                        let Some(order) = constructors.iter().position(|cs| cs == c) else {
+                            todo!("Error");
+                        };
+
+                        (self.current_module_path.append(*t), order)
+                    },
+                    [module@.., t, c] => {
+                        dbg!(parts.data());
+
+                        let module_path = Path::from_parts(module.to_vec());
+                        let module = &self.modules[&module_path];
+
+                        let Some(constructors) = module.types().get(t) else {
+                            todo!("Error");
+                        };
+
+                        let Some(order) = constructors.iter().position(|cs| cs == c) else {
+                            todo!("Error");
+                        };
+
+                        (module_path.append(*t), order)
+                    }
+                };
+
+                Ok(Pattern::Structure(StructurePattern::<Resolved>::new(parts, renamed_arguments, type_path, order)))
+            }
+        }
     }
 
 
@@ -357,9 +406,9 @@ impl ExpressionResolver {
 
             if let Definition::Structure(structure) = definition {
                 // TODO: Check for duplicate definitions
-                let mut constructors = HashSet::new();
+                let mut constructors = Vec::new();
                 for constructor in structure.constructors() {
-                    constructors.insert(*constructor.name().data());
+                    constructors.push(*constructor.name().data());
                 }
 
                 self
@@ -590,13 +639,27 @@ impl ANFResolver {
         for branch in branches {
             let (pattern, matched, expression) = branch.destruct();
             let matched = self.atom(matched);
+            let len = self.stack.len();
+            self.define_pattern_locals(&pattern);
             let expression = self.expression(expression);
+            self.stack.truncate(len);
             resolved_branches.push(anf::MatchBranch::new(pattern, matched, expression));
         }
         self.stack.pop_local();
 
-
         anf::MatchExpression::new(variable, variable_expression, resolved_branches)
+    }
+
+    fn define_pattern_locals(&mut self, pattern: &Pattern<Renamed>) {
+        match pattern {
+            Pattern::Any(_) => (),
+            Pattern::String(_) => (),
+            Pattern::Structure(structure) => {
+                for argument in structure.arguments() {
+                    self.define_pattern_locals(argument.data());
+                }
+            },
+        }
     }
 
     fn join(&mut self, join: anf::Join<Unresolved>) -> anf::Join<Resolved> {

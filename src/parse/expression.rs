@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     interner::{InternId, Interner},
     location::Located,
-    resolution::{Resolved, Unresolved, Renamed, bound::{Bound, Capture}},
+    resolution::{Resolved, Unresolved, Renamed, bound::{Bound, Capture, Path}},
 };
 
 #[derive(Clone)]
@@ -256,20 +256,20 @@ impl<T> MatchExpression<T> {
 
 #[derive(Clone)]
 pub struct MatchBranch<T> {
-    pattern: Located<Pattern>,
+    pattern: Located<Pattern<T>>,
     expression: Located<Expression<T>>,
 }
 
 impl<T> MatchBranch<T> {
-    pub fn new(pattern: Located<Pattern>, expression: Located<Expression<T>>) -> Self {
+    pub fn new(pattern: Located<Pattern<T>>, expression: Located<Expression<T>>) -> Self {
         Self { pattern, expression }
     }
 
-    pub fn destruct(self) -> (Located<Pattern>, Located<Expression<T>>) {
+    pub fn destruct(self) -> (Located<Pattern<T>>, Located<Expression<T>>) {
         (self.pattern, self.expression)
     }
 
-    pub fn pattern(&self) -> &Located<Pattern> {
+    pub fn pattern(&self) -> &Located<Pattern<T>> {
         &self.pattern
     }
 
@@ -279,8 +279,61 @@ impl<T> MatchBranch<T> {
 }
 
 #[derive(Clone)]
-pub enum Pattern {
+pub enum Pattern<State> {
     Any(InternId),
-    #[allow(unused)]
+    Structure(StructurePattern<State>),
     String(InternId),
+}
+
+#[derive(Clone)]
+pub struct StructurePattern<State> {
+    parts: Located<Vec<InternId>>,
+    arguments: Vec<Located<Pattern<State>>>,
+    type_path: Option<Path>,
+    order: Option<usize>,
+    state: PhantomData<State>
+}
+
+impl<T> StructurePattern<T> {
+    pub fn arguments(&self) -> &[Located<Pattern<T>>] {
+        &self.arguments
+    }
+
+    pub fn parts(&self) -> &Located<Vec<InternId>> {
+        &self.parts
+    }
+}
+
+impl StructurePattern<Unresolved> {
+    pub fn new(parts: Located<Vec<InternId>>, arguments: Vec<Located<Pattern<Unresolved>>>) -> Self {
+        Self { parts, arguments, type_path: None, order: None, state: PhantomData }
+    }
+
+    pub fn destruct(self) -> (Located<Vec<InternId>>, Vec<Located<Pattern<Unresolved>>>) {
+        (self.parts, self.arguments)
+    }
+}
+
+impl StructurePattern<Resolved> {
+    pub fn new(parts: Located<Vec<InternId>>, arguments: Vec<Located<Pattern<Resolved>>>, type_path: Path, order: usize) -> Self {
+        Self { parts, arguments, type_path: Some(type_path), order: Some(order), state: PhantomData }
+    }
+
+    pub fn destruct(self) -> (Located<Vec<InternId>>, Vec<Located<Pattern<Resolved>>>, Path, usize) {
+        (self.parts, self.arguments, self.type_path.unwrap(), self.order.unwrap())
+    }
+
+    pub fn type_path(&self) -> &Path {
+        self.type_path.as_ref().unwrap()
+    }
+}
+
+impl StructurePattern<Renamed> {
+    pub fn new(parts: Located<Vec<InternId>>, arguments: Vec<Located<Pattern<Renamed>>>, type_path: Path, order: usize) -> Self {
+        Self { parts, arguments, type_path: Some(type_path), order: Some(order), state: PhantomData }
+    }
+
+    pub fn order(&self) -> usize {
+        self.order.unwrap()
+    }
 }

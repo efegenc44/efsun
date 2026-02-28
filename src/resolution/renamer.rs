@@ -2,7 +2,8 @@ use crate::{
     parse::{
         expression::{
             ApplicationExpression, Expression, PathExpression,
-            LambdaExpression, LetExpression, MatchExpression, MatchBranch, Pattern
+            LambdaExpression, LetExpression, MatchExpression, MatchBranch, Pattern,
+            StructurePattern
         },
         definition::{Definition, NameDefinition}
     },
@@ -125,19 +126,36 @@ impl Renamer {
 
     fn match_branch(&mut self, branch: MatchBranch<Resolved>) -> MatchBranch<Renamed> {
         let (pattern, expression) = branch.destruct();
+        let (pattern, span) = pattern.destruct();
 
-        let (pattern, expression) = match pattern.data() {
+        let len = self.stack.len();
+        let pattern = self.pattern(pattern);
+        let expression = self.expression(expression);
+        self.stack.truncate(len);
+
+        MatchBranch::new(Located::new(pattern, span), expression)
+    }
+
+    fn pattern(&mut self, pattern: Pattern<Resolved>) -> Pattern<Renamed> {
+        match pattern {
             Pattern::Any(_) => {
                 let new_name = self.new_name();
                 self.stack.push_local(new_name);
-                let expression = self.expression(expression);
-                self.stack.pop_local();
-                (Located::new(Pattern::Any(new_name), pattern.span()), expression)
+                Pattern::Any(new_name)
             },
-            Pattern::String(_) => (pattern, self.expression(expression)),
-        };
+            Pattern::String(id) => Pattern::String(id),
+            Pattern::Structure(structure) => {
+                let (parts, arguments, bound, order) = structure.destruct();
 
-        MatchBranch::new(pattern, expression)
+                let mut renamed_arguments = Vec::new();
+                for argument in arguments {
+                    let (argument, span) = argument.destruct();
+                    renamed_arguments.push(Located::new(self.pattern(argument), span));
+                }
+
+                Pattern::Structure(StructurePattern::<Renamed>::new(parts, renamed_arguments, bound, order))
+            },
+        }
     }
 
     pub fn program(&mut self, modules: Vec<(Vec<Definition<Resolved>>, String)>) -> Vec<Vec<Definition<Renamed>>> {

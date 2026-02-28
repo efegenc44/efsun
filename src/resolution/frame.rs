@@ -42,6 +42,14 @@ impl<T> ResolutionStack<T> {
     pub fn pop_local(&mut self) -> T {
         self.0.last_mut().unwrap().locals.pop().unwrap()
     }
+
+    pub fn len(&self) -> usize {
+        self.0.last().unwrap().locals.len()
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.0.last_mut().unwrap().locals.truncate(len);
+    }
 }
 
 impl<T: Eq + Clone> ResolutionStack<T> {
@@ -125,6 +133,14 @@ impl<T> CheckStack<T> {
 
     pub fn pop_local(&mut self) -> T {
         self.0.last_mut().unwrap().locals.pop().unwrap()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.last().unwrap().locals.len()
+    }
+
+    pub fn truncate(&mut self, len: usize) {
+        self.0.last_mut().unwrap().locals.truncate(len);
     }
 }
 

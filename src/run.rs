@@ -22,7 +22,7 @@ fn expression(source: &str, vm: &mut VM, interner: &mut Interner) -> Result<(Val
 
     display_instructions(&code, &pool);
 
-    let result       = vm.run(&code, &pool, true);
+    let result       = vm.run(&code, &pool, true, interner);
 
     Ok((result, t, pool))
 }
@@ -38,7 +38,7 @@ fn program(sources: &HashMap<String, String>, vm: &mut VM, interner: &mut Intern
     let anf          = ANFTransformer::new().program(renamed);
     let resolved_anf = ANFResolver::new().program(anf);
     let (code, pool) = Compiler::new(interner).program(&resolved_anf);
-    let result       = vm.run(&code, &pool, true);
+    let result       = vm.run(&code, &pool, true, interner);
 
     Ok((result, pool))
 }

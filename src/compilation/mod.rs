@@ -174,13 +174,21 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             match branch.pattern() {
                 Pattern::Any(_) => {
                     instructions.extend(self.expression(branch.expression()));
-
                     // NOTE: Compiling other branches after an any branch is unnecessary
                 },
                 Pattern::String(string) => {
                     instructions.extend(self.atom(branch.matched()));
                     instructions.extend(self.string(*string));
                     instructions.push(Instruction::StringEquals);
+                    let expression = self.expression(branch.expression());
+                    instructions.push(Instruction::SkipIfFalse(expression.len()));
+                    instructions.extend(expression);
+                },
+                Pattern::Structure(structure) => {
+                    instructions.extend(self.atom(branch.matched()));
+                    instructions.push(Instruction::StructurePatternMatch(structure.clone()));
+                    instructions.extend(self.atom(branch.matched()));
+                    instructions.push(Instruction::PatternLocals(Pattern::Structure(structure.clone())));
                     let expression = self.expression(branch.expression());
                     instructions.push(Instruction::SkipIfFalse(expression.len()));
                     instructions.extend(expression);
@@ -245,14 +253,14 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
 pub struct ConstantPool {
     strings: Vec<String>,
-    lambdas: Vec<Vec<Instruction>>,
+    structure: Vec<Vec<Instruction>>,
 }
 
 impl ConstantPool {
     fn new() -> Self {
         Self {
             strings: Vec::new(),
-            lambdas: Vec::new(),
+            structure: Vec::new(),
         }
     }
 
@@ -261,7 +269,7 @@ impl ConstantPool {
     }
 
     pub fn lambdas(&self) -> &[Vec<Instruction>] {
-        &self.lambdas
+        &self.structure
     }
 
     fn add_string(&mut self, string: String) -> usize {
@@ -271,9 +279,8 @@ impl ConstantPool {
     }
 
     fn add_lambda(&mut self, lambda: Vec<Instruction>) -> usize {
-        let id = self.lambdas.len();
-        self.lambdas.push(lambda);
+        let id = self.structure.len();
+        self.structure.push(lambda);
         id
     }
 }
-
