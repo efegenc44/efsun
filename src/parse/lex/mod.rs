@@ -62,6 +62,7 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
             "import" => Token::ImportKeyword,
             "as" => Token::AsKeyword,
             "match" => Token::MatchKeyword,
+            "structure" => Token::StructureKeyword,
             _ => {
                 let id = self.interner.intern(lexeme);
                 Token::Identifier(id)
@@ -135,9 +136,12 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
             },
             '(' => self.single(Token::LeftParenthesis),
             ')' => self.single(Token::RightParenthesis),
+            '[' => self.single(Token::LeftBracket),
+            ']' => self.single(Token::RightBracket),
             '\\' => self.single(Token::Backslash),
             '=' => self.single(Token::Equals),
             '.' => self.single(Token::Dot),
+            '|' => self.single(Token::Bar),
             unknown => {
                 let start = self.location;
                 self.next();

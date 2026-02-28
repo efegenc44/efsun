@@ -1,5 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
+use crate::resolution::bound::Path;
+
 #[derive(Clone)]
 pub enum Type {
     Mono(MonoType),
@@ -25,7 +27,8 @@ impl Display for Type {
 pub enum MonoType {
     Variable(usize),
     Arrow(ArrowType),
-    String
+    Structure(StructureType),
+    String,
 }
 
 impl MonoType {
@@ -47,6 +50,11 @@ impl MonoType {
                 arrow.from().gather_variables(variables);
                 arrow.to().gather_variables(variables);
             },
+            Self::Structure(structure) => {
+                for argument in structure.arguments() {
+                    argument.gather_variables(variables);
+                }
+            },
             Self::String => (),
         }
     }
@@ -66,6 +74,16 @@ impl MonoType {
 
                 Self::Arrow(arrow)
             },
+            MonoType::Structure(structure) => {
+                let arguments = structure
+                    .arguments
+                    .into_iter()
+                    .map(|argument| argument.substitute(table))
+                    .collect();
+
+                let structure = StructureType::new(structure.path, arguments);
+                Self::Structure(structure)
+            },
             Self::String => self,
         }
     }
@@ -75,6 +93,12 @@ impl MonoType {
             Self::Variable(id) => *id == variable,
             Self::Arrow(arrow) => {
                 arrow.from().includes(variable) || arrow.to().includes(variable)
+            },
+            Self::Structure(structure) => {
+                structure
+                    .arguments()
+                    .iter()
+                    .any(|argument| argument.includes(variable))
             },
             Self::String => false,
         }
@@ -86,7 +110,15 @@ impl Display for MonoType {
         match self {
             Self::Variable(id) => write!(f, "a{id}"),
             Self::Arrow(arrow) => write!(f, "({} -> {})", arrow.from(), arrow.to()),
-            Self::String => write!(f, "String")
+            Self::Structure(structure) => {
+                let mut string = String::from("{ ");
+                for argument in structure.arguments().iter() {
+                    string.push_str(&argument.to_string());
+                }
+                string.push_str(" }");
+                write!(f, "{string}")
+            },
+            Self::String => write!(f, "String"),
         }
     }
 }
@@ -111,5 +143,25 @@ impl ArrowType {
 
     pub fn to(&self) -> &MonoType {
         &self.to
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StructureType {
+    path: Path,
+    arguments: Vec<MonoType>
+}
+
+impl StructureType {
+    pub fn new(path: Path, arguments: Vec<MonoType>) -> Self {
+        Self { path, arguments }
+    }
+
+    pub fn arguments(&self) -> &[MonoType] {
+        &self.arguments
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }

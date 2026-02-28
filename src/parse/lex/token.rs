@@ -6,15 +6,19 @@ pub enum Token {
     String(InternId),
     LeftParenthesis,
     RightParenthesis,
+    LeftBracket,
+    RightBracket,
     Backslash,
     Equals,
     Dot,
+    Bar,
     LetKeyword,
     InKeyword,
     ModuleKeyword,
     ImportKeyword,
     AsKeyword,
     MatchKeyword,
+    StructureKeyword,
 }
 
 impl Token {
@@ -24,15 +28,19 @@ impl Token {
             Self::String(_id) => todo!(), // format!("\"{}\"", interner.lookup(*id)),
             Self::LeftParenthesis => "(",
             Self::RightParenthesis => ")",
+            Self::LeftBracket => "[",
+            Self::RightBracket => "]",
             Self::Backslash => "\\",
             Self::Equals => "=",
             Self::Dot => ".",
+            Self::Bar => "|",
             Self::LetKeyword => "let",
             Self::InKeyword => "in",
             Self::ModuleKeyword => "module",
             Self::ImportKeyword => "import",
             Self::AsKeyword => "as",
-            Self::MatchKeyword => "match"
+            Self::MatchKeyword => "match",
+            Self::StructureKeyword => "structure",
         }
     }
 }

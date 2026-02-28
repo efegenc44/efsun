@@ -8,6 +8,7 @@ use crate::{
 
 pub enum ANFDefinition<State> {
     Name(NameDefinition<State>),
+    Structure(StructureDefinition),
 }
 
 impl<T> ANFDefinition<T> {
@@ -21,6 +22,7 @@ impl<T> ANFDefinition<T> {
                 println!("{:indent$}{}", "", interner.lookup(name.identifier), indent=indent + 2);
                 name.expression.print(depth + 1, interner);
             },
+            ANFDefinition::Structure(_) => todo!(),
         }
     }
 }
@@ -53,6 +55,20 @@ impl<T> NameDefinition<T> {
 impl NameDefinition<Unresolved> {
     pub fn destruct(self) -> (InternId, ANF<Unresolved>, Path) {
         (self.identifier, self.expression, self.path)
+    }
+}
+
+pub struct StructureDefinition {
+    constructors: Vec<(Path, usize)>,
+}
+
+impl StructureDefinition {
+    pub fn new(constructors: Vec<(Path, usize)>) -> Self {
+        Self { constructors }
+    }
+
+    pub fn constructors(&self) -> &[(Path, usize)] {
+        &self.constructors
     }
 }
 
@@ -464,6 +480,16 @@ impl ANFTransformer {
                     let expression = self.transform(expression.destruct().0);
                     let definition = NameDefinition::new(*identifier.data(), expression, path);
                     anf_definitions.push(ANFDefinition::Name(definition))
+                },
+                Definition::Structure(structure) => {
+                    let constructors = structure
+                        .constructors()
+                        .iter()
+                        .map(|constructor| (constructor.path().clone(), constructor.arguments().len()))
+                        .collect();
+
+                    let definition = StructureDefinition::new(constructors);
+                    anf_definitions.push(ANFDefinition::Structure(definition))
                 },
                 Definition::Module(_) |
                 Definition::Import(_) => ()

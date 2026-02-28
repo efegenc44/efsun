@@ -5,6 +5,7 @@ use crate::{compilation::ConstantPool, resolution::bound::Capture};
 #[derive(Clone)]
 pub enum Instruction {
     String(usize),
+    Constructor(usize, usize),
     MakeLambda(usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
@@ -23,6 +24,7 @@ impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::String(offset) => write!(f, "STRING {offset}"),
+            Self::Constructor(order, arity) => write!(f, "CONSTRUCTOR {order} {arity}"),
             Self::MakeLambda(address, captures) => {
                 write!(f, "MAKE_LAMBDA {address}")?;
                 for capture in captures {

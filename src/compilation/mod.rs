@@ -68,9 +68,15 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
     fn collect_names(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
-            #[allow(irrefutable_let_patterns)]
             if let ANFDefinition::Name(name) = definition {
                 self.name_anfs.insert(name.path(), name.expression());
+            }
+
+            if let ANFDefinition::Structure(structure) = definition {
+                for (order, (path, arity)) in structure.constructors().iter().enumerate() {
+                    let instructions = vec![Instruction::Constructor(order, *arity)];
+                    self.names.push((path.clone(), instructions));
+                }
             }
         }
     }
@@ -84,6 +90,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                         self.names.push((name.path().clone(), code));
                     }
                 },
+                _ => ()
             }
         }
     }
@@ -238,14 +245,14 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
 pub struct ConstantPool {
     strings: Vec<String>,
-    lambdas: Vec<Vec<Instruction>>
+    lambdas: Vec<Vec<Instruction>>,
 }
 
 impl ConstantPool {
     fn new() -> Self {
         Self {
             strings: Vec::new(),
-            lambdas: Vec::new()
+            lambdas: Vec::new(),
         }
     }
 

@@ -1,6 +1,7 @@
 pub mod expression;
 pub mod lex;
 pub mod definition;
+pub mod type_expression;
 
 use std::iter::Peekable;
 
@@ -18,9 +19,13 @@ use expression::{
     LetExpression, MatchExpression, MatchBranch, Pattern
 };
 
+use type_expression::{
+    TypeExpression, PathTypeExpression, ApplicationTypeExpression
+};
+
 use definition::{
     Definition, ModuleDefinition, NameDefinition, ImportDefinition,
-    ImportName
+    ImportName, StructureDefinition, Constructor
 };
 
 pub struct Parser<'source, 'interner> {
@@ -237,6 +242,61 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(function)
     }
 
+    fn type_expression(&mut self) -> Result<Located<TypeExpression<Unresolved>>> {
+        self.type_application()
+    }
+
+    fn type_primary(&mut self) -> Result<Located<TypeExpression<Unresolved>>> {
+        let token = self.peek_some()?;
+
+        match token.data() {
+            Token::Identifier(_) => self.type_path(),
+            unexpected => {
+                let error = ParseError::UnexpectedToken(*unexpected);
+                Err(located_error(error, token.span(), self.source_name.clone()))
+            }
+        }
+    }
+
+    fn type_path(&mut self) -> Result<Located<TypeExpression<Unresolved>>> {
+        let identifier = self.expect_identifier()?;
+        let start = identifier.span().start();
+        let mut end = identifier.span().end();
+        let mut parts = vec![*identifier.data()];
+
+        while self.next_if_peek(Token::Dot)? {
+            let part = self.expect_identifier()?;
+            parts.push(*part.data());
+            end = part.span().end();
+        }
+
+        let path = PathTypeExpression::new(Located::new(parts, Span::new(start, end)));
+        let expression = Located::new(TypeExpression::Path(path), Span::new(start, end));
+
+        Ok(expression)
+    }
+
+    fn type_application(&mut self) -> Result<Located<TypeExpression<Unresolved>>> {
+        let mut function = self.type_primary()?;
+
+        if self.next_if_peek(Token::LeftBracket)? {
+            let start = function.span().start();
+            let mut end = function.span().end();
+
+            let mut arguments = Vec::new();
+            while !self.next_if_peek(Token::RightBracket)? {
+                let argument = self.type_primary()?;
+                end = argument.span().end();
+                arguments.push(argument);
+            }
+
+            let application = ApplicationTypeExpression::new(function, arguments);
+            function = Located::new(TypeExpression::Application(application), Span::new(start, end));
+        }
+
+        Ok(function)
+    }
+
     pub fn module(&mut self) -> Result<(Vec<Definition<Unresolved>>, String)> {
         let mut definitions = Vec::new();
 
@@ -254,6 +314,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Token::LetKeyword => self.let_definiton(),
             Token::ModuleKeyword => self.module_definition(),
             Token::ImportKeyword => self.import_definition(),
+            Token::StructureKeyword => self.structure_definition(),
             unexpected => {
                 let error = ParseError::UnexpectedToken(*unexpected);
                 Err(located_error(error, token.span(), self.source_name.clone()))
@@ -319,6 +380,40 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         };
 
         Ok(ImportDefinition::new(parts, import_name))
+    }
+
+    fn structure_definition(&mut self) -> Result<Definition<Unresolved>> {
+        self.expect(Token::StructureKeyword)?;
+        let name = self.expect_identifier()?;
+        self.expect(Token::LeftBracket)?;
+        let mut variables = Vec::new();
+        while !self.next_if_peek(Token::RightBracket)? {
+            variables.push(self.expect_identifier()?);
+        }
+
+        let mut constructors = Vec::new();
+        while self.next_if_peek(Token::Bar)? {
+            let name = self.expect_identifier()?;
+            let mut arguments = Vec::new();
+            loop {
+                let Some(result) = self.peek() else {
+                    break;
+                };
+
+                let token = result?;
+                match token.data() {
+                    Token::Identifier(_) => (),
+                    _ => break
+                }
+
+                arguments.push(self.type_expression()?);
+            }
+
+            constructors.push(Constructor::<Unresolved>::new(name, arguments));
+        }
+
+        let structure = StructureDefinition::<Unresolved>::new(name, variables, constructors);
+        Ok(Definition::Structure(structure))
     }
 }
 

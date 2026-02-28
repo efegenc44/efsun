@@ -96,6 +96,7 @@ impl Path {
 
 pub struct Module {
     names: HashSet<InternId>,
+    types: HashMap<InternId, HashSet<InternId>>,
     imports: HashMap<InternId, Path>,
     source_name: String,
 }
@@ -104,6 +105,7 @@ impl Module {
     pub fn empty(source_name: String) -> Self {
         Self {
             names: HashSet::new(),
+            types: HashMap::new(),
             imports: HashMap::new(),
             source_name
         }
@@ -115,6 +117,14 @@ impl Module {
 
     pub fn names_mut(&mut self) -> &mut HashSet<InternId> {
         &mut self.names
+    }
+
+    pub fn types(&self) -> &HashMap<InternId, HashSet<InternId>> {
+        &self.types
+    }
+
+    pub fn types_mut(&mut self) -> &mut HashMap<InternId, HashSet<InternId>> {
+        &mut self.types
     }
 
     pub fn imports(&self) -> &HashMap<InternId, Path> {

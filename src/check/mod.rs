@@ -8,19 +8,26 @@ use crate::{
             ApplicationExpression, Expression, PathExpression,
             LambdaExpression, LetExpression, MatchExpression, MatchBranch, Pattern
         },
-        definition::{Definition, NameDefinition}
+        type_expression::{
+            TypeExpression, PathTypeExpression, ApplicationTypeExpression
+        },
+        definition::{
+            Definition, NameDefinition
+        }
     },
     location::{Located, Span},
     resolution::{Resolved, frame::CheckStack, bound::{Bound, Path}},
     error::{Result, located_error}
 };
 
-use typ::{Type, MonoType, ArrowType};
+use typ::{Type, MonoType, ArrowType, StructureType};
 
 pub struct TypeChecker<'ast> {
     stack: CheckStack<Type>,
+    type_locals: Vec<MonoType>,
     name_expressions: ExpressionMap<'ast>,
     names: HashMap<Path, Type>,
+    types: HashMap<&'ast Path, usize>,
     newvar_counter: usize,
     unification_table: HashMap<usize, MonoType>,
     current_source_name: String,
@@ -33,8 +40,10 @@ impl<'ast> TypeChecker<'ast> {
 
         Self {
             stack,
+            type_locals: Vec::new(),
             name_expressions: ExpressionMap::new(),
             names: HashMap::new(),
+            types: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default(),
             current_source_name: String::new(),
@@ -59,6 +68,47 @@ impl<'ast> TypeChecker<'ast> {
                 mono.substitute(&table)
             },
         }
+    }
+
+    fn eval_type_expression(&mut self, expression: &Located<TypeExpression<Resolved>>) -> MonoType {
+        match expression.data() {
+            TypeExpression::Path(path) => self.eval_type_path(path),
+            TypeExpression::Application(application) => self.eval_type_application(application),
+        }
+    }
+
+    fn eval_type_path(&mut self, path: &PathTypeExpression<Resolved>) -> MonoType {
+        match path.bound() {
+            Bound::Capture(_) => unreachable!(),
+            Bound::Local(id) => self.type_locals[id.value()].clone(),
+            Bound::Absolute(path) => {
+                let mut arguments = Vec::new();
+                for _ in 0..self.types[path] {
+                    arguments.push(self.newvar());
+                }
+
+                let structure = StructureType::new(path.clone(), arguments);
+                MonoType::Structure(structure)
+            },
+        }
+    }
+
+    fn eval_type_application(&mut self, application: &ApplicationTypeExpression<Resolved>) -> MonoType {
+        let MonoType::Structure(structure) = self.eval_type_expression(application.function()) else {
+            todo!("Expected a structure");
+        };
+
+        let true = application.arguments().len() == structure.arguments().len() else {
+            todo!("Type artiy mismatch");
+        };
+
+        let mut application_arguments = Vec::new();
+        for argument in application.arguments() {
+            application_arguments.push(self.eval_type_expression(argument));
+        }
+
+        let structure = StructureType::new(structure.path().clone(), application_arguments);
+        MonoType::Structure(structure)
     }
 
     pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> Result<MonoType> {
@@ -108,6 +158,18 @@ impl<'ast> TypeChecker<'ast> {
             (MonoType::Arrow(arrow1), MonoType::Arrow(arrow2)) => {
                 self.unify(arrow1.from(), arrow2.from())?;
                 self.unify(arrow1.to(), arrow2.to())
+            },
+            (MonoType::Structure(structure1), MonoType::Structure(structure2)) => {
+                if structure1.path() != structure2.path() {
+                    Err((t1.clone(), t2.clone()))
+                } else {
+                    let arguments = structure1.arguments().iter().zip(structure2.arguments());
+                    for (argument1, argument2) in arguments {
+                        self.unify(argument1, argument2)?;
+                    }
+
+                    Ok(())
+                }
             },
             (MonoType::String, MonoType::String) => Ok(()),
             _ => Err((t1.clone(), t2.clone()))
@@ -230,6 +292,7 @@ impl<'ast> TypeChecker<'ast> {
             self.collect_names(module)?;
         }
 
+
         for (module, source_name) in modules {
             self.current_source_name = source_name.clone();
             self.module(module)?;
@@ -244,6 +307,7 @@ impl<'ast> TypeChecker<'ast> {
                 Definition::Module(_) => (),
                 Definition::Name(name) => self.let_definition(name)?,
                 Definition::Import(_) => (),
+                Definition::Structure(_) => (),
             }
         }
 
@@ -254,6 +318,34 @@ impl<'ast> TypeChecker<'ast> {
         for definition in definitions {
             if let Definition::Name(name) = definition {
                 self.name_expressions.add(name.path(), name.expression());
+            }
+
+            if let Definition::Structure(structure) = definition {
+                self.types.insert(structure.path(), structure.variables().len());
+            }
+        }
+
+        for definition in definitions {
+            if let Definition::Structure(structure) = definition {
+                let mut arguments = Vec::new();
+                for _ in 0..self.types[structure.path()] {
+                    let newvar = self.newvar();
+                    arguments.push(newvar.clone());
+                    self.type_locals.push(newvar);
+                }
+
+                let structure_t = StructureType::new(structure.path().clone(), arguments);
+                for constructor in structure.constructors() {
+                    let mut t = MonoType::Structure(structure_t.clone());
+                    for argument in constructor.arguments().iter().rev() {
+                        let argument = self.eval_type_expression(argument);
+                        t = MonoType::Arrow(ArrowType::new(argument, t));
+                    }
+
+                    self.names.insert(constructor.path().clone(), t.generalize());
+                }
+
+                self.type_locals.clear();
             }
         }
 

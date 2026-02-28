@@ -159,8 +159,12 @@ impl Renamer {
                     let definition = Definition::Name(self.let_definition(name));
                     renamed_definitions.push(definition);
                 },
+                Definition::Structure(structure) => {
+                    let definition = Definition::Structure(structure.renamed());
+                    renamed_definitions.push(definition);
+                },
                 Definition::Module(_) |
-                Definition::Import(_) => (),
+                Definition::Import(_) => ()
             }
         }
 

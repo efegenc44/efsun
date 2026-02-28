@@ -2,9 +2,14 @@ pub mod value;
 
 use std::rc::Rc;
 
-use crate::{compilation::{ConstantPool, instruction::Instruction}, resolution::bound::Capture};
+use crate::{
+    compilation::{ConstantPool, instruction::Instruction},
+    resolution::bound::Capture
+};
 
-use value::{Value, LambdaValue};
+use value::{
+    Value, LambdaValue, ConstructorValue, StructureValue
+};
 
 pub struct VM {
     stack: Vec<Frame>,
@@ -47,6 +52,9 @@ impl VM {
             match instruction {
                 Instruction::String(offset) => {
                     self.push(Value::String(offset));
+                }
+                Instruction::Constructor(order, arity) => {
+                    self.push(Value::Constructor(ConstructorValue::new(order, arity, vec![])));
                 }
                 Instruction::MakeLambda(address, captures) => {
                     let mut closure = vec![];
@@ -104,16 +112,39 @@ impl VM {
                     self.push(return_value);
                 }
                 Instruction::Call => {
-                    let (address, captures) = self.pop().into_lambda().destruct();
-                    let argument = self.pop();
+                    match self.pop() {
+                        Value::Lambda(lambda) => {
+                            let (address, captures) = lambda.destruct();
+                            let argument = self.pop();
 
-                    self.stack.push(Frame::new());
-                    self.push(argument);
-                    self.current_frame_mut().closure = captures;
+                            self.stack.push(Frame::new());
+                            self.push(argument);
+                            self.current_frame_mut().closure = captures;
 
-                    // FIX THIS
-                    let value = self.run(&pool.lambdas()[address], pool, false);
-                    self.push(value);
+                            // FIX THIS
+                            let value = self.run(&pool.lambdas()[address], pool, false);
+                            self.push(value);
+                        },
+                        Value::Constructor(constructor) => {
+                            let (order, arity, captures) = constructor.destruct();
+                            let argument = self.pop();
+
+                            let value = if arity <= 1 {
+                                let mut values = (*captures).clone();
+                                values.push(argument);
+                                Value::Structure(StructureValue::new(order, values))
+                            } else {
+                                let mut values = (*captures).clone();
+                                values.push(argument);
+                                Value::Constructor(ConstructorValue::new(order, arity - 1, values))
+                            };
+
+                            self.push(value);
+                        },
+                        _ => unreachable!()
+                    }
+
+
                 },
                 Instruction::Return => {
                     let return_value = self.pop();
