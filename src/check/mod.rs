@@ -198,6 +198,15 @@ impl<'ast> TypeChecker<'ast> {
                     let m = self.infer(self.name_expressions.get(path))?;
                     self.name_expressions.leaving(path);
 
+                    let t = MonoType::Variable(variable);
+                    let Ok(()) = self.unify(&m, &t) else {
+                        let error = TypeCheckError::TypeMismatch {
+                            first: self.substitute(m),
+                            second: self.substitute(t)
+                        };
+                        return Err(located_error(error, span, self.current_source_name.clone()))
+                    };
+
                     let t = m.generalize();
                     self.names.insert(path.clone(), t.clone());
                     Ok(self.instantiate(t))
@@ -444,6 +453,16 @@ impl<'ast> TypeChecker<'ast> {
     fn let_definition(&mut self, let_definition: &NameDefinition<Resolved>) -> Result<()> {
         self.name_expressions.visiting(let_definition.path());
         let m = self.infer(let_definition.expression())?;
+
+        let t = self.instantiate(self.names[let_definition.path()].clone());
+        let Ok(()) = self.unify(&m, &t) else {
+            let error = TypeCheckError::TypeMismatch {
+                first: self.substitute(m),
+                second: self.substitute(t)
+            };
+            return Err(located_error(error, let_definition.identifier().span(), self.current_source_name.clone()))
+        };
+
         let t = m.generalize();
         self.names.insert(let_definition.path().clone(), t);
         self.name_expressions.leaving(let_definition.path());
