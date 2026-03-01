@@ -1,15 +1,12 @@
 module Main
 
-let f = \x \y x
-let g = f "f"
-
 let main = \a
-    map g (List.Cons "element1" (List.Cons "element2" List.Empty))
-
-structure List[a]
-    | Empty
-    | Cons a List[a]
+    map
 
 let map = \f \l match l
     | List.Empty       = List.Empty
     | List.Cons ~x ~xs = List.Cons (f x) (map f xs)
+
+structure List[a]
+    | Empty
+    | Cons a List[a]

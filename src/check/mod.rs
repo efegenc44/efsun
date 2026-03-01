@@ -17,6 +17,7 @@ use crate::{
     },
     location::{Located, Span},
     resolution::{Resolved, frame::CheckStack, bound::{Bound, Path}},
+    interner::Interner,
     error::{Result, located_error}
 };
 
@@ -143,12 +144,13 @@ impl<'ast> TypeChecker<'ast> {
                 }
             },
             (MonoType::Variable(id), t) | (t, MonoType::Variable(id)) => {
-                if self.substitute(t.clone()).includes(*id) {
+                let t = self.substitute(t.clone());
+                if t.includes(*id) {
                     return Err((t1.clone(), t2.clone()));
                 }
 
                 match self.unification_table.get(id) {
-                    Some(k) => self.unify(t, &k.clone()),
+                    Some(k) => self.unify(&t, &k.clone()),
                     None => {
                         self.unification_table.insert(*id, t.clone());
                         Ok(())
@@ -187,12 +189,9 @@ impl<'ast> TypeChecker<'ast> {
                 Ok(self.instantiate(t))
             }
             Bound::Absolute(path) => {
-                if let Some(t) = self.names.get(path) {
-                    Ok(self.instantiate(t.clone()))
-                } else {
+                if let Type::Mono(MonoType::Variable(variable)) = self.names[path].clone() {
                     if self.name_expressions.is_currently_visiting(path) {
-                        let error = TypeCheckError::CyclicDefinition(path.clone());
-                        return Err(located_error(error, span, self.current_source_name.clone()));
+                        return Ok(MonoType::Variable(variable));
                     }
 
                     self.name_expressions.visiting(path);
@@ -202,7 +201,27 @@ impl<'ast> TypeChecker<'ast> {
                     let t = m.generalize();
                     self.names.insert(path.clone(), t.clone());
                     Ok(self.instantiate(t))
+
+                } else {
+                    Ok(self.instantiate(self.names[path].clone().clone()))
                 }
+
+                // if let Some(t) = self.names.get(path) {
+                //     Ok(self.instantiate(t.clone()))
+                // } else {
+                //     // if self.name_expressions.is_currently_visiting(path) {
+                //     //     let error = TypeCheckError::CyclicDefinition(path.clone());
+                //     //     return Err(located_error(error, span, self.current_source_name.clone()));
+                //     // }
+
+                //     self.name_expressions.visiting(path);
+                //     let m = self.infer(self.name_expressions.get(path))?;
+                //     self.name_expressions.leaving(path);
+
+                //     let t = m.generalize();
+                //     self.names.insert(path.clone(), t.clone());
+                //     Ok(self.instantiate(t))
+                // }
             }
         }
     }
@@ -300,7 +319,7 @@ impl<'ast> TypeChecker<'ast> {
                     arguments.push(self.newvar());
                 }
 
-                let structure_t = StructureType::new(type_path.clone(), arguments);
+                let structure_t = StructureType::new(type_path.clone(), arguments.clone());
                 let structure_t = MonoType::Structure(structure_t);
 
                 let Ok(_) = self.unify(t, &structure_t) else {
@@ -309,8 +328,20 @@ impl<'ast> TypeChecker<'ast> {
 
                 let constructor = structure.parts().data().last().unwrap();
                 let constructor_path = type_path.append(*constructor);
+                let constructor_t = self.names[&constructor_path].clone();
 
-                let m = self.instantiate(self.names[&constructor_path].clone());
+                let m = match constructor_t {
+                    Type::Mono(m) => m,
+                    Type::Poly(variables, m) => {
+                        let table = variables
+                            .into_iter()
+                            .zip(arguments)
+                            .collect();
+
+                        m.substitute(&table)
+                    },
+                };
+
                 if let MonoType::Arrow(constructor) = m {
                     let mut t = &constructor;
                     for argument in structure.arguments() {
@@ -328,7 +359,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(())
     }
 
-    pub fn program(&mut self, modules: &'ast [(Vec<Definition<Resolved>>, String)]) -> Result<()> {
+    pub fn program(&mut self, modules: &'ast [(Vec<Definition<Resolved>>, String)], interner: &Interner) -> Result<Type> {
         for (module, _) in modules {
             self.collect_names(module)?;
         }
@@ -339,7 +370,16 @@ impl<'ast> TypeChecker<'ast> {
             self.module(module)?;
         }
 
-        Ok(())
+        let parts = vec!["Main", "main"]
+            .iter()
+            .map(|s| interner.intern_id(s))
+            .collect::<Vec<_>>();
+
+        let path = Path::from_parts(parts);
+        //let main = self.name_expressions.get(&path);
+
+        //Ok(self.infer(main)?.generalize())
+        Ok(self.names[&path].clone())
     }
 
     pub fn module(&mut self, definitions: &[Definition<Resolved>]) -> Result<()> {
@@ -358,6 +398,8 @@ impl<'ast> TypeChecker<'ast> {
     fn collect_names(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
         for definition in definitions {
             if let Definition::Name(name) = definition {
+                let newvar = self.newvar();
+                self.names.insert(name.path().clone(), Type::Mono(newvar));
                 self.name_expressions.add(name.path(), name.expression());
             }
 
@@ -369,9 +411,14 @@ impl<'ast> TypeChecker<'ast> {
         for definition in definitions {
             if let Definition::Structure(structure) = definition {
                 let mut arguments = Vec::new();
+                let mut variables = Vec::new();
                 for _ in 0..self.types[structure.path()] {
                     let newvar = self.newvar();
                     arguments.push(newvar.clone());
+
+                    let MonoType::Variable(id) = newvar else {unreachable!()};
+                    variables.push(id);
+
                     self.type_locals.push(newvar);
                 }
 
@@ -383,7 +430,8 @@ impl<'ast> TypeChecker<'ast> {
                         t = MonoType::Arrow(ArrowType::new(argument, t));
                     }
 
-                    self.names.insert(constructor.path().clone(), t.generalize());
+                    let t = Type::Poly(variables.clone(), t);
+                    self.names.insert(constructor.path().clone(), t);
                 }
 
                 self.type_locals.clear();

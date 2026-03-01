@@ -1,7 +1,7 @@
 module Main
 
 let main = \a
-    (List.Cons "element1" (List.Cons "element2" List.Empty))
+    List.Empty
 
 structure List[a]
     | Empty
