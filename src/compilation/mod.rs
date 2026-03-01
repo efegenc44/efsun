@@ -69,7 +69,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     fn collect_names(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
             if let ANFDefinition::Name(name) = definition {
-                self.names.push((name.path().clone(), vec![]));
+                // self.names.push((name.path().clone(), vec![]));
                 self.name_anfs.insert(name.path(), name.expression());
             }
 
@@ -86,10 +86,9 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         for definition in definitions {
             match definition {
                 ANFDefinition::Name(name) => {
-                    if self.names.iter().find(|p| &p.0 == name.path()).unwrap().1.is_empty() {
+                    if self.names.iter().find(|p| &p.0 == name.path()).is_none() {
                         let code = self.expression(name.expression());
-                        let slot = self.names.iter_mut().find(|p| &p.0 == name.path()).unwrap();
-                        slot.1 =code;
+                        self.names.push((name.path().clone(), code));
                     }
                 },
                 _ => ()
@@ -144,9 +143,10 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                 let id = match self.names.iter().position(|p| &p.0 == path) {
                     Some(id) => id,
                     None => {
-                        let code = self.expression(self.name_anfs[path]);
                         let id = self.names.len();
-                        self.names.push((path.clone(), code));
+                        self.names.push((path.clone(), vec![]));
+                        let code = self.expression(self.name_anfs[path]);
+                        self.names.get_mut(id).unwrap().1 = code;
                         id
                     },
                 };
