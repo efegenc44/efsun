@@ -20,8 +20,8 @@ pub enum Instruction {
     PatternLocals(Pattern<Renamed>),
     SkipIfFalse(usize),
     Skip(usize),
-    EnterFrame,
-    ExitFrame,
+    SetBase,
+    Truncate,
     Call,
     Return,
 }
@@ -52,8 +52,8 @@ impl Display for Instruction {
             Self::PatternLocals(_) => write!(f, "PATTERN_LOCALS"),
             Self::SkipIfFalse(count) => write!(f, "SKIP_IF_FALSE {count}"),
             Self::Skip(count) => write!(f, "SKIP {count}"),
-            Self::EnterFrame => write!(f, "ENTER_FRAME"),
-            Self::ExitFrame => write!(f, "EXIT_FRAME"),
+            Self::SetBase => write!(f, "SET_BASE"),
+            Self::Truncate => write!(f, "TRUNCATE"),
             Self::Call => write!(f, "CALL"),
             Self::Return => write!(f, "RETURN"),
         }

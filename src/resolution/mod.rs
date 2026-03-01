@@ -652,7 +652,9 @@ impl ANFResolver {
 
     fn define_pattern_locals(&mut self, pattern: &Pattern<Renamed>) {
         match pattern {
-            Pattern::Any(_) => (),
+            Pattern::Any(id) => {
+                self.stack.push_local(ANFLocal::Normal(*id));
+            },
             Pattern::String(_) => (),
             Pattern::Structure(structure) => {
                 for argument in structure.arguments() {

@@ -561,11 +561,7 @@ impl ANFTransformer {
 
                         let anf = match pattern.data() {
                             Pattern::Any(any_id) => {
-                                ANF::Let(LetExpression::new(
-                                    *any_id,
-                                    path.clone(),
-                                    self.expression(branch_expression.as_data(), Rc::new(Box::new(k)))
-                                ))
+                                self.expression(branch_expression.as_data(), Rc::new(Box::new(k)))
                             },
                             Pattern::String(_) => {
                                 self.expression(branch_expression.as_data(), Rc::new(Box::new(k)))

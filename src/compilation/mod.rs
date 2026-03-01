@@ -69,6 +69,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     fn collect_names(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
             if let ANFDefinition::Name(name) = definition {
+                self.names.push((name.path().clone(), vec![]));
                 self.name_anfs.insert(name.path(), name.expression());
             }
 
@@ -85,9 +86,10 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         for definition in definitions {
             match definition {
                 ANFDefinition::Name(name) => {
-                    if self.names.iter().find(|p| &p.0 == name.path()).is_none() {
+                    if self.names.iter().find(|p| &p.0 == name.path()).unwrap().1.is_empty() {
                         let code = self.expression(name.expression());
-                        self.names.push((name.path().clone(), code));
+                        let slot = self.names.iter_mut().find(|p| &p.0 == name.path()).unwrap();
+                        slot.1 =code;
                     }
                 },
                 _ => ()
@@ -173,8 +175,8 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         for branch in matchlet.branches() {
             match branch.pattern() {
                 Pattern::Any(_) => {
+                    instructions.extend(self.atom(branch.matched()));
                     instructions.extend(self.expression(branch.expression()));
-                    // NOTE: Compiling other branches after an any branch is unnecessary
                 },
                 Pattern::String(string) => {
                     instructions.extend(self.atom(branch.matched()));
@@ -187,11 +189,12 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                 Pattern::Structure(structure) => {
                     instructions.extend(self.atom(branch.matched()));
                     instructions.push(Instruction::StructurePatternMatch(structure.clone()));
-                    instructions.extend(self.atom(branch.matched()));
-                    instructions.push(Instruction::PatternLocals(Pattern::Structure(structure.clone())));
-                    let expression = self.expression(branch.expression());
-                    instructions.push(Instruction::SkipIfFalse(expression.len()));
-                    instructions.extend(expression);
+                    let mut ins = vec![];
+                    ins.extend(self.atom(branch.matched()));
+                    ins.push(Instruction::PatternLocals(Pattern::Structure(structure.clone())));
+                    ins.extend(self.expression(branch.expression()));
+                    instructions.push(Instruction::SkipIfFalse(ins.len()));
+                    instructions.extend(ins);
                 },
             }
         }
@@ -213,9 +216,9 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             }
         }
 
-        instructions.push(Instruction::EnterFrame);
+        instructions.push(Instruction::SetBase);
         instructions.extend(join_instructions);
-        instructions.push(Instruction::ExitFrame);
+        instructions.push(Instruction::Truncate);
         instructions.extend(self.expression(join.expression()));
 
         instructions

@@ -56,7 +56,11 @@ impl VM {
                     self.push(Value::String(offset));
                 }
                 Instruction::Constructor(order, arity) => {
-                    self.push(Value::Constructor(ConstructorValue::new(order, arity, vec![])));
+                    if arity == 0 {
+                        self.push(Value::Structure(StructureValue::new(order, Vec::new())));
+                    } else {
+                        self.push(Value::Constructor(ConstructorValue::new(order, arity, vec![])));
+                    }
                 }
                 Instruction::MakeLambda(address, captures) => {
                     let mut closure = vec![];
@@ -100,10 +104,15 @@ impl VM {
                 Instruction::StructurePatternMatch(pattern) => {
                     let structure = self.pop().into_structure();
                     let mut result = true;
-                    for (value, pattern) in structure.values().iter().zip(pattern.arguments()) {
-                        if !self.pattern_match(value, pattern.data(), pool, interner) {
-                            result = false;
-                            break;
+
+                    if structure.order() != pattern.order() {
+                        result = false;
+                    } else {
+                        for (value, pattern) in structure.values().iter().zip(pattern.arguments()) {
+                            if !self.pattern_match(value, pattern.data(), pool, interner) {
+                                result = false;
+                                break;
+                            }
                         }
                     }
 
@@ -117,12 +126,13 @@ impl VM {
                         ip += count;
                     }
                 }
-                Instruction::EnterFrame => {
-                    self.stack.push(Frame::new());
+                Instruction::SetBase => {
+                    self.current_frame_mut().base = self.current_frame().stack.len();
                 }
-                Instruction::ExitFrame => {
+                Instruction::Truncate => {
                     let return_value = self.pop();
-                    self.stack.pop().unwrap();
+                    let base = self.current_frame().base;
+                    self.current_frame_mut().stack.truncate(base);
                     self.push(return_value);
                 }
                 Instruction::Call => {
@@ -168,6 +178,8 @@ impl VM {
                     self.pattern_locals(value, &pattern);
                 },
             }
+
+            // println!("{:?}", self.stack);
         }
 
         if self.stack.len() != 1 && is_main {
@@ -216,6 +228,7 @@ impl VM {
 struct Frame {
     stack: Vec<Value>,
     closure: Rc<Vec<Value>>,
+    base: usize,
 }
 
 impl Frame {
@@ -227,6 +240,13 @@ impl Frame {
         Self {
             stack: Vec::new(),
             closure: Rc::new(closure),
+            base: 0,
         }
+    }
+}
+
+impl std::fmt::Debug for Frame {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.stack)
     }
 }

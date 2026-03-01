@@ -1,12 +1,32 @@
 use std::rc::Rc;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum Value {
     Lambda(LambdaValue),
     Constructor(ConstructorValue),
     Structure(StructureValue),
     String(usize),
     Bool(bool)
+}
+
+impl std::fmt::Debug for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Lambda(lambda) => write!(f, "<lambda@{}>", lambda.address),
+            Self::Constructor(constructor) => write!(f, "<cons[{}]>", constructor.order),
+            Self::Structure(structure) => {
+                let mut string = String::from("{ ");
+                for value in structure.values.iter() {
+                    string.push_str(&format!("{value:?}"));
+                    string.push(' ');
+                }
+                string.push('}');
+                write!(f, "{string}")
+            },
+            Self::String(string) => write!(f, "Str({string})"),
+            Self::Bool(bool) => write!(f, "{bool}"),
+        }
+    }
 }
 
 impl Value {

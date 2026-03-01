@@ -1,0 +1,21 @@
+module Main
+
+
+let main = \a
+    mul (Nat.Succ (Nat.Succ Nat.Zero)) (Nat.Succ (Nat.Succ (Nat.Succ Nat.Zero)))
+
+structure Pair[a b]
+    | Pair a b
+
+structure Nat[]
+    | Zero
+    | Succ Nat
+
+
+let add = \n \m match Pair.Pair n m
+    | Pair.Pair ~a Nat.Zero      = a
+    | Pair.Pair ~a (Nat.Succ ~b) = Nat.Succ (add a b)
+
+let mul = \n \m match Pair.Pair n m
+    | Pair.Pair ~a Nat.Zero      = Nat.Zero
+    | Pair.Pair ~a (Nat.Succ ~b) = add a (mul a b)

@@ -34,14 +34,9 @@ fn program(sources: &HashMap<String, String>, vm: &mut VM, interner: &mut Intern
         .collect::<Result<_>>()?;
     let resolved     = ExpressionResolver::new().program(modules)?;
     let t            = TypeChecker::new().program(&resolved, interner)?;
-
-    println!(": {t}");
-
-
     let renamed      = Renamer::new().program(resolved);
     let anf          = ANFTransformer::new().program(renamed);
     let resolved_anf = ANFResolver::new().program(anf);
-    panic!();
     let (code, pool) = Compiler::new(interner).program(&resolved_anf);
     let result       = vm.run(&code, &pool, true, interner);
 

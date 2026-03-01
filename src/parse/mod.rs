@@ -169,6 +169,14 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 Ok(Located::new(literal, Span::new(token.span().start(), identifier.span().end())))
             },
             Token::Identifier(_) => self.structure_pattern(),
+            Token::LeftParenthesis => {
+                let start = self.expect(Token::LeftParenthesis)?.span().start();
+                let pattern = self.pattern()?;
+                let end = self.expect(Token::RightParenthesis)?.span().end();
+                let pattern = Located::new(pattern.destruct().0, Span::new(start, end));
+
+                Ok(pattern)
+            }
             unexpected => {
                 let error = ParseError::UnexpectedToken(*unexpected);
                 Err(located_error(error, token.span(), self.source_name.clone()))
@@ -198,7 +206,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             match token.data() {
                 Token::Identifier(_) |
                 Token::Tilde |
-                Token::String(_) => (),
+                Token::String(_) |
+                Token::LeftParenthesis => (),
                 _ => break
             }
 

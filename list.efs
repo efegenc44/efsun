@@ -1,7 +1,7 @@
 module Main
 
 let main = \a
-    map
+    map (\x "mapped") (List.Cons "AA" (List.Cons "BB" List.Empty))
 
 let map = \f \l match l
     | List.Empty       = List.Empty
