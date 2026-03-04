@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::{
-    interner::{InternId, Interner},
+    interner::{InternId, Interner, WithInterner},
     location::Located,
     resolution::{Resolved, Unresolved, Renamed, bound::{Bound, Capture, Path}},
 };
@@ -17,48 +17,51 @@ pub enum Expression<State> {
 }
 
 impl<T> Expression<T> {
-    #[allow(unused)]
-    pub fn print(&self, interner: &Interner, depth: usize) {
+    pub fn print(&self, depth: usize, interner: &Interner) {
         let indent = depth*2;
 
         match self {
             Self::String(string) => {
-                println!("{:indent$}{}", "", interner.lookup(*string));
+                println!("{:indent$}\"{}\"", "", interner.lookup(string));
             },
             Self::Path(path) => {
                 let path_string = path.parts()
                     .data()
                     .iter()
-                    .map(|id| interner.lookup(*id))
+                    .map(|id| interner.lookup(id))
                     .collect::<Vec<_>>()
                     .join(".");
 
                 println!(
                     "{:indent$}Identifier: {}{}", "",
                     path_string,
-                    if let Some(bound) = &path.bound { format!("#{}", bound.display(interner)) } else { "".to_string() }
+                    if let Some(bound) = &path.bound { format!("#{}", WithInterner::new(bound, interner)) } else { "".to_string() }
                 )
             },
             Self::Lambda(lambda) => {
                 println!("{:indent$}Lambda:", "");
                 if let Some(captures) = &lambda.captures {
                     if !captures.is_empty() {
-                        println!("{:indent$}Captures: {:?}", "", captures, indent=indent + 2);
+                        print!("{:indent$}Captures: ", "", indent=indent + 2);
+                        for capture in captures {
+                            print!("{} ", capture);
+                        }
+                        println!()
                     }
                 }
-                println!("{:indent$}{}", "", interner.lookup(*lambda.variable.data()), indent=indent + 2);
-                lambda.expression.data().print(interner, depth + 1);
+                println!("{:indent$}{}", "", interner.lookup(lambda.variable.data()), indent=indent + 2);
+                lambda.expression.data().print(depth + 1, interner);
             }
             Self::Application(application) => {
                 println!("{:indent$}Application:", "");
-                application.function.data().print(interner, depth + 1);
-                application.argument.data().print(interner, depth + 1);
+                application.function.data().print(depth + 1, interner);
+                application.argument.data().print(depth + 1, interner);
             },
             Self::Let(letin) => {
                 println!("{:indent$}Let:", "");
-                println!("{:indent$}{}", "", interner.lookup(*letin.variable.data()), indent=indent + 2);
-                letin.variable_expression.data().print(interner, depth + 2);
-                letin.return_expression.data().print(interner, depth + 1);
+                println!("{:indent$}{}", "", interner.lookup(letin.variable.data()), indent=indent + 2);
+                letin.variable_expression.data().print(depth + 2, interner);
+                letin.return_expression.data().print(depth + 1, interner);
             },
             Self::Match(_) => todo!(),
         }

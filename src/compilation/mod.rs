@@ -125,7 +125,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         let offset = match self.interns.iter().position(|id| *id == intern_id) {
             Some(offset) => offset,
             None => {
-                let string = self.interner.lookup(intern_id).to_string();
+                let string = self.interner.lookup(&intern_id).to_string();
                 let offset = self.constant_pool.add_string(string);
                 self.interns.push(intern_id);
                 offset

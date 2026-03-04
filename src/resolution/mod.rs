@@ -576,7 +576,7 @@ impl ANFResolver {
             path.resolve(bound)
         } else {
             let bound = match path.path() {
-                anf::ANFPath::ANF(id) => {
+                anf::ANFPath::ANFLocal(id) => {
                     self.identifier(ANFLocal::ANF(*id))
                 },
                 anf::ANFPath::Normal(parts) => {

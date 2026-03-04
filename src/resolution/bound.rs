@@ -1,12 +1,22 @@
 use std::{collections::{HashMap, HashSet}, fmt::{Debug, Display}};
 
-use crate::interner::{InternId, Interner};
+use crate::interner::{InternId, WithInterner};
 
 #[derive(Clone, Debug)]
 pub enum Bound {
     Local(BoundId),
     Capture(BoundId),
     Absolute(Path)
+}
+
+impl<'interner> Display for WithInterner<'interner, &Bound> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.data() {
+            Bound::Local(id) => write!(f, "{}", id.0),
+            Bound::Capture(id) => write!(f, "captured({})", id.0),
+            Bound::Absolute(path) => write!(f, "{}", WithInterner::new(path, self.interner())),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -22,16 +32,6 @@ impl BoundId {
     }
 }
 
-impl Bound {
-    pub fn display(&self, interner: &Interner) -> String {
-        match self {
-            Bound::Local(id) => format!("{}", id.0),
-            Bound::Capture(id) => format!("captured({})", id.0),
-            Bound::Absolute(path) => path.display(interner),
-        }
-    }
-}
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Capture {
     Local(BoundId),
@@ -44,12 +44,6 @@ impl Display for Capture {
             Self::Local(id) => write!(f, "local({})", id.0),
             Self::Outer(id) => write!(f, "outer({})", id.0),
         }
-    }
-}
-
-impl Debug for Capture {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self}")
     }
 }
 
@@ -84,13 +78,24 @@ impl Path {
         clone.0.extend(identifiers);
         clone
     }
+}
 
-    pub fn display(&self, interner: &Interner) -> String {
-        self.0
-            .iter()
-            .map(|id| interner.lookup(*id))
-            .collect::<Vec<_>>()
-            .join(".")
+impl<'interner> Display for WithInterner<'interner, &Path> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.data().0.as_slice() {
+            [] => unreachable!(),
+            [identifier] => {
+                write!(f, "{}", self.interner().lookup(identifier))
+            },
+            [x, xs@..] => {
+                write!(f, "{}", self.interner().lookup(x))?;
+                for x in xs {
+                    write!(f, ".{}", self.interner().lookup(x))?;
+                }
+
+                Ok(())
+            },
+        }
     }
 }
 

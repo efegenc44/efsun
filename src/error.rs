@@ -1,6 +1,6 @@
 use crate::{
     check::TypeCheckError,
-    interner::Interner,
+    interner::{Interner, WithInterner},
     parse::{ParseError, lex::LexError},
     resolution::ResolutionError,
     location::{Located, Span}
@@ -35,21 +35,25 @@ impl Error {
             },
             Self::Resolution(error) => match error {
                 ResolutionError::UnboundPath(path) => {
-                    format!("`{}` is not bound.", path.display(interner))
+                    format!("`{}` is not bound.", WithInterner::new(path, interner))
                 },
                 ResolutionError::MissingModuleDefinition => {
                     "Module definiton is missing.".to_string()
                 },
                 ResolutionError::UnresolvedImport(path) => {
-                    format!("Import `{}` could not be resolved.", path.display(interner))
+                    format!("Import `{}` could not be resolved.", WithInterner::new(path, interner))
                 },
             },
             Self::Check(error) => match error {
                 TypeCheckError::TypeMismatch { first, second } => {
-                    format!("Couldn't match type `{first}` with `{second}`")
+                    format!(
+                        "Couldn't match type `{}` with `{}`",
+                        WithInterner::new(first, interner),
+                        WithInterner::new(second, interner),
+                    )
                 },
                 TypeCheckError::CyclicDefinition(path) => {
-                    format!("`{}` is defined cyclically", path.display(interner))
+                    format!("`{}` is defined cyclically", WithInterner::new(path, interner))
                 },
             },
         }

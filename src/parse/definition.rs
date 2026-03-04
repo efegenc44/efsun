@@ -26,7 +26,7 @@ impl<T> Definition<T> {
                 let path_string = module.parts
                     .data()
                     .iter()
-                    .map(|id| interner.lookup(*id))
+                    .map(|id| interner.lookup(id))
                     .collect::<Vec<_>>()
                     .join(".");
 
@@ -34,8 +34,8 @@ impl<T> Definition<T> {
             },
             Definition::Name(name) => {
                 println!("{:indent$}Let:", "");
-                println!("{:indent$}{}", "", interner.lookup(*name.identifier.data()), indent=indent + 2);
-                name.expression.data().print(interner, depth + 1);
+                println!("{:indent$}{}", "", interner.lookup(name.identifier.data()), indent=indent + 2);
+                name.expression.data().print(depth + 1, interner);
             },
             Definition::Import(import) => {
                 println!("{:indent$}Import:", "");

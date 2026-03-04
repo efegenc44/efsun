@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs, io::{self, Write}};
 use crate::{
     check::{TypeChecker, typ::{MonoType, Type}},
     compilation::{Compiler, ConstantPool, instruction::display_instructions},
-    interner::Interner,
+    interner::{Interner, WithInterner},
     parse::Parser,
     resolution::{ExpressionResolver, ANFResolver, renamer::Renamer},
     vm::{VM, value::Value},
@@ -64,7 +64,7 @@ pub fn repl() {
         }
 
         match expression(input, &mut vm, &mut interner) {
-            Ok((result, t, pool)) => println!("= {} : {t}", result.display(pool.strings())),
+            Ok((result, t, pool)) => println!("= {} : {}", result.display(pool.strings()), WithInterner::new(&t, &interner)),
             Err((error, source_name)) => error.report(&source_name, input, &interner),
         }
 
@@ -84,7 +84,7 @@ pub fn from_file(file_paths: Vec<String>) {
     let mut vm = VM::new();
 
     match program(&sources, &mut vm, &mut interner) {
-        Ok((result, t, pool)) => println!("= {} : {t}", result.display(pool.strings())),
+        Ok((result, t, pool)) => println!("= {} : {}", result.display(pool.strings()), WithInterner::new(&t, &interner)),
         Err((error, source_name)) => error.report(&source_name, &sources[&source_name], &interner),
     }
 }

@@ -205,7 +205,7 @@ impl VM {
 
                 true
             },
-            (Value::String(id1), Pattern::String(id2)) => pool.strings()[*id1] == interner.lookup(*id2),
+            (Value::String(id1), Pattern::String(id2)) => pool.strings()[*id1] == interner.lookup(id2),
             (_, Pattern::Any(_)) => true,
             _ => false,
         }

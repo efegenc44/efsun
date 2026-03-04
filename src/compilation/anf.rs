@@ -1,8 +1,8 @@
-use std::{cell::RefCell, marker::PhantomData, rc::Rc};
+use std::{cell::RefCell, marker::PhantomData, rc::Rc, fmt::Display};
 
 use crate::{
     parse::{definition::Definition, expression::{Expression, Pattern}},
-    interner::{InternId, Interner},
+    interner::{InternId, Interner, WithInterner},
     resolution::{Resolved, Unresolved, Renamed, bound::{Bound, Capture, Path}}
 };
 
@@ -19,7 +19,7 @@ impl<T> ANFDefinition<T> {
         match self {
             ANFDefinition::Name(name) => {
                 println!("{:indent$}Let:", "");
-                println!("{:indent$}{}", "", interner.lookup(name.identifier), indent=indent + 2);
+                println!("{:indent$}{}", "", interner.lookup(&name.identifier), indent=indent + 2);
                 name.expression.print(depth + 1, interner);
             },
             ANFDefinition::Structure(_) => todo!(),
@@ -89,7 +89,7 @@ impl<T> ANF<T> {
 
         match self {
             ANF::Let(letin) => {
-                print!("{:indent$}let {} = ", "", interner.lookup(letin.variable));
+                print!("{:indent$}let {} = ", "", interner.lookup(&letin.variable));
                 letin.variable_expression.print(depth, interner);
                 println!(" in");
                 letin.return_expression.print(depth + 1, interner);
@@ -97,7 +97,7 @@ impl<T> ANF<T> {
             }
             ,
             ANF::Application(application) => {
-                print!("{:indent$}let {} = ", "", application.variable.display(interner));
+                print!("{:indent$}let {} = ", "", WithInterner::new(&application.variable, interner));
                 application.function.print(depth, interner);
                 application.argument.print(depth, interner);
                 println!(" in");
@@ -106,7 +106,7 @@ impl<T> ANF<T> {
             },
             ANF::Match(matchlet) => {
                 println!("{:indent$}Match:", "");
-                print!("{:indent$}let {} = ", "", matchlet.variable.display(interner));
+                print!("{:indent$}let {} = ", "", WithInterner::new(&matchlet.variable, interner));
                 matchlet.variable_expression.print(depth, interner);
                 println!(" in");
                 for branch in &matchlet.branches {
@@ -117,7 +117,7 @@ impl<T> ANF<T> {
             ANF::Join(join) => {
                 join.join.print(depth + 1, interner);
                 println!("{:indent$}Join({}):", "", join.label);
-                print!("{:indent$}let {} = ", "", join.variable.display(interner));
+                print!("{:indent$}let {} = ", "", WithInterner::new(&join.variable, interner));
                 println!(" in");
                 join.expression.print(depth + 1, interner);
             },
@@ -318,19 +318,23 @@ impl<T> Atom<T> {
         let indent = 2*depth;
 
         match self {
-            Atom::String(id) => print!("{:indent$}\"{}\"", "", interner.lookup(*id)),
+            Atom::String(id) => print!("{:indent$}\"{}\"", "", interner.lookup(id)),
             Atom::Path(path) => {
                 print!(
                     "{:indent$}{}{}", "",
-                    path.path.display(interner),
-                    if let Some(bound) = &path.bound { format!("#{}", bound.display(interner)) } else { "".to_string() }
+                    WithInterner::new(&path.path, interner),
+                    if let Some(bound) = &path.bound { format!("#{}", WithInterner::new(bound, interner)) } else { "".to_string() }
                 )
             },
             Atom::Lambda(lambda) => {
-                print!("{:indent$}\\{} ", "", interner.lookup(lambda.variable));
+                print!("{:indent$}\\{} ", "", interner.lookup(&lambda.variable));
                 if let Some(captures) = &lambda.captures {
                     if !captures.is_empty() {
-                        print!("{:?} ", captures);
+                        print!("[ ");
+                        for capture in captures {
+                            print!("{} ", capture);
+                        }
+                        print!("]");
                     }
                 }
                 lambda.expression.print(0, interner);
@@ -345,32 +349,41 @@ pub enum ANFLocal {
     Normal(InternId),
 }
 
-impl ANFLocal {
-    fn display(&self, _interner: &Interner) -> String {
-        match self {
-            Self::ANF(id) => format!("{{ANF{id}}}"),
-            Self::Normal(id) => format!("{{Normal{id}}}"),
+impl<'interner> Display for WithInterner<'interner, &ANFLocal> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.data() {
+            ANFLocal::ANF(id) => write!(f, "<ANF{id}>"),
+            ANFLocal::Normal(identifier) => write!(f, "{}", self.interner().lookup(identifier)),
         }
     }
 }
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum ANFPath {
-    ANF(usize),
+    ANFLocal(usize),
     Normal(Vec<InternId>),
 }
 
-impl ANFPath {
-    fn display(&self, interner: &Interner) -> String {
-        match self {
-            Self::ANF(id) => format!("{{ANF{id}}}"),
-            Self::Normal(parts) => {
-                parts
-                    .iter()
-                    .map(|id| interner.lookup(*id))
-                    .collect::<Vec<_>>()
-                    .join(".")
-            },
+impl<'interner> Display for WithInterner<'interner, &ANFPath> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.data() {
+            ANFPath::ANFLocal(id) => write!(f, "<ANF{id}>"),
+            ANFPath::Normal(parts) => {
+                match parts.as_slice() {
+                    [] => unreachable!(),
+                    [identifier] => {
+                        write!(f, "{}", self.interner().lookup(identifier))
+                    },
+                    [x, xs@..] => {
+                        write!(f, "{}", self.interner().lookup(x))?;
+                        for x in xs {
+                            write!(f, ".{}", self.interner().lookup(x))?;
+                        }
+
+                        Ok(())
+                    },
+                }
+            }
         }
     }
 }
@@ -519,7 +532,7 @@ impl ANFTransformer {
                 self.expression(argument.as_data(), Rc::new(Box::new(|argument| {
                     self.expression(function.clone().as_data(), Rc::new(Box::new(|function| {
                         let id = self.new_local_id();
-                        let path = Atom::Path(PathExpression::local(ANFPath::ANF(id)));
+                        let path = Atom::Path(PathExpression::local(ANFPath::ANFLocal(id)));
                         let application = ApplicationExpression::new(ANFLocal::ANF(id), function, argument.clone(), k(path));
                         ANF::Application(application)
                     })))
@@ -546,10 +559,10 @@ impl ANFTransformer {
                     let join_label_id = self.new_local_id();
 
                     let join_var_id = self.new_local_id();
-                    let join_var_path = Atom::Path(PathExpression::local(ANFPath::ANF(join_var_id)));
+                    let join_var_path = Atom::Path(PathExpression::local(ANFPath::ANFLocal(join_var_id)));
 
                     let id = self.new_local_id();
-                    let path = Atom::Path(PathExpression::local(ANFPath::ANF(id)));
+                    let path = Atom::Path(PathExpression::local(ANFPath::ANFLocal(id)));
 
                     let mut branch_anfs = Vec::new();
                     for branch in branches.clone() {

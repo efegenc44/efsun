@@ -33,7 +33,7 @@ impl Interner {
         InternId(self.strings.len() - 1)
     }
 
-    pub fn lookup(&self, id: InternId) -> &str {
+    pub fn lookup(&self, id: &InternId) -> &str {
         self.strings.get(id.0).unwrap()
     }
 
@@ -51,5 +51,24 @@ impl Interner {
 impl Display for InternId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.0)
+    }
+}
+
+pub struct WithInterner<'interner, T> {
+    data: T,
+    interner: &'interner Interner
+}
+
+impl<'interner, T> WithInterner<'interner, T> {
+    pub fn new(data: T, interner: &'interner Interner) -> Self {
+        Self { data, interner }
+    }
+
+    pub fn data(&self) -> &T {
+        &self.data
+    }
+
+    pub fn interner(&self) -> &Interner {
+        self.interner
     }
 }
