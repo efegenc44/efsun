@@ -4,7 +4,7 @@ pub mod anf;
 use std::collections::HashMap;
 
 use crate::{
-    interner::{InternId, Interner},
+    interner::{InternId, Interner, WithInterner},
     resolution::{Resolved, bound::{Bound, Path}},
     parse::expression::Pattern,
 };
@@ -17,7 +17,9 @@ pub struct Compiler<'interner, 'anf> {
     interns: Vec<InternId>,
     constant_pool: ConstantPool,
     name_anfs: HashMap<&'anf Path, &'anf ANF<Resolved>>,
-    names: Vec<(Path, Vec<Instruction>)>,
+    names: HashMap<&'anf Path, Vec<Instruction>>,
+    globals: Vec<&'anf Path>,
+    in_lambda: bool,
     interner: &'interner Interner
 }
 
@@ -27,7 +29,9 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             interns: Vec::new(),
             constant_pool: ConstantPool::new(),
             name_anfs: HashMap::new(),
-            names: Vec::new(),
+            names: HashMap::new(),
+            globals: Vec::new(),
+            in_lambda: false,
             interner
         }
     }
@@ -36,6 +40,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         for module in modules {
             self.collect_names(module);
         }
+
 
         for module in modules {
             self.module(module);
@@ -48,14 +53,32 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
         let path = Path::from_parts(parts);
         // TODO: Error when main function is not present
-        let id = self.names.iter().position(|p| &p.0 == &path).unwrap();
+        let id = self.globals.iter().position(|p| *p == &path).unwrap();
 
         let mut instructions = self
-            .names
-            .into_iter()
-            .map(|(_, code)| code)
+            .globals
+            .iter()
+            .map(|path| self.names[path].clone())
             .flatten()
             .collect::<Vec<_>>();
+
+        // Patch global name instructions
+        for instruction in instructions.iter_mut() {
+            if let Instruction::GetAbsolutePath(path) = instruction {
+                let order = self.globals.iter().position(|p| *p == path).unwrap();
+                *instruction = Instruction::GetAbsolute(order);
+            }
+        }
+
+        for lambda in self.constant_pool.lambdas_mut() {
+            for instruction in lambda.iter_mut() {
+                if let Instruction::GetAbsolutePath(path) = instruction {
+                    let order = self.globals.iter().position(|p| *p == path).unwrap();
+                    *instruction = Instruction::GetAbsolute(order);
+                }
+            }
+        }
+
 
         // TODO: Remove this instruction
         instructions.push(Instruction::String(0));
@@ -69,26 +92,29 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     fn collect_names(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
             if let ANFDefinition::Name(name) = definition {
-                // self.names.push((name.path().clone(), vec![]));
+                // self.names.insert(name.path(), vec![]);
                 self.name_anfs.insert(name.path(), name.expression());
             }
 
             if let ANFDefinition::Structure(structure) = definition {
                 for (order, (path, arity)) in structure.constructors().iter().enumerate() {
                     let instructions = vec![Instruction::Constructor(order, *arity)];
-                    self.names.push((path.clone(), instructions));
+                    self.names.insert(path, instructions);
+                    self.globals.push(path);
                 }
             }
         }
     }
 
-    pub fn module(&mut self, definitions: &[ANFDefinition<Resolved>]) {
+    pub fn module(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
             match definition {
                 ANFDefinition::Name(name) => {
-                    if self.names.iter().find(|p| &p.0 == name.path()).is_none() {
+                    if !self.names.contains_key(name.path()) {
+                        self.names.insert(name.path(), vec![]);
                         let code = self.expression(name.expression());
-                        self.names.push((name.path().clone(), code));
+                        self.names.insert(name.path(), code);
+                        self.globals.push(name.path());
                     }
                 },
                 _ => ()
@@ -96,12 +122,12 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    pub fn compile(mut self, expression: &ANF<Resolved>) -> (Vec<Instruction>, ConstantPool) {
+    pub fn compile(mut self, expression: &'anf ANF<Resolved>) -> (Vec<Instruction>, ConstantPool) {
         (self.expression(expression), self.constant_pool)
     }
 
     #[must_use]
-    fn expression(&mut self, expression: &ANF<Resolved>) -> Vec<Instruction> {
+    fn expression(&mut self, expression: &'anf ANF<Resolved>) -> Vec<Instruction> {
         match expression {
             ANF::Let(letin) => self.letin(letin),
             ANF::Application(application) => self.application(application),
@@ -113,7 +139,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     }
 
     #[must_use]
-    fn atom(&mut self, atom: &Atom<Resolved>) -> Vec<Instruction> {
+    fn atom(&mut self, atom: &'anf Atom<Resolved>) -> Vec<Instruction> {
         match atom {
             Atom::String(id) => self.string(*id),
             Atom::Path(identifier) => self.identifier(identifier),
@@ -135,28 +161,26 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         vec![Instruction::String(offset)]
     }
 
-    fn identifier(&mut self, identifier: &anf::PathExpression<Resolved>) -> Vec<Instruction> {
+    fn identifier(&mut self, identifier: &'anf anf::PathExpression<Resolved>) -> Vec<Instruction> {
         match identifier.bound() {
             Bound::Local(id) => vec![Instruction::GetLocal(id.value())],
             Bound::Capture(id) => vec![Instruction::GetCapture(id.value())],
             Bound::Absolute(path) => {
-                let id = match self.names.iter().position(|p| &p.0 == path) {
-                    Some(id) => id,
-                    None => {
-                        let id = self.names.len();
-                        self.names.push((path.clone(), vec![]));
+                if !self.in_lambda {
+                    if !self.names.contains_key(path) {
+                        self.names.insert(path, vec![]);
                         let code = self.expression(self.name_anfs[path]);
-                        self.names.get_mut(id).unwrap().1 = code;
-                        id
-                    },
-                };
+                        self.names.insert(path, code);
+                        self.globals.push(path);
+                    }
+                }
 
-                vec![Instruction::GetAbsolute(id)]
+                vec![Instruction::GetAbsolutePath(path.clone())]
             },
         }
     }
 
-    fn application(&mut self, application: &anf::ApplicationExpression<Resolved>) -> Vec<Instruction> {
+    fn application(&mut self, application: &'anf anf::ApplicationExpression<Resolved>) -> Vec<Instruction> {
         let mut instructions = vec![];
 
         instructions.extend(self.atom(application.argument()));
@@ -167,7 +191,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         instructions
     }
 
-    fn matchlet(&mut self, matchlet: &anf::MatchExpression<Resolved>) -> Vec<Instruction> {
+    fn matchlet(&mut self, matchlet: &'anf anf::MatchExpression<Resolved>) -> Vec<Instruction> {
         let mut instructions = vec![];
 
         instructions.extend(self.atom(matchlet.variable_expression()));
@@ -202,7 +226,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         instructions
     }
 
-    fn join(&mut self, join: &anf::Join<Resolved>) -> Vec<Instruction> {
+    fn join(&mut self, join: &'anf anf::Join<Resolved>) -> Vec<Instruction> {
         let mut instructions = vec![];
 
         let mut join_instructions = self.expression(join.join());
@@ -224,7 +248,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         instructions
     }
 
-    fn jump(&mut self, jump: &anf::Jump<Resolved>) -> Vec<Instruction> {
+    fn jump(&mut self, jump: &'anf anf::Jump<Resolved>) -> Vec<Instruction> {
         let mut instructions = vec![];
 
         instructions.extend(self.atom(jump.expression()));
@@ -233,18 +257,21 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         instructions
     }
 
-    fn lambda(&mut self, lambda: &anf::LambdaExpression<Resolved>) -> Vec<Instruction> {
+    fn lambda(&mut self, lambda: &'anf anf::LambdaExpression<Resolved>) -> Vec<Instruction> {
         let mut instructions = vec![];
 
+        let old_in_lambda = self.in_lambda;
+        self.in_lambda = true;
         instructions.extend(self.expression(lambda.expression()));
         instructions.push(Instruction::Return);
+        self.in_lambda = old_in_lambda;
 
         let id = self.constant_pool.add_lambda(instructions);
 
         vec![Instruction::MakeLambda(id, lambda.captures().to_vec())]
     }
 
-    fn letin(&mut self, letin: &anf::LetExpression<Resolved>) -> Vec<Instruction> {
+    fn letin(&mut self, letin: &'anf anf::LetExpression<Resolved>) -> Vec<Instruction> {
         let mut instructions = vec![];
 
         instructions.extend(self.atom(letin.variable_expression()));
@@ -256,14 +283,14 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
 pub struct ConstantPool {
     strings: Vec<String>,
-    structure: Vec<Vec<Instruction>>,
+    lambdas: Vec<Vec<Instruction>>,
 }
 
 impl ConstantPool {
     fn new() -> Self {
         Self {
             strings: Vec::new(),
-            structure: Vec::new(),
+            lambdas: Vec::new(),
         }
     }
 
@@ -272,7 +299,11 @@ impl ConstantPool {
     }
 
     pub fn lambdas(&self) -> &[Vec<Instruction>] {
-        &self.structure
+        &self.lambdas
+    }
+
+    pub fn lambdas_mut(&mut self) -> &mut Vec<Vec<Instruction>> {
+        &mut self.lambdas
     }
 
     fn add_string(&mut self, string: String) -> usize {
@@ -282,8 +313,8 @@ impl ConstantPool {
     }
 
     fn add_lambda(&mut self, lambda: Vec<Instruction>) -> usize {
-        let id = self.structure.len();
-        self.structure.push(lambda);
+        let id = self.lambdas.len();
+        self.lambdas.push(lambda);
         id
     }
 }

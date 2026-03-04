@@ -92,6 +92,9 @@ impl VM {
                     let value = self.stack.first().unwrap().stack[id].clone();
                     self.push(value);
                 },
+                Instruction::GetAbsolutePath(_) => {
+                    panic!()
+                },
                 Instruction::Jump(_label) => {
                     panic!()
                 },

@@ -26,6 +26,7 @@ use typ::{Type, MonoType, ArrowType, StructureType};
 pub struct TypeChecker<'ast> {
     stack: CheckStack<Type>,
     type_locals: Vec<MonoType>,
+    in_lambda: bool,
     name_expressions: ExpressionMap<'ast>,
     names: HashMap<Path, Type>,
     types: HashMap<&'ast Path, usize>,
@@ -42,6 +43,7 @@ impl<'ast> TypeChecker<'ast> {
         Self {
             stack,
             type_locals: Vec::new(),
+            in_lambda: false,
             name_expressions: ExpressionMap::new(),
             names: HashMap::new(),
             types: HashMap::new(),
@@ -191,6 +193,11 @@ impl<'ast> TypeChecker<'ast> {
             Bound::Absolute(path) => {
                 if let Type::Mono(MonoType::Variable(variable)) = self.names[path].clone() {
                     if self.name_expressions.is_currently_visiting(path) {
+                        if !self.in_lambda {
+                            let error = TypeCheckError::CyclicDefinition(path.clone());
+                            return Err(located_error(error, span, self.current_source_name.clone()));
+                        }
+
                         return Ok(MonoType::Variable(variable));
                     }
 
@@ -214,23 +221,6 @@ impl<'ast> TypeChecker<'ast> {
                 } else {
                     Ok(self.instantiate(self.names[path].clone().clone()))
                 }
-
-                // if let Some(t) = self.names.get(path) {
-                //     Ok(self.instantiate(t.clone()))
-                // } else {
-                //     // if self.name_expressions.is_currently_visiting(path) {
-                //     //     let error = TypeCheckError::CyclicDefinition(path.clone());
-                //     //     return Err(located_error(error, span, self.current_source_name.clone()));
-                //     // }
-
-                //     self.name_expressions.visiting(path);
-                //     let m = self.infer(self.name_expressions.get(path))?;
-                //     self.name_expressions.leaving(path);
-
-                //     let t = m.generalize();
-                //     self.names.insert(path.clone(), t.clone());
-                //     Ok(self.instantiate(t))
-                // }
             }
         }
     }
@@ -258,7 +248,10 @@ impl<'ast> TypeChecker<'ast> {
 
         self.stack.push_frame(lambda.captures().to_vec());
         self.stack.push_local(Type::Mono(argument.clone()));
+        let old_in_lambda = self.in_lambda;
+        self.in_lambda = true;
         let return_type = self.infer(lambda.expression())?;
+        self.in_lambda = old_in_lambda;
         self.stack.pop_local();
         self.stack.pop_frame();
 

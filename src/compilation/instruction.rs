@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{
     compilation::ConstantPool,
     parse::expression::{Pattern, StructurePattern},
-    resolution::{Renamed, bound::Capture}
+    resolution::{Renamed, bound::{Capture, Path}}
 };
 
 #[derive(Clone)]
@@ -14,6 +14,7 @@ pub enum Instruction {
     GetCapture(usize),
     GetLocal(usize),
     GetAbsolute(usize),
+    GetAbsolutePath(Path),
     Jump(usize),
     StringEquals,
     StructurePatternMatch(StructurePattern<Renamed>),
@@ -46,6 +47,7 @@ impl Display for Instruction {
             Self::GetCapture(id) => write!(f, "GET_CAPTURE {id}"),
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
             Self::GetAbsolute(id) => write!(f, "GET_ABSOLUTE {id}"),
+            Self::GetAbsolutePath(_) => panic!(),
             Self::Jump(label) => write!(f, "JUMP {label}"),
             Self::StringEquals => write!(f, "STRING_EQUALS"),
             Self::StructurePatternMatch(_) => write!(f, "STRUCTURE_EQUALS"),
@@ -74,9 +76,9 @@ pub fn display_instructions(instructions: &[Instruction], pool: &ConstantPool) {
         }
     }
 
-    if !pool.structure.is_empty() {
+    if !pool.lambdas.is_empty() {
         println!("  ====== LAMBDAS ======");
-        for (index, lambda) in pool.structure.iter().enumerate() {
+        for (index, lambda) in pool.lambdas.iter().enumerate() {
             println!("    <lambda {index}>:");
             for (index, instruction) in lambda.iter().enumerate() {
                 println!("    {index:#>05x} | {instruction}");
