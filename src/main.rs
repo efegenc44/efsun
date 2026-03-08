@@ -1,16 +1,16 @@
 #![allow(unused)]
 
-mod parse;
 mod check;
 mod compilation;
+mod parse;
 mod resolution;
 
+mod cli;
+mod error;
 mod interner;
 mod location;
-mod error;
-mod vm;
-mod cli;
 mod run;
+mod vm;
 
 fn main() {
     cli::execute();

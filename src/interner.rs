@@ -19,7 +19,9 @@ impl InternId {
 
 impl Interner {
     pub fn new() -> Self {
-        Interner { strings: Vec::default() }
+        Interner {
+            strings: Vec::default(),
+        }
     }
 
     pub fn intern(&mut self, string: String) -> InternId {
@@ -56,7 +58,7 @@ impl Display for InternId {
 
 pub struct WithInterner<'interner, T> {
     data: T,
-    interner: &'interner Interner
+    interner: &'interner Interner,
 }
 
 impl<'interner, T> WithInterner<'interner, T> {

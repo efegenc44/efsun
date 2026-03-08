@@ -1,4 +1,7 @@
-use std::{collections::{HashMap, HashSet}, fmt::{Debug, Display}};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{Debug, Display},
+};
 
 use crate::interner::{InternId, WithInterner};
 
@@ -6,7 +9,7 @@ use crate::interner::{InternId, WithInterner};
 pub enum Bound {
     Local(BoundId),
     Capture(BoundId),
-    Absolute(Path)
+    Absolute(Path),
 }
 
 impl<'interner> Display for WithInterner<'interner, &Bound> {
@@ -35,7 +38,7 @@ impl BoundId {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Capture {
     Local(BoundId),
-    Outer(BoundId)
+    Outer(BoundId),
 }
 
 impl Display for Capture {
@@ -86,15 +89,15 @@ impl<'interner> Display for WithInterner<'interner, &Path> {
             [] => unreachable!(),
             [identifier] => {
                 write!(f, "{}", self.interner().lookup(identifier))
-            },
-            [x, xs@..] => {
+            }
+            [x, xs @ ..] => {
                 write!(f, "{}", self.interner().lookup(x))?;
                 for x in xs {
                     write!(f, ".{}", self.interner().lookup(x))?;
                 }
 
                 Ok(())
-            },
+            }
         }
     }
 }
@@ -112,7 +115,7 @@ impl Module {
             names: HashSet::new(),
             types: HashMap::new(),
             imports: HashMap::new(),
-            source_name
+            source_name,
         }
     }
 
@@ -144,4 +147,3 @@ impl Module {
         &self.source_name
     }
 }
-

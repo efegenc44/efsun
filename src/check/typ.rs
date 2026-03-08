@@ -1,11 +1,11 @@
 use std::{collections::HashMap, fmt::Display};
 
-use crate::{resolution::bound::Path, interner::WithInterner};
+use crate::{interner::WithInterner, resolution::bound::Path};
 
 #[derive(Clone)]
 pub enum Type {
     Mono(MonoType),
-    Poly(Vec<usize>, MonoType)
+    Poly(Vec<usize>, MonoType),
 }
 
 impl<'interner> Display for WithInterner<'interner, &Type> {
@@ -20,8 +20,8 @@ impl<'interner> Display for WithInterner<'interner, &Type> {
                         [] => unreachable!(),
                         [variable] => {
                             write!(f, "a{variable}")?;
-                        },
-                        [x, xs@..] => {
+                        }
+                        [x, xs @ ..] => {
                             write!(f, "a{x}")?;
                             for x in xs {
                                 write!(f, ", a{x}")?;
@@ -31,7 +31,7 @@ impl<'interner> Display for WithInterner<'interner, &Type> {
                     write!(f, " ")?;
                 }
                 write!(f, "{}", WithInterner::new(m, self.interner()))
-            },
+            }
         }
     }
 }
@@ -58,27 +58,25 @@ impl MonoType {
                 if !variables.contains(id) {
                     variables.push(*id);
                 }
-            },
+            }
             Self::Arrow(arrow) => {
                 arrow.from().gather_variables(variables);
                 arrow.to().gather_variables(variables);
-            },
+            }
             Self::Structure(structure) => {
                 for argument in structure.arguments() {
                     argument.gather_variables(variables);
                 }
-            },
+            }
             Self::String => (),
         }
     }
 
     pub fn substitute(self, table: &HashMap<usize, MonoType>) -> Self {
         match self {
-            Self::Variable(id) => {
-                match table.get(&id) {
-                    Some(t) => t.clone().substitute(table),
-                    None => self,
-                }
+            Self::Variable(id) => match table.get(&id) {
+                Some(t) => t.clone().substitute(table),
+                None => self,
             },
             Self::Arrow(arrow) => {
                 let from = arrow.from.substitute(table);
@@ -86,7 +84,7 @@ impl MonoType {
                 let arrow = ArrowType::new(from, to);
 
                 Self::Arrow(arrow)
-            },
+            }
             Self::Structure(structure) => {
                 let arguments = structure
                     .arguments
@@ -96,7 +94,7 @@ impl MonoType {
 
                 let structure = StructureType::new(structure.path, arguments);
                 Self::Structure(structure)
-            },
+            }
             Self::String => self,
         }
     }
@@ -104,15 +102,11 @@ impl MonoType {
     pub fn includes(&self, variable: usize) -> bool {
         match self {
             Self::Variable(id) => *id == variable,
-            Self::Arrow(arrow) => {
-                arrow.from().includes(variable) || arrow.to().includes(variable)
-            },
-            Self::Structure(structure) => {
-                structure
-                    .arguments()
-                    .iter()
-                    .any(|argument| argument.includes(variable))
-            },
+            Self::Arrow(arrow) => arrow.from().includes(variable) || arrow.to().includes(variable),
+            Self::Structure(structure) => structure
+                .arguments()
+                .iter()
+                .any(|argument| argument.includes(variable)),
             Self::String => false,
         }
     }
@@ -131,21 +125,25 @@ impl<'interner> Display for WithInterner<'interner, &MonoType> {
                 write!(f, " -> {}", WithInterner::new(arrow.to(), self.interner()))
             }
             MonoType::Structure(structure) => {
-                write!(f, "{}", WithInterner::new(structure.path(), self.interner()))?;
+                write!(
+                    f,
+                    "{}",
+                    WithInterner::new(structure.path(), self.interner())
+                )?;
                 match structure.arguments() {
                     [] => Ok(()),
                     [argument] => {
                         write!(f, "[{}]", WithInterner::new(argument, self.interner()))
-                    },
-                    [x, xs@..] => {
+                    }
+                    [x, xs @ ..] => {
                         write!(f, "[{}", WithInterner::new(x, self.interner()))?;
                         for x in xs {
                             write!(f, " {}", WithInterner::new(x, self.interner()))?;
                         }
                         write!(f, "]")
-                    },
+                    }
                 }
-            },
+            }
             MonoType::String => write!(f, "String"),
         }
     }
@@ -154,14 +152,14 @@ impl<'interner> Display for WithInterner<'interner, &MonoType> {
 #[derive(Debug, Clone)]
 pub struct ArrowType {
     from: Box<MonoType>,
-    to: Box<MonoType>
+    to: Box<MonoType>,
 }
 
 impl ArrowType {
     pub fn new(from: MonoType, to: MonoType) -> Self {
         ArrowType {
             from: Box::new(from),
-            to: Box::new(to)
+            to: Box::new(to),
         }
     }
 
@@ -177,7 +175,7 @@ impl ArrowType {
 #[derive(Debug, Clone)]
 pub struct StructureType {
     path: Path,
-    arguments: Vec<MonoType>
+    arguments: Vec<MonoType>,
 }
 
 impl StructureType {

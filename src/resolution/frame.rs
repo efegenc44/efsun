@@ -27,7 +27,7 @@ impl<T> ResolutionStack<T> {
     pub fn push_frame(&mut self) {
         self.0.push(Frame {
             locals: Vec::new(),
-            captures: Vec::new()
+            captures: Vec::new(),
         });
     }
 
@@ -98,11 +98,11 @@ impl<T: Eq + Clone> ResolutionStack<T> {
                     None => {
                         frame_captures.push(capture);
                         frame_captures.len() - 1
-                    },
+                    }
                 };
 
                 Capture::Outer(BoundId::new(id))
-            },
+            }
         };
 
         Some(capture)
@@ -119,7 +119,7 @@ impl<T> CheckStack<T> {
     pub fn push_frame(&mut self, captures: Vec<Capture>) {
         self.0.push(Frame {
             locals: Vec::new(),
-            captures
+            captures,
         });
     }
 
@@ -161,13 +161,11 @@ impl<T: Clone> CheckStack<T> {
         let current_frame = &self.0[index];
 
         match capture {
-            Capture::Local(id) => {
-                current_frame.locals[id.value()].clone()
-            },
+            Capture::Local(id) => current_frame.locals[id.value()].clone(),
             Capture::Outer(id) => {
                 let capture = current_frame.captures[id.value()];
                 self.get_capture_in_frame(capture, frame_depth + 1)
-            },
+            }
         }
     }
 }

@@ -3,7 +3,10 @@ use std::fmt::Display;
 use crate::{
     compilation::ConstantPool,
     parse::expression::{Pattern, StructurePattern},
-    resolution::{Renamed, bound::{Capture, Path}}
+    resolution::{
+        Renamed,
+        bound::{Capture, Path},
+    },
 };
 
 #[derive(Clone)]
@@ -43,7 +46,7 @@ impl Display for Instruction {
                 }
 
                 Ok(())
-            },
+            }
             Self::GetCapture(id) => write!(f, "GET_CAPTURE {id}"),
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
             Self::GetAbsolute(id) => write!(f, "GET_ABSOLUTE {id}"),

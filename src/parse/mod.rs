@@ -1,13 +1,13 @@
+pub mod definition;
 pub mod expression;
 pub mod lex;
-pub mod definition;
 pub mod type_expression;
 
 use std::iter::Peekable;
 
 use crate::{
-    error::{Error, Result, located_error, eof_error},
-    interner::{Interner, InternId},
+    error::{Error, Result, eof_error, located_error},
+    interner::{InternId, Interner},
     location::{Located, Span},
     resolution::Unresolved,
 };
@@ -15,18 +15,15 @@ use crate::{
 use lex::{Lexer, token::Token};
 
 use expression::{
-    ApplicationExpression, Expression, LambdaExpression, PathExpression,
-    LetExpression, MatchExpression, MatchBranch, Pattern,
-    StructurePattern
+    ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
+    MatchExpression, PathExpression, Pattern, StructurePattern,
 };
 
-use type_expression::{
-    TypeExpression, PathTypeExpression, ApplicationTypeExpression
-};
+use type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression};
 
 use definition::{
-    Definition, ModuleDefinition, NameDefinition, ImportDefinition,
-    ImportName, StructureDefinition, Constructor
+    Constructor, Definition, ImportDefinition, ImportName, ModuleDefinition, NameDefinition,
+    StructureDefinition,
 };
 
 pub struct Parser<'source, 'interner> {
@@ -35,10 +32,14 @@ pub struct Parser<'source, 'interner> {
 }
 
 impl<'source, 'interner> Parser<'source, 'interner> {
-    pub fn from_source(source_name: String, source: &'source str, interner: &'interner mut Interner) -> Self {
+    pub fn from_source(
+        source_name: String,
+        source: &'source str,
+        interner: &'interner mut Interner,
+    ) -> Self {
         Self {
             tokens: Lexer::new(source_name.clone(), source, interner).peekable(),
-            source_name
+            source_name,
         }
     }
 
@@ -51,9 +52,12 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 
     fn peek_some(&mut self) -> Result<Located<Token>> {
-        self
-            .peek()
-            .unwrap_or_else(|| Err(eof_error(ParseError::UnexpectedEOF, self.source_name.clone())))
+        self.peek().unwrap_or_else(|| {
+            Err(eof_error(
+                ParseError::UnexpectedEOF,
+                self.source_name.clone(),
+            ))
+        })
     }
 
     fn next_some(&mut self) -> Result<Located<Token>> {
@@ -88,7 +92,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
     fn expect_identifier(&mut self) -> Result<Located<InternId>> {
         let token = self.expect(Token::Identifier(InternId::dummy()))?;
-        let Token::Identifier(id) = token.data() else { unreachable!() };
+        let Token::Identifier(id) = token.data() else {
+            unreachable!()
+        };
         Ok(Located::new(*id, token.span()))
     }
 
@@ -100,7 +106,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Token::Backslash => self.lambda(),
             Token::LetKeyword => self.letin(),
             Token::MatchKeyword => self.matchlet(),
-            _ => self.application()
+            _ => self.application(),
         }
     }
 
@@ -125,7 +131,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let return_expression = self.expression()?;
         let end = return_expression.span().end();
 
-        let letin = LetExpression::<Unresolved>::new(variable, variable_expression, return_expression);
+        let letin =
+            LetExpression::<Unresolved>::new(variable, variable_expression, return_expression);
         let expression = Located::new(Expression::Let(letin), Span::new(start, end));
 
         Ok(expression)
@@ -143,7 +150,10 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             self.expect(Token::Equals)?;
             let branch_expression = self.expression()?;
             end = branch_expression.span().end();
-            let branch = Located::new(MatchBranch::new(pattern, branch_expression), Span::new(branch_start, end));
+            let branch = Located::new(
+                MatchBranch::new(pattern, branch_expression),
+                Span::new(branch_start, end),
+            );
             branches.push(branch);
         }
 
@@ -161,13 +171,16 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 self.next();
                 let literal = Pattern::String(*string);
                 Ok(Located::new(literal, token.span()))
-            },
+            }
             Token::Tilde => {
                 self.next();
                 let identifier = self.expect_identifier()?;
                 let literal = Pattern::Any(*identifier.data());
-                Ok(Located::new(literal, Span::new(token.span().start(), identifier.span().end())))
-            },
+                Ok(Located::new(
+                    literal,
+                    Span::new(token.span().start(), identifier.span().end()),
+                ))
+            }
             Token::Identifier(_) => self.structure_pattern(),
             Token::LeftParenthesis => {
                 let start = self.expect(Token::LeftParenthesis)?.span().start();
@@ -204,11 +217,10 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
             let token = result?;
             match token.data() {
-                Token::Identifier(_) |
-                Token::Tilde |
-                Token::String(_) |
-                Token::LeftParenthesis => (),
-                _ => break
+                Token::Identifier(_) | Token::Tilde | Token::String(_) | Token::LeftParenthesis => {
+                    ()
+                }
+                _ => break,
             }
 
             arguments.push(self.pattern()?);
@@ -229,7 +241,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 self.next();
                 let literal = Expression::String(*string);
                 Ok(Located::new(literal, token.span()))
-            },
+            }
             Token::Identifier(_) => self.path(),
             Token::LeftParenthesis => self.grouping(),
             unexpected => {
@@ -273,13 +285,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         loop {
             let argument = match self.primary() {
                 Ok(expression) => expression,
-                Err((error, source_name)) => {
-                    match error.data() {
-                        Error::Parse(ParseError::UnexpectedEOF) |
-                        Error::Parse(ParseError::UnexpectedToken(_)) => break,
-                        _ => return Err((error, source_name)),
-                    }
-                }
+                Err(error) => match error.0.data() {
+                    Error::Parse(ParseError::UnexpectedEOF)
+                    | Error::Parse(ParseError::UnexpectedToken(_)) => break,
+                    _ => return Err(error),
+                },
             };
 
             let end = argument.span().end();
@@ -339,7 +349,10 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             }
 
             let application = ApplicationTypeExpression::new(function, arguments);
-            function = Located::new(TypeExpression::Application(application), Span::new(start, end));
+            function = Located::new(
+                TypeExpression::Application(application),
+                Span::new(start, end),
+            );
         }
 
         Ok(function)
@@ -451,7 +464,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 let token = result?;
                 match token.data() {
                     Token::Identifier(_) => (),
-                    _ => break
+                    _ => break,
                 }
 
                 arguments.push(self.type_expression()?);

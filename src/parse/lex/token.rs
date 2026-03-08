@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::interner::{Interner, InternId, WithInterner};
+use crate::interner::{InternId, Interner, WithInterner};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Token {

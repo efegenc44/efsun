@@ -3,9 +3,9 @@ pub mod token;
 use std::{iter::Peekable, str::Chars};
 
 use crate::{
+    error::{Result, located_error},
     interner::Interner,
     location::{Located, SourceLocation, Span},
-    error::{Result, located_error}
 };
 
 use token::Token;
@@ -18,12 +18,16 @@ pub struct Lexer<'source, 'interner> {
 }
 
 impl<'source, 'interner> Lexer<'source, 'interner> {
-    pub fn new(source_name: String, source: &'source str, interner: &'interner mut Interner) -> Self {
+    pub fn new(
+        source_name: String,
+        source: &'source str,
+        interner: &'interner mut Interner,
+    ) -> Self {
         Self {
             chars: source.chars().peekable(),
             source_name,
             interner,
-            location: SourceLocation::start()
+            location: SourceLocation::start(),
         }
     }
 
@@ -92,7 +96,11 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
             };
 
             let error = LexError::UnterminatedStringLiteral;
-            return Err(located_error(error, Span::new(start, end), self.source_name.clone()));
+            return Err(located_error(
+                error,
+                Span::new(start, end),
+                self.source_name.clone(),
+            ));
         };
 
         let end = self.location;
@@ -128,11 +136,9 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
 
         let token = match self.peek()? {
             ch if ch.is_alphabetic() => self.keyword_or_identifier(),
-            '"' => {
-                match self.string() {
-                    Ok(token) => token,
-                    Err(error) => return Some(Err(error)),
-                }
+            '"' => match self.string() {
+                Ok(token) => token,
+                Err(error) => return Some(Err(error)),
             },
             '(' => self.single(Token::LeftParenthesis),
             ')' => self.single(Token::RightParenthesis),
@@ -149,7 +155,11 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
                 let end = self.location;
 
                 let error = LexError::UnknownStartOfAToken(unknown);
-                return Some(Err(located_error(error, Span::new(start, end), self.source_name.clone())));
+                return Some(Err(located_error(
+                    error,
+                    Span::new(start, end),
+                    self.source_name.clone(),
+                )));
             }
         };
 

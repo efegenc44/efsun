@@ -1,15 +1,14 @@
 use crate::{
-    parse::{
-        expression::{
-            ApplicationExpression, Expression, PathExpression,
-            LambdaExpression, LetExpression, MatchExpression, MatchBranch, Pattern,
-            StructurePattern
-        },
-        definition::{Definition, NameDefinition}
-    },
     interner::InternId,
     location::Located,
-    resolution::{Resolved, Renamed, frame::CheckStack, bound::Bound},
+    parse::{
+        definition::{Definition, NameDefinition},
+        expression::{
+            ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
+            MatchExpression, PathExpression, Pattern, StructurePattern,
+        },
+    },
+    resolution::{Renamed, Resolved, bound::Bound, frame::CheckStack},
 };
 
 pub struct Renamer {
@@ -34,13 +33,18 @@ impl Renamer {
         id
     }
 
-    pub fn expression(&mut self, expression: Located<Expression<Resolved>>) -> Located<Expression<Renamed>> {
+    pub fn expression(
+        &mut self,
+        expression: Located<Expression<Resolved>>,
+    ) -> Located<Expression<Renamed>> {
         let (data, span) = expression.destruct();
 
         let expression = match data {
             Expression::String(id) => Expression::String(id),
             Expression::Path(path) => Expression::Path(self.path(path)),
-            Expression::Application(application) => Expression::Application(self.application(application)),
+            Expression::Application(application) => {
+                Expression::Application(self.application(application))
+            }
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)),
             Expression::Let(letin) => Expression::Let(self.letin(letin)),
             Expression::Match(matchlet) => Expression::Match(self.matchlet(matchlet)),
@@ -54,7 +58,7 @@ impl Renamer {
             Bound::Local(id) => {
                 let name = self.stack.get_local(*id);
                 path.rename(name)
-            },
+            }
             Bound::Capture(id) => {
                 let name = self.stack.get_capture(*id);
                 path.rename(name)
@@ -63,7 +67,10 @@ impl Renamer {
         }
     }
 
-    fn application(&mut self, application: ApplicationExpression<Resolved>) -> ApplicationExpression<Renamed> {
+    fn application(
+        &mut self,
+        application: ApplicationExpression<Resolved>,
+    ) -> ApplicationExpression<Renamed> {
         let (function, argument) = application.destruct();
 
         let function = self.expression(function);
@@ -87,7 +94,7 @@ impl Renamer {
         LambdaExpression::<Renamed>::new(
             Located::new(newname, variable.span()),
             expression,
-            captures
+            captures,
         )
     }
 
@@ -105,7 +112,7 @@ impl Renamer {
         LetExpression::new(
             Located::new(new_name, variable.span()),
             variable_expression,
-            return_expression
+            return_expression,
         )
     }
 
@@ -142,7 +149,7 @@ impl Renamer {
                 let new_name = self.new_name();
                 self.stack.push_local(new_name);
                 Pattern::Any(new_name)
-            },
+            }
             Pattern::String(id) => Pattern::String(id),
             Pattern::Structure(structure) => {
                 let (parts, arguments, bound, order) = structure.destruct();
@@ -153,12 +160,20 @@ impl Renamer {
                     renamed_arguments.push(Located::new(self.pattern(argument), span));
                 }
 
-                Pattern::Structure(StructurePattern::<Renamed>::new(parts, renamed_arguments, bound, order))
-            },
+                Pattern::Structure(StructurePattern::<Renamed>::new(
+                    parts,
+                    renamed_arguments,
+                    bound,
+                    order,
+                ))
+            }
         }
     }
 
-    pub fn program(&mut self, modules: Vec<(Vec<Definition<Resolved>>, String)>) -> Vec<Vec<Definition<Renamed>>> {
+    pub fn program(
+        &mut self,
+        modules: Vec<(Vec<Definition<Resolved>>, String)>,
+    ) -> Vec<Vec<Definition<Renamed>>> {
         let mut renamed_modules = vec![];
 
         for (module, _) in modules {
@@ -176,20 +191,22 @@ impl Renamer {
                 Definition::Name(name) => {
                     let definition = Definition::Name(self.let_definition(name));
                     renamed_definitions.push(definition);
-                },
+                }
                 Definition::Structure(structure) => {
                     let definition = Definition::Structure(structure.renamed());
                     renamed_definitions.push(definition);
-                },
-                Definition::Module(_) |
-                Definition::Import(_) => ()
+                }
+                Definition::Module(_) | Definition::Import(_) => (),
             }
         }
 
         renamed_definitions
     }
 
-    fn let_definition(&mut self, let_definition: NameDefinition<Resolved>) -> NameDefinition<Renamed> {
+    fn let_definition(
+        &mut self,
+        let_definition: NameDefinition<Resolved>,
+    ) -> NameDefinition<Renamed> {
         let path = let_definition.path().clone();
         let (name, expression) = let_definition.destruct();
 

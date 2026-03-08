@@ -4,14 +4,12 @@ use std::rc::Rc;
 
 use crate::{
     compilation::{ConstantPool, instruction::Instruction},
-    resolution::{Renamed, bound::Capture},
+    interner::Interner,
     parse::expression::Pattern,
-    interner::Interner
+    resolution::{Renamed, bound::Capture},
 };
 
-use value::{
-    Value, LambdaValue, ConstructorValue, StructureValue
-};
+use value::{ConstructorValue, LambdaValue, StructureValue, Value};
 
 pub struct VM {
     stack: Vec<Frame>,
@@ -44,7 +42,13 @@ impl VM {
         self.stack = vec![Frame::new()];
     }
 
-    pub fn run(&mut self, instructions: &[Instruction], pool: &ConstantPool, is_main: bool, interner: &Interner) -> Value {
+    pub fn run(
+        &mut self,
+        instructions: &[Instruction],
+        pool: &ConstantPool,
+        is_main: bool,
+        interner: &Interner,
+    ) -> Value {
         let mut ip = 0;
 
         while ip < instructions.len() {
@@ -59,7 +63,11 @@ impl VM {
                     if arity == 0 {
                         self.push(Value::Structure(StructureValue::new(order, Vec::new())));
                     } else {
-                        self.push(Value::Constructor(ConstructorValue::new(order, arity, vec![])));
+                        self.push(Value::Constructor(ConstructorValue::new(
+                            order,
+                            arity,
+                            vec![],
+                        )));
                     }
                 }
                 Instruction::MakeLambda(address, captures) => {
@@ -67,37 +75,33 @@ impl VM {
 
                     for capture in captures {
                         let value = match capture {
-                            Capture::Local(id) => {
-                                self.current_frame().stack[id.value()].clone()
-                            },
-                            Capture::Outer(id) => {
-                                self.current_frame().closure[id.value()].clone()
-                            },
+                            Capture::Local(id) => self.current_frame().stack[id.value()].clone(),
+                            Capture::Outer(id) => self.current_frame().closure[id.value()].clone(),
                         };
 
                         closure.push(value);
                     }
 
                     self.push(Value::Lambda(LambdaValue::new(address, closure)));
-                },
+                }
                 Instruction::GetCapture(id) => {
                     let value = self.current_frame().closure[id].clone();
                     self.push(value);
-                },
+                }
                 Instruction::GetLocal(id) => {
                     let value = self.current_frame().stack[id].clone();
                     self.push(value);
-                },
+                }
                 Instruction::GetAbsolute(id) => {
                     let value = self.stack.first().unwrap().stack[id].clone();
                     self.push(value);
-                },
+                }
                 Instruction::GetAbsolutePath(_) => {
                     panic!()
-                },
+                }
                 Instruction::Jump(_label) => {
                     panic!()
-                },
+                }
                 Instruction::StringEquals => {
                     let s1 = &pool.strings()[self.pop().into_string()];
                     let s2 = &pool.strings()[self.pop().into_string()];
@@ -120,7 +124,7 @@ impl VM {
                     }
 
                     self.push(Value::Bool(result));
-                },
+                }
                 Instruction::Skip(count) => {
                     ip += count;
                 }
@@ -151,7 +155,7 @@ impl VM {
                             // FIX THIS
                             let value = self.run(&pool.lambdas()[address], pool, false, interner);
                             self.push(value);
-                        },
+                        }
                         Value::Constructor(constructor) => {
                             let (order, arity, captures) = constructor.destruct();
                             let argument = self.pop();
@@ -167,19 +171,19 @@ impl VM {
                             };
 
                             self.push(value);
-                        },
-                        _ => unreachable!()
+                        }
+                        _ => unreachable!(),
                     }
-                },
+                }
                 Instruction::Return => {
                     let return_value = self.pop();
                     self.stack.pop().unwrap();
                     self.push(return_value);
-                },
+                }
                 Instruction::PatternLocals(pattern) => {
                     let value = self.pop();
                     self.pattern_locals(value, &pattern);
-                },
+                }
             }
 
             // println!("{:?}", self.stack);
@@ -193,22 +197,34 @@ impl VM {
         self.pop()
     }
 
-    fn pattern_match(&self, value: &Value, pattern: &Pattern<Renamed>, pool: &ConstantPool, interner: &Interner) -> bool {
+    fn pattern_match(
+        &self,
+        value: &Value,
+        pattern: &Pattern<Renamed>,
+        pool: &ConstantPool,
+        interner: &Interner,
+    ) -> bool {
         match (value, pattern) {
             (Value::Structure(structure_value), Pattern::Structure(structure_pattern)) => {
                 if structure_value.order() != structure_pattern.order() {
                     return false;
                 }
 
-                for (value, pattern) in structure_value.values().iter().zip(structure_pattern.arguments()) {
+                for (value, pattern) in structure_value
+                    .values()
+                    .iter()
+                    .zip(structure_pattern.arguments())
+                {
                     if !self.pattern_match(value, pattern.data(), pool, interner) {
                         return false;
                     }
                 }
 
                 true
-            },
-            (Value::String(id1), Pattern::String(id2)) => pool.strings()[*id1] == interner.lookup(id2),
+            }
+            (Value::String(id1), Pattern::String(id2)) => {
+                pool.strings()[*id1] == interner.lookup(id2)
+            }
             (_, Pattern::Any(_)) => true,
             _ => false,
         }
@@ -221,9 +237,9 @@ impl VM {
                 for (value, pattern) in arguments.iter().zip(structure_pattern.arguments()) {
                     self.pattern_locals(value.clone(), pattern.data());
                 }
-            },
+            }
             (value, Pattern::Any(_)) => self.push(value),
-            _ => ()
+            _ => (),
         }
     }
 }

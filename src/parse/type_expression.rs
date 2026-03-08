@@ -3,7 +3,7 @@ use std::marker::PhantomData;
 use crate::{
     interner::InternId,
     location::Located,
-    resolution::{Renamed, Resolved, Unresolved, bound::Bound}
+    resolution::{Renamed, Resolved, Unresolved, bound::Bound},
 };
 
 #[derive(Clone)]
@@ -21,13 +21,16 @@ impl Located<TypeExpression<Resolved>> {
             TypeExpression::Application(application) => {
                 let (function, arguments) = application.destruct();
 
-                let arguments = arguments.into_iter().map(|argument| argument.renamed()).collect();
+                let arguments = arguments
+                    .into_iter()
+                    .map(|argument| argument.renamed())
+                    .collect();
 
                 TypeExpression::Application(ApplicationTypeExpression::new(
                     function.renamed(),
                     arguments,
                 ))
-            },
+            }
         };
 
         Located::new(expression, span)
@@ -38,7 +41,7 @@ impl Located<TypeExpression<Resolved>> {
 pub struct PathTypeExpression<State> {
     parts: Located<Vec<InternId>>,
     bound: Option<Bound>,
-    state: PhantomData<State>
+    state: PhantomData<State>,
 }
 
 impl<T> PathTypeExpression<T> {
@@ -49,14 +52,18 @@ impl<T> PathTypeExpression<T> {
 
 impl PathTypeExpression<Unresolved> {
     pub fn new(parts: Located<Vec<InternId>>) -> Self {
-        Self { parts, bound: None, state: PhantomData }
+        Self {
+            parts,
+            bound: None,
+            state: PhantomData,
+        }
     }
 
     pub fn resolve(self, bound: Bound) -> PathTypeExpression<Resolved> {
         PathTypeExpression {
             parts: self.parts,
             bound: Some(bound),
-            state: PhantomData
+            state: PhantomData,
         }
     }
 }
@@ -70,7 +77,7 @@ impl PathTypeExpression<Resolved> {
         PathTypeExpression {
             parts: self.parts,
             bound: self.bound,
-            state: PhantomData
+            state: PhantomData,
         }
     }
 }
@@ -82,10 +89,13 @@ pub struct ApplicationTypeExpression<T> {
 }
 
 impl<T> ApplicationTypeExpression<T> {
-    pub fn new(function: Located<TypeExpression<T>>, arguments: Vec<Located<TypeExpression<T>>>) -> Self {
+    pub fn new(
+        function: Located<TypeExpression<T>>,
+        arguments: Vec<Located<TypeExpression<T>>>,
+    ) -> Self {
         Self {
             function: Box::new(function),
-            arguments
+            arguments,
         }
     }
 

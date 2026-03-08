@@ -1,11 +1,8 @@
 use crate::{
     interner::{InternId, Interner},
     location::Located,
-    parse::{
-        expression::Expression,
-        type_expression::TypeExpression
-    },
-    resolution::{Unresolved, Resolved, Renamed, bound::Path}
+    parse::{expression::Expression, type_expression::TypeExpression},
+    resolution::{Renamed, Resolved, Unresolved, bound::Path},
 };
 
 #[derive(Clone)]
@@ -19,11 +16,12 @@ pub enum Definition<State> {
 impl<T> Definition<T> {
     #[allow(unused)]
     pub fn print(&self, interner: &Interner, depth: usize) {
-        let indent = depth*2;
+        let indent = depth * 2;
 
         match self {
             Definition::Module(module) => {
-                let path_string = module.parts
+                let path_string = module
+                    .parts
                     .data()
                     .iter()
                     .map(|id| interner.lookup(id))
@@ -31,15 +29,20 @@ impl<T> Definition<T> {
                     .join(".");
 
                 println!("{:indent$}module {}", "", path_string);
-            },
+            }
             Definition::Name(name) => {
                 println!("{:indent$}Let:", "");
-                println!("{:indent$}{}", "", interner.lookup(name.identifier.data()), indent=indent + 2);
+                println!(
+                    "{:indent$}{}",
+                    "",
+                    interner.lookup(name.identifier.data()),
+                    indent = indent + 2
+                );
                 name.expression.data().print(depth + 1, interner);
-            },
+            }
             Definition::Import(import) => {
                 println!("{:indent$}Import:", "");
-            },
+            }
             Definition::Structure(_) => todo!(),
         }
     }
@@ -64,7 +67,7 @@ impl ModuleDefinition {
 pub struct NameDefinition<T> {
     identifier: Located<InternId>,
     expression: Located<Expression<T>>,
-    path: Option<Path>
+    path: Option<Path>,
 }
 
 impl<T> NameDefinition<T> {
@@ -83,13 +86,25 @@ impl<T> NameDefinition<T> {
 
 impl NameDefinition<Unresolved> {
     pub fn new(identifier: Located<InternId>, expression: Located<Expression<Unresolved>>) -> Self {
-        Self { identifier, expression, path: None }
+        Self {
+            identifier,
+            expression,
+            path: None,
+        }
     }
 }
 
 impl NameDefinition<Resolved> {
-    pub fn new(identifier: Located<InternId>, expression: Located<Expression<Resolved>>, path: Path) -> Self {
-        Self { identifier, expression, path: Some(path) }
+    pub fn new(
+        identifier: Located<InternId>,
+        expression: Located<Expression<Resolved>>,
+        path: Path,
+    ) -> Self {
+        Self {
+            identifier,
+            expression,
+            path: Some(path),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -104,15 +119,23 @@ impl NameDefinition<Renamed> {
 }
 
 impl NameDefinition<Renamed> {
-    pub fn new(identifier: Located<InternId>, expression: Located<Expression<Renamed>>, path: Path) -> Self {
-        Self { identifier, expression, path: Some(path) }
+    pub fn new(
+        identifier: Located<InternId>,
+        expression: Located<Expression<Renamed>>,
+        path: Path,
+    ) -> Self {
+        Self {
+            identifier,
+            expression,
+            path: Some(path),
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct ImportDefinition {
     module_path: Vec<InternId>,
-    name: Option<ImportName>
+    name: Option<ImportName>,
 }
 
 impl ImportDefinition {
@@ -132,7 +155,7 @@ impl ImportDefinition {
 #[derive(Clone)]
 pub enum ImportName {
     As(InternId),
-    Import(Vec<ImportDefinition>)
+    Import(Vec<ImportDefinition>),
 }
 
 #[derive(Clone)]
@@ -140,7 +163,7 @@ pub struct StructureDefinition<T> {
     name: Located<InternId>,
     variables: Vec<Located<InternId>>,
     constructors: Vec<Constructor<T>>,
-    path: Option<Path>
+    path: Option<Path>,
 }
 
 impl<T> StructureDefinition<T> {
@@ -163,10 +186,21 @@ impl StructureDefinition<Unresolved> {
         variables: Vec<Located<InternId>>,
         constructors: Vec<Constructor<Unresolved>>,
     ) -> Self {
-        Self { name, variables, constructors, path: None }
+        Self {
+            name,
+            variables,
+            constructors,
+            path: None,
+        }
     }
 
-    pub fn destruct(self) -> (Located<InternId>, Vec<Located<InternId>>, Vec<Constructor<Unresolved>>) {
+    pub fn destruct(
+        self,
+    ) -> (
+        Located<InternId>,
+        Vec<Located<InternId>>,
+        Vec<Constructor<Unresolved>>,
+    ) {
         (self.name, self.variables, self.constructors)
     }
 }
@@ -176,9 +210,14 @@ impl StructureDefinition<Resolved> {
         name: Located<InternId>,
         variables: Vec<Located<InternId>>,
         constructors: Vec<Constructor<Resolved>>,
-        path: Path
+        path: Path,
     ) -> Self {
-        Self { name, variables, constructors, path: Some(path) }
+        Self {
+            name,
+            variables,
+            constructors,
+            path: Some(path),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -196,7 +235,7 @@ impl StructureDefinition<Resolved> {
             name: self.name,
             variables: self.variables,
             constructors,
-            path: self.path
+            path: self.path,
         }
     }
 }
@@ -219,8 +258,15 @@ impl<T> Constructor<T> {
 }
 
 impl Constructor<Unresolved> {
-    pub fn new(name: Located<InternId>, arguments: Vec<Located<TypeExpression<Unresolved>>>) -> Self {
-        Self { name, arguments, path: None }
+    pub fn new(
+        name: Located<InternId>,
+        arguments: Vec<Located<TypeExpression<Unresolved>>>,
+    ) -> Self {
+        Self {
+            name,
+            arguments,
+            path: None,
+        }
     }
 
     pub fn destruct(self) -> (Located<InternId>, Vec<Located<TypeExpression<Unresolved>>>) {
@@ -229,8 +275,16 @@ impl Constructor<Unresolved> {
 }
 
 impl Constructor<Resolved> {
-    pub fn new(name: Located<InternId>, arguments: Vec<Located<TypeExpression<Resolved>>>, path: Path) -> Self {
-        Self { name, arguments, path: Some(path) }
+    pub fn new(
+        name: Located<InternId>,
+        arguments: Vec<Located<TypeExpression<Resolved>>>,
+        path: Path,
+    ) -> Self {
+        Self {
+            name,
+            arguments,
+            path: Some(path),
+        }
     }
 
     pub fn path(&self) -> &Path {
@@ -245,7 +299,7 @@ impl Constructor<Resolved> {
                 .into_iter()
                 .map(|argument| argument.renamed())
                 .collect(),
-            path: self.path
+            path: self.path,
         }
     }
 }

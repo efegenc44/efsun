@@ -1,30 +1,25 @@
-pub mod frame;
 pub mod bound;
+pub mod frame;
 pub mod renamer;
 
 use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
-    error::{Result, located_error, eof_error},
-    parse::{
-        expression::{
-            ApplicationExpression, Expression, PathExpression, LambdaExpression,
-            LetExpression, MatchExpression, MatchBranch, Pattern,
-            StructurePattern
-        },
-        type_expression::{
-            TypeExpression, PathTypeExpression, ApplicationTypeExpression
-        },
-        definition::{
-            Definition, NameDefinition, ImportName, StructureDefinition, Constructor
-        }
-    },
-    interner::{Interner, InternId},
+    compilation::anf::{self, ANF, ANFLocal, Atom},
+    error::{Result, eof_error, located_error},
+    interner::{InternId, Interner},
     location::{Located, Span},
-    compilation::anf::{self, Atom, ANF, ANFLocal},
+    parse::{
+        definition::{Constructor, Definition, ImportName, NameDefinition, StructureDefinition},
+        expression::{
+            ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
+            MatchExpression, PathExpression, Pattern, StructurePattern,
+        },
+        type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression},
+    },
 };
 
-use bound::{Bound, BoundId, Path, Module};
+use bound::{Bound, BoundId, Module, Path};
 use frame::ResolutionStack;
 
 #[derive(Clone, Copy)]
@@ -39,7 +34,7 @@ pub struct ExpressionResolver {
     type_locals: Vec<InternId>,
 
     modules: HashMap<Path, Module>,
-    current_module_path: Path
+    current_module_path: Path,
 }
 
 impl ExpressionResolver {
@@ -75,14 +70,19 @@ impl ExpressionResolver {
         self.modules.get_mut(&self.current_module_path).unwrap()
     }
 
-    pub fn expression(&mut self, expression: Located<Expression<Unresolved>>) -> Result<Located<Expression<Resolved>>> {
+    pub fn expression(
+        &mut self,
+        expression: Located<Expression<Unresolved>>,
+    ) -> Result<Located<Expression<Resolved>>> {
         let (expression, span) = expression.destruct();
 
         let expression = match expression {
             Expression::String(string) => Expression::String(string),
             Expression::Path(path) => Expression::Path(self.path(path, span)?),
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
-            Expression::Application(application) => Expression::Application(self.application(application)?),
+            Expression::Application(application) => {
+                Expression::Application(self.application(application)?)
+            }
             Expression::Let(letin) => Expression::Let(self.letin(letin)?),
             Expression::Match(matchlet) => Expression::Match(self.matchlet(matchlet)?),
         };
@@ -98,18 +98,27 @@ impl ExpressionResolver {
                     Ok(Bound::Absolute(self.current_module_path.append(identifier)))
                 } else {
                     let error = ResolutionError::UnboundPath(Path::from_parts(vec![identifier]));
-                    Err(located_error(error, span, self.current_module().source_name().to_string()))
+                    Err(located_error(
+                        error,
+                        span,
+                        self.current_module().source_name().to_string(),
+                    ))
                 }
-            },
+            }
         }
     }
 
-    fn path(&mut self, path: PathExpression<Unresolved>, span: Span) -> Result<PathExpression<Resolved>> {
+    fn path(
+        &mut self,
+        path: PathExpression<Unresolved>,
+        span: Span,
+    ) -> Result<PathExpression<Resolved>> {
         let bound = match &path.parts().data()[..] {
             [] => unreachable!(),
             [identifier] => self.identifier(*identifier, span),
-            [base, mid@.., name] => {
-                let mut module_path = if let Some(path) = self.current_module().imports().get(base) {
+            [base, mid @ .., name] => {
+                let mut module_path = if let Some(path) = self.current_module().imports().get(base)
+                {
                     path.append_parts(mid.to_vec())
                 } else {
                     let mut parts = vec![*base];
@@ -124,42 +133,54 @@ impl ExpressionResolver {
                         todo!("Error");
                     };
 
-                    let path = self.current_module_path
-                        .append(*base)
-                        .append(*name);
+                    let path = self.current_module_path.append(*base).append(*name);
 
                     Ok(Bound::Absolute(path))
-                } else {
-                    if let Some(module) = self.modules.get(&module_path) {
-                        module_path.push(*name);
-                        if module.names().contains(name) {
-                            Ok(Bound::Absolute(module_path))
-                        } else {
-                            let error = ResolutionError::UnboundPath(module_path);
-                            Err(located_error(error, span, self.current_module().source_name().to_string()))
-                        }
-                    } else {
-                        let type_name = module_path.pop();
-
-                        let Some(module) = self.modules.get(&module_path) else {
-                            let error = ResolutionError::UnboundPath(module_path);
-                            return Err(located_error(error, span, self.current_module().source_name().to_string()));
-                        };
-
-                        module_path.push(type_name);
-                        let Some(constructors) = module.types().get(&type_name) else {
-                            let error = ResolutionError::UnboundPath(module_path);
-                            return Err(located_error(error, span, self.current_module().source_name().to_string()));
-                        };
-
-                        module_path.push(*name);
-                        let true = constructors.contains(name) else {
-                            let error = ResolutionError::UnboundPath(module_path);
-                            return Err(located_error(error, span, self.current_module().source_name().to_string()));
-                        };
-
+                } else if let Some(module) = self.modules.get(&module_path) {
+                    module_path.push(*name);
+                    if module.names().contains(name) {
                         Ok(Bound::Absolute(module_path))
+                    } else {
+                        let error = ResolutionError::UnboundPath(module_path);
+                        Err(located_error(
+                            error,
+                            span,
+                            self.current_module().source_name().to_string(),
+                        ))
                     }
+                } else {
+                    let type_name = module_path.pop();
+
+                    let Some(module) = self.modules.get(&module_path) else {
+                        let error = ResolutionError::UnboundPath(module_path);
+                        return Err(located_error(
+                            error,
+                            span,
+                            self.current_module().source_name().to_string(),
+                        ));
+                    };
+
+                    module_path.push(type_name);
+                    let Some(constructors) = module.types().get(&type_name) else {
+                        let error = ResolutionError::UnboundPath(module_path);
+                        return Err(located_error(
+                            error,
+                            span,
+                            self.current_module().source_name().to_string(),
+                        ));
+                    };
+
+                    module_path.push(*name);
+                    let true = constructors.contains(name) else {
+                        let error = ResolutionError::UnboundPath(module_path);
+                        return Err(located_error(
+                            error,
+                            span,
+                            self.current_module().source_name().to_string(),
+                        ));
+                    };
+
+                    Ok(Bound::Absolute(module_path))
                 }
             }
         };
@@ -167,7 +188,10 @@ impl ExpressionResolver {
         Ok(path.resolve(bound?))
     }
 
-    fn lambda(&mut self, lambda: LambdaExpression<Unresolved>) -> Result<LambdaExpression<Resolved>> {
+    fn lambda(
+        &mut self,
+        lambda: LambdaExpression<Unresolved>,
+    ) -> Result<LambdaExpression<Resolved>> {
         let (variable, expression) = lambda.destruct();
 
         self.stack.push_frame();
@@ -176,10 +200,15 @@ impl ExpressionResolver {
         self.stack.pop_local();
         let captures = self.stack.pop_frame();
 
-        Ok(LambdaExpression::<Resolved>::new(variable, expression, captures))
+        Ok(LambdaExpression::<Resolved>::new(
+            variable, expression, captures,
+        ))
     }
 
-    fn application(&mut self, application: ApplicationExpression<Unresolved>) -> Result<ApplicationExpression<Resolved>> {
+    fn application(
+        &mut self,
+        application: ApplicationExpression<Unresolved>,
+    ) -> Result<ApplicationExpression<Resolved>> {
         let (function, argument) = application.destruct();
 
         let function = self.expression(function)?;
@@ -196,10 +225,17 @@ impl ExpressionResolver {
         let return_expression = self.expression(return_expression)?;
         self.stack.pop_local();
 
-        Ok(LetExpression::new(variable, variable_expression, return_expression))
+        Ok(LetExpression::new(
+            variable,
+            variable_expression,
+            return_expression,
+        ))
     }
 
-    fn matchlet(&mut self, matchlet: MatchExpression<Unresolved>) -> Result<MatchExpression<Resolved>> {
+    fn matchlet(
+        &mut self,
+        matchlet: MatchExpression<Unresolved>,
+    ) -> Result<MatchExpression<Resolved>> {
         let (expression, branches) = matchlet.destruct();
 
         let expression = self.expression(expression)?;
@@ -231,7 +267,7 @@ impl ExpressionResolver {
             Pattern::Any(id) => {
                 self.stack.push_local(id);
                 Ok(Pattern::Any(id))
-            },
+            }
             Pattern::String(id) => Ok(Pattern::String(id)),
             Pattern::Structure(structure) => {
                 let (parts, arguments) = structure.destruct();
@@ -254,8 +290,8 @@ impl ExpressionResolver {
                         };
 
                         (self.current_module_path.append(*t), order)
-                    },
-                    [module@.., t, c] => {
+                    }
+                    [module @ .., t, c] => {
                         dbg!(parts.data());
 
                         let module_path = Path::from_parts(module.to_vec());
@@ -273,24 +309,37 @@ impl ExpressionResolver {
                     }
                 };
 
-                Ok(Pattern::Structure(StructurePattern::<Resolved>::new(parts, renamed_arguments, type_path, order)))
+                Ok(Pattern::Structure(StructurePattern::<Resolved>::new(
+                    parts,
+                    renamed_arguments,
+                    type_path,
+                    order,
+                )))
             }
         }
     }
 
-
-    fn type_expression(&mut self, expression: Located<TypeExpression<Unresolved>>) -> Result<Located<TypeExpression<Resolved>>> {
+    fn type_expression(
+        &mut self,
+        expression: Located<TypeExpression<Unresolved>>,
+    ) -> Result<Located<TypeExpression<Resolved>>> {
         let (expression, span) = expression.destruct();
 
         let expression = match expression {
             TypeExpression::Path(path) => TypeExpression::Path(self.type_path(path, span)?),
-            TypeExpression::Application(application) => TypeExpression::Application(self.type_application(application)?),
+            TypeExpression::Application(application) => {
+                TypeExpression::Application(self.type_application(application)?)
+            }
         };
 
         Ok(Located::new(expression, span))
     }
 
-    fn type_path(&mut self, path: PathTypeExpression<Unresolved>, span: Span) -> Result<PathTypeExpression<Resolved>> {
+    fn type_path(
+        &mut self,
+        path: PathTypeExpression<Unresolved>,
+        span: Span,
+    ) -> Result<PathTypeExpression<Resolved>> {
         let bound = match &path.parts().data()[..] {
             [] => unreachable!(),
             [identifier] => {
@@ -304,17 +353,22 @@ impl ExpressionResolver {
 
                 if let Some(bound) = bound {
                     Ok(Bound::Local(bound))
+                } else if self.current_module().types().get(identifier).is_some() {
+                    Ok(Bound::Absolute(
+                        self.current_module_path.append(*identifier),
+                    ))
                 } else {
-                    if self.current_module().types().get(&identifier).is_some() {
-                        Ok(Bound::Absolute(self.current_module_path.append(*identifier)))
-                    } else {
-                        let error = ResolutionError::UnboundPath(Path::from_parts(vec![*identifier]));
-                        Err(located_error(error, span, self.current_module().source_name().to_string()))
-                    }
+                    let error = ResolutionError::UnboundPath(Path::from_parts(vec![*identifier]));
+                    Err(located_error(
+                        error,
+                        span,
+                        self.current_module().source_name().to_string(),
+                    ))
                 }
-            },
-            [base, mid@.., name] => {
-                let mut module_path = if let Some(path) = self.current_module().imports().get(base) {
+            }
+            [base, mid @ .., name] => {
+                let mut module_path = if let Some(path) = self.current_module().imports().get(base)
+                {
                     path.append_parts(mid.to_vec())
                 } else {
                     let mut parts = vec![*base];
@@ -324,7 +378,11 @@ impl ExpressionResolver {
 
                 let Some(module) = self.modules.get(&module_path) else {
                     let error = ResolutionError::UnboundPath(module_path);
-                    return Err(located_error(error, span, self.current_module().source_name().to_string()));
+                    return Err(located_error(
+                        error,
+                        span,
+                        self.current_module().source_name().to_string(),
+                    ));
                 };
 
                 module_path.push(*name);
@@ -332,7 +390,11 @@ impl ExpressionResolver {
                     Ok(Bound::Absolute(module_path))
                 } else {
                     let error = ResolutionError::UnboundPath(module_path);
-                    Err(located_error(error, span, self.current_module().source_name().to_string()))
+                    Err(located_error(
+                        error,
+                        span,
+                        self.current_module().source_name().to_string(),
+                    ))
                 }
             }
         };
@@ -340,7 +402,10 @@ impl ExpressionResolver {
         Ok(path.resolve(bound?))
     }
 
-    fn type_application(&mut self, application: ApplicationTypeExpression<Unresolved>) -> Result<ApplicationTypeExpression<Resolved>> {
+    fn type_application(
+        &mut self,
+        application: ApplicationTypeExpression<Unresolved>,
+    ) -> Result<ApplicationTypeExpression<Resolved>> {
         let (function, arguments) = application.destruct();
 
         let function = self.type_expression(function)?;
@@ -352,7 +417,10 @@ impl ExpressionResolver {
         Ok(ApplicationTypeExpression::new(function, resolved_arguments))
     }
 
-    pub fn program(&mut self, modules: Vec<(Vec<Definition<Unresolved>>, String)>) -> Result<Vec<(Vec<Definition<Resolved>>, String)>> {
+    pub fn program(
+        &mut self,
+        modules: Vec<(Vec<Definition<Unresolved>>, String)>,
+    ) -> Result<Vec<(Vec<Definition<Resolved>>, String)>> {
         let mut module_paths = vec![];
         for (module, source_name) in &modules {
             module_paths.push(self.find_module_name((module, source_name))?);
@@ -370,7 +438,10 @@ impl ExpressionResolver {
         Ok(resolved_modules)
     }
 
-    pub fn module(&mut self, definitions: Vec<Definition<Unresolved>>) -> Result<Vec<Definition<Resolved>>> {
+    pub fn module(
+        &mut self,
+        definitions: Vec<Definition<Unresolved>>,
+    ) -> Result<Vec<Definition<Resolved>>> {
         let mut resolved_definitons = Vec::new();
         for definition in definitions {
             resolved_definitons.push(self.definition(definition)?);
@@ -379,27 +450,33 @@ impl ExpressionResolver {
         Ok(resolved_definitons)
     }
 
-    fn find_module_name(&mut self, definitions: (&[Definition<Unresolved>], &String)) -> Result<Path> {
+    fn find_module_name(
+        &mut self,
+        definitions: (&[Definition<Unresolved>], &String),
+    ) -> Result<Path> {
         for definition in definitions.0 {
             if let Definition::Module(module) = definition {
                 let module_path = Path::from_parts(module.parts().data().to_vec());
-                self.modules.insert(module_path.clone(), Module::empty(definitions.1.clone()));
+                self.modules
+                    .insert(module_path.clone(), Module::empty(definitions.1.clone()));
                 self.current_module_path = module_path.clone();
 
-                return Ok(module_path)
+                return Ok(module_path);
             }
         }
 
         // TODO: Check for duplicate module definition
-        Err(eof_error(ResolutionError::MissingModuleDefinition, definitions.1.clone()))
+        Err(eof_error(
+            ResolutionError::MissingModuleDefinition,
+            definitions.1.clone(),
+        ))
     }
 
     fn collect_names(&mut self, definitions: &[Definition<Unresolved>]) -> Result<()> {
         for definition in definitions {
             if let Definition::Name(name) = definition {
                 // TODO: Check for duplicate definitions
-                self
-                    .current_module_mut()
+                self.current_module_mut()
                     .names_mut()
                     .insert(*name.identifier().data());
             }
@@ -411,8 +488,7 @@ impl ExpressionResolver {
                     constructors.push(*constructor.name().data());
                 }
 
-                self
-                    .current_module_mut()
+                self.current_module_mut()
                     .types_mut()
                     .insert(*structure.name().data(), constructors);
             }
@@ -423,13 +499,12 @@ impl ExpressionResolver {
                 match import.name() {
                     Some(import_name) => {
                         self.collect_import_name(import_name, &base)?;
-                    },
+                    }
                     None => {
-                        self.current_module_mut().imports_mut().insert(
-                            *import.module_path().last().unwrap(),
-                            base
-                        );
-                    },
+                        self.current_module_mut()
+                            .imports_mut()
+                            .insert(*import.module_path().last().unwrap(), base);
+                    }
                 }
             }
         }
@@ -440,10 +515,10 @@ impl ExpressionResolver {
     fn collect_import_name(&mut self, import_name: &ImportName, base: &Path) -> Result<()> {
         match import_name {
             ImportName::As(as_name) => {
-                self.current_module_mut().imports_mut().insert(
-                    *as_name, base.clone()
-                );
-            },
+                self.current_module_mut()
+                    .imports_mut()
+                    .insert(*as_name, base.clone());
+            }
             ImportName::Import(imports) => {
                 for import in imports {
                     let base = base.append_parts(import.module_path().to_vec());
@@ -451,16 +526,15 @@ impl ExpressionResolver {
                     match import.name() {
                         Some(import_name) => {
                             self.collect_import_name(import_name, &base)?;
-                        },
+                        }
                         None => {
-                            self.current_module_mut().imports_mut().insert(
-                                *import.module_path().last().unwrap(),
-                                base
-                            );
-                        },
+                            self.current_module_mut()
+                                .imports_mut()
+                                .insert(*import.module_path().last().unwrap(), base);
+                        }
                     }
                 }
-            },
+            }
         }
 
         Ok(())
@@ -476,14 +550,14 @@ impl ExpressionResolver {
                     let Some(module) = self.modules.get(&module) else {
                         return Err(eof_error(
                             ResolutionError::UnresolvedImport(import.clone()),
-                            self.current_module().source_name().to_string()
+                            self.current_module().source_name().to_string(),
                         ));
                     };
 
                     let true = module.names().contains(&name) else {
                         return Err(eof_error(
                             ResolutionError::UnresolvedImport(import.clone()),
-                            self.current_module().source_name().to_string()
+                            self.current_module().source_name().to_string(),
                         ));
                     };
                 }
@@ -498,22 +572,32 @@ impl ExpressionResolver {
             Definition::Module(module) => Definition::Module(module),
             Definition::Name(name) => Definition::Name(self.let_definition(name)?),
             Definition::Import(import) => Definition::Import(import),
-            Definition::Structure(structure) => Definition::Structure(self.structure_definition(structure)?),
+            Definition::Structure(structure) => {
+                Definition::Structure(self.structure_definition(structure)?)
+            }
         };
 
         Ok(definition)
     }
 
-    fn let_definition(&mut self, let_definition: NameDefinition<Unresolved>) -> Result<NameDefinition<Resolved>> {
+    fn let_definition(
+        &mut self,
+        let_definition: NameDefinition<Unresolved>,
+    ) -> Result<NameDefinition<Resolved>> {
         let (identifier, expression) = let_definition.destruct();
 
         let expression = self.expression(expression)?;
         let path = self.current_module_path.append(*identifier.data());
 
-        Ok(NameDefinition::<Resolved>::new(identifier, expression, path))
+        Ok(NameDefinition::<Resolved>::new(
+            identifier, expression, path,
+        ))
     }
 
-    fn structure_definition(&mut self, structure_definition: StructureDefinition<Unresolved>) -> Result<StructureDefinition<Resolved>> {
+    fn structure_definition(
+        &mut self,
+        structure_definition: StructureDefinition<Unresolved>,
+    ) -> Result<StructureDefinition<Resolved>> {
         let (name, variables, constructors) = structure_definition.destruct();
 
         let structure_path = self.current_module_path.append(*name.data());
@@ -529,11 +613,20 @@ impl ExpressionResolver {
             }
 
             let path = structure_path.append(*name.data());
-            resolved_constructors.push(Constructor::<Resolved>::new(name, resolved_arguments, path));
+            resolved_constructors.push(Constructor::<Resolved>::new(
+                name,
+                resolved_arguments,
+                path,
+            ));
         }
         self.type_locals.clear();
 
-        Ok(StructureDefinition::<Resolved>::new(name, variables, resolved_constructors, structure_path))
+        Ok(StructureDefinition::<Resolved>::new(
+            name,
+            variables,
+            resolved_constructors,
+            structure_path,
+        ))
     }
 }
 
@@ -546,9 +639,7 @@ impl ANFResolver {
         let mut stack = ResolutionStack::new();
         stack.push_frame();
 
-        ANFResolver {
-            stack,
-        }
+        ANFResolver { stack }
     }
 
     pub fn expression(&mut self, anf: ANF<Unresolved>) -> ANF<Resolved> {
@@ -576,14 +667,10 @@ impl ANFResolver {
             path.resolve(bound)
         } else {
             let bound = match path.path() {
-                anf::ANFPath::ANFLocal(id) => {
-                    self.identifier(ANFLocal::ANF(*id))
-                },
-                anf::ANFPath::Normal(parts) => {
-                    match &parts[..] {
-                        [identifier] => self.identifier(ANFLocal::Normal(*identifier)),
-                        _ => unreachable!(),
-                    }
+                anf::ANFPath::ANFLocal(id) => self.identifier(ANFLocal::ANF(*id)),
+                anf::ANFPath::Normal(parts) => match &parts[..] {
+                    [identifier] => self.identifier(ANFLocal::Normal(*identifier)),
+                    _ => unreachable!(),
                 },
             };
 
@@ -595,7 +682,10 @@ impl ANFResolver {
         self.stack.locally_resolve(identifier).unwrap()
     }
 
-    fn lambda(&mut self, lambda: anf::LambdaExpression<Unresolved>) -> anf::LambdaExpression<Resolved> {
+    fn lambda(
+        &mut self,
+        lambda: anf::LambdaExpression<Unresolved>,
+    ) -> anf::LambdaExpression<Resolved> {
         let (variable, expression) = lambda.destruct();
 
         self.stack.push_frame();
@@ -618,19 +708,25 @@ impl ANFResolver {
         anf::LetExpression::new(variable, variable_expression, return_expression)
     }
 
-    fn application(&mut self, application: anf::ApplicationExpression<Unresolved>) -> anf::ApplicationExpression<Resolved> {
+    fn application(
+        &mut self,
+        application: anf::ApplicationExpression<Unresolved>,
+    ) -> anf::ApplicationExpression<Resolved> {
         let (variable, function, argument, expression) = application.destruct();
 
         let function = self.atom(function);
         let argument = self.atom(argument);
-        self.stack.push_local(variable.clone());
+        self.stack.push_local(variable);
         let expression = self.expression(expression);
         self.stack.pop_local();
 
         anf::ApplicationExpression::new(variable, function, argument, expression)
     }
 
-    fn matchlet(&mut self, matchlet: anf::MatchExpression<Unresolved>) -> anf::MatchExpression<Resolved> {
+    fn matchlet(
+        &mut self,
+        matchlet: anf::MatchExpression<Unresolved>,
+    ) -> anf::MatchExpression<Resolved> {
         let (variable, variable_expression, branches) = matchlet.destruct();
 
         let variable_expression = self.atom(variable_expression);
@@ -654,13 +750,13 @@ impl ANFResolver {
         match pattern {
             Pattern::Any(id) => {
                 self.stack.push_local(ANFLocal::Normal(*id));
-            },
+            }
             Pattern::String(_) => (),
             Pattern::Structure(structure) => {
                 for argument in structure.arguments() {
                     self.define_pattern_locals(argument.data());
                 }
-            },
+            }
         }
     }
 
@@ -683,7 +779,10 @@ impl ANFResolver {
         anf::Jump::new(to, expression)
     }
 
-    pub fn program(&mut self, modules: Vec<Vec<anf::ANFDefinition<Unresolved>>>) -> Vec<Vec<anf::ANFDefinition<Resolved>>> {
+    pub fn program(
+        &mut self,
+        modules: Vec<Vec<anf::ANFDefinition<Unresolved>>>,
+    ) -> Vec<Vec<anf::ANFDefinition<Resolved>>> {
         let mut resolved_modules = Vec::new();
         for module in modules {
             resolved_modules.push(self.module(module));
@@ -692,7 +791,10 @@ impl ANFResolver {
         resolved_modules
     }
 
-    pub fn module(&mut self, definitions: Vec<anf::ANFDefinition<Unresolved>>) -> Vec<anf::ANFDefinition<Resolved>> {
+    pub fn module(
+        &mut self,
+        definitions: Vec<anf::ANFDefinition<Unresolved>>,
+    ) -> Vec<anf::ANFDefinition<Resolved>> {
         let mut resolved_definitons = Vec::new();
         for definition in definitions {
             resolved_definitons.push(self.definition(definition));
@@ -701,14 +803,20 @@ impl ANFResolver {
         resolved_definitons
     }
 
-    fn definition(&mut self, definition: anf::ANFDefinition<Unresolved>) -> anf::ANFDefinition<Resolved> {
+    fn definition(
+        &mut self,
+        definition: anf::ANFDefinition<Unresolved>,
+    ) -> anf::ANFDefinition<Resolved> {
         match definition {
             anf::ANFDefinition::Name(name) => anf::ANFDefinition::Name(self.let_definition(name)),
-            anf::ANFDefinition::Structure(structure) => anf::ANFDefinition::Structure(structure)
+            anf::ANFDefinition::Structure(structure) => anf::ANFDefinition::Structure(structure),
         }
     }
 
-    fn let_definition(&mut self, let_definition: anf::NameDefinition<Unresolved>) -> anf::NameDefinition<Resolved> {
+    fn let_definition(
+        &mut self,
+        let_definition: anf::NameDefinition<Unresolved>,
+    ) -> anf::NameDefinition<Resolved> {
         let (identifier, expression, path) = let_definition.destruct();
 
         let expression = self.expression(expression);
@@ -721,5 +829,5 @@ impl ANFResolver {
 pub enum ResolutionError {
     UnboundPath(Path),
     MissingModuleDefinition,
-    UnresolvedImport(Path)
+    UnresolvedImport(Path),
 }

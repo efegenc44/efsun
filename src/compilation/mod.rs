@@ -1,15 +1,18 @@
-pub mod instruction;
 pub mod anf;
+pub mod instruction;
 
 use std::collections::HashMap;
 
 use crate::{
     interner::{InternId, Interner, WithInterner},
-    resolution::{Resolved, bound::{Bound, Path}},
     parse::expression::Pattern,
+    resolution::{
+        Resolved,
+        bound::{Bound, Path},
+    },
 };
 
-use anf::{ANF, Atom, ANFDefinition};
+use anf::{ANF, ANFDefinition, Atom};
 
 use instruction::Instruction;
 
@@ -20,7 +23,7 @@ pub struct Compiler<'interner, 'anf> {
     names: HashMap<&'anf Path, Vec<Instruction>>,
     globals: Vec<&'anf Path>,
     in_lambda: bool,
-    interner: &'interner Interner
+    interner: &'interner Interner,
 }
 
 impl<'interner, 'anf> Compiler<'interner, 'anf> {
@@ -32,21 +35,23 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             names: HashMap::new(),
             globals: Vec::new(),
             in_lambda: false,
-            interner
+            interner,
         }
     }
 
-    pub fn program(mut self, modules: &'anf [Vec<ANFDefinition<Resolved>>]) -> (Vec<Instruction>, ConstantPool) {
+    pub fn program(
+        mut self,
+        modules: &'anf [Vec<ANFDefinition<Resolved>>],
+    ) -> (Vec<Instruction>, ConstantPool) {
         for module in modules {
             self.collect_names(module);
         }
-
 
         for module in modules {
             self.module(module);
         }
 
-        let parts = vec!["Main", "main"]
+        let parts = ["Main", "main"]
             .iter()
             .map(|s| self.interner.intern_id(s))
             .collect::<Vec<_>>();
@@ -58,8 +63,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         let mut instructions = self
             .globals
             .iter()
-            .map(|path| self.names[path].clone())
-            .flatten()
+            .flat_map(|path| self.names[path].clone())
             .collect::<Vec<_>>();
 
         // Patch global name instructions
@@ -78,7 +82,6 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                 }
             }
         }
-
 
         // TODO: Remove this instruction
         instructions.push(Instruction::String(0));
@@ -108,16 +111,13 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
     pub fn module(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
-            match definition {
-                ANFDefinition::Name(name) => {
-                    if !self.names.contains_key(name.path()) {
-                        self.names.insert(name.path(), vec![]);
-                        let code = self.expression(name.expression());
-                        self.names.insert(name.path(), code);
-                        self.globals.push(name.path());
-                    }
-                },
-                _ => ()
+            if let ANFDefinition::Name(name) = definition
+                && !self.names.contains_key(name.path())
+            {
+                self.names.insert(name.path(), vec![]);
+                let code = self.expression(name.expression());
+                self.names.insert(name.path(), code);
+                self.globals.push(name.path());
             }
         }
     }
@@ -155,7 +155,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                 let offset = self.constant_pool.add_string(string);
                 self.interns.push(intern_id);
                 offset
-            },
+            }
         };
 
         vec![Instruction::String(offset)]
@@ -166,21 +166,22 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             Bound::Local(id) => vec![Instruction::GetLocal(id.value())],
             Bound::Capture(id) => vec![Instruction::GetCapture(id.value())],
             Bound::Absolute(path) => {
-                if !self.in_lambda {
-                    if !self.names.contains_key(path) {
-                        self.names.insert(path, vec![]);
-                        let code = self.expression(self.name_anfs[path]);
-                        self.names.insert(path, code);
-                        self.globals.push(path);
-                    }
+                if !self.in_lambda && !self.names.contains_key(path) {
+                    self.names.insert(path, vec![]);
+                    let code = self.expression(self.name_anfs[path]);
+                    self.names.insert(path, code);
+                    self.globals.push(path);
                 }
 
                 vec![Instruction::GetAbsolutePath(path.clone())]
-            },
+            }
         }
     }
 
-    fn application(&mut self, application: &'anf anf::ApplicationExpression<Resolved>) -> Vec<Instruction> {
+    fn application(
+        &mut self,
+        application: &'anf anf::ApplicationExpression<Resolved>,
+    ) -> Vec<Instruction> {
         let mut instructions = vec![];
 
         instructions.extend(self.atom(application.argument()));
@@ -201,7 +202,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                 Pattern::Any(_) => {
                     instructions.extend(self.atom(branch.matched()));
                     instructions.extend(self.expression(branch.expression()));
-                },
+                }
                 Pattern::String(string) => {
                     instructions.extend(self.atom(branch.matched()));
                     instructions.extend(self.string(*string));
@@ -209,17 +210,19 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                     let expression = self.expression(branch.expression());
                     instructions.push(Instruction::SkipIfFalse(expression.len()));
                     instructions.extend(expression);
-                },
+                }
                 Pattern::Structure(structure) => {
                     instructions.extend(self.atom(branch.matched()));
                     instructions.push(Instruction::StructurePatternMatch(structure.clone()));
                     let mut ins = vec![];
                     ins.extend(self.atom(branch.matched()));
-                    ins.push(Instruction::PatternLocals(Pattern::Structure(structure.clone())));
+                    ins.push(Instruction::PatternLocals(Pattern::Structure(
+                        structure.clone(),
+                    )));
                     ins.extend(self.expression(branch.expression()));
                     instructions.push(Instruction::SkipIfFalse(ins.len()));
                     instructions.extend(ins);
-                },
+                }
             }
         }
 
@@ -233,10 +236,10 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
         let len = join_instructions.len();
         for (index, instruction) in join_instructions.iter_mut().enumerate() {
-            if let Instruction::Jump(label) = instruction {
-                if *label == join.label() {
-                    *instruction = Instruction::Skip(len - (index + 1))
-                }
+            if let Instruction::Jump(label) = instruction
+                && *label == join.label()
+            {
+                *instruction = Instruction::Skip(len - (index + 1))
             }
         }
 

@@ -3,7 +3,10 @@ use std::marker::PhantomData;
 use crate::{
     interner::{InternId, Interner, WithInterner},
     location::Located,
-    resolution::{Resolved, Unresolved, Renamed, bound::{Bound, Capture, Path}},
+    resolution::{
+        Renamed, Resolved, Unresolved,
+        bound::{Bound, Capture, Path},
+    },
 };
 
 #[derive(Clone)]
@@ -18,14 +21,15 @@ pub enum Expression<State> {
 
 impl<T> Expression<T> {
     pub fn print(&self, depth: usize, interner: &Interner) {
-        let indent = depth*2;
+        let indent = depth * 2;
 
         match self {
             Self::String(string) => {
                 println!("{:indent$}\"{}\"", "", interner.lookup(string));
-            },
+            }
             Self::Path(path) => {
-                let path_string = path.parts()
+                let path_string = path
+                    .parts()
                     .data()
                     .iter()
                     .map(|id| interner.lookup(id))
@@ -33,36 +37,51 @@ impl<T> Expression<T> {
                     .join(".");
 
                 println!(
-                    "{:indent$}Identifier: {}{}", "",
+                    "{:indent$}Identifier: {}{}",
+                    "",
                     path_string,
-                    if let Some(bound) = &path.bound { format!("#{}", WithInterner::new(bound, interner)) } else { "".to_string() }
+                    if let Some(bound) = &path.bound {
+                        format!("#{}", WithInterner::new(bound, interner))
+                    } else {
+                        "".to_string()
+                    }
                 )
-            },
+            }
             Self::Lambda(lambda) => {
                 println!("{:indent$}Lambda:", "");
-                if let Some(captures) = &lambda.captures {
-                    if !captures.is_empty() {
-                        print!("{:indent$}Captures: ", "", indent=indent + 2);
-                        for capture in captures {
-                            print!("{} ", capture);
-                        }
-                        println!()
+                if let Some(captures) = &lambda.captures
+                    && !captures.is_empty()
+                {
+                    print!("{:indent$}Captures: ", "", indent = indent + 2);
+                    for capture in captures {
+                        print!("{} ", capture);
                     }
+                    println!()
                 }
-                println!("{:indent$}{}", "", interner.lookup(lambda.variable.data()), indent=indent + 2);
+                println!(
+                    "{:indent$}{}",
+                    "",
+                    interner.lookup(lambda.variable.data()),
+                    indent = indent + 2
+                );
                 lambda.expression.data().print(depth + 1, interner);
             }
             Self::Application(application) => {
                 println!("{:indent$}Application:", "");
                 application.function.data().print(depth + 1, interner);
                 application.argument.data().print(depth + 1, interner);
-            },
+            }
             Self::Let(letin) => {
                 println!("{:indent$}Let:", "");
-                println!("{:indent$}{}", "", interner.lookup(letin.variable.data()), indent=indent + 2);
+                println!(
+                    "{:indent$}{}",
+                    "",
+                    interner.lookup(letin.variable.data()),
+                    indent = indent + 2
+                );
                 letin.variable_expression.data().print(depth + 2, interner);
                 letin.return_expression.data().print(depth + 1, interner);
-            },
+            }
             Self::Match(_) => todo!(),
         }
     }
@@ -72,7 +91,7 @@ impl<T> Expression<T> {
 pub struct PathExpression<State> {
     parts: Located<Vec<InternId>>,
     bound: Option<Bound>,
-    state: PhantomData<State>
+    state: PhantomData<State>,
 }
 
 impl<T> PathExpression<T> {
@@ -83,14 +102,18 @@ impl<T> PathExpression<T> {
 
 impl PathExpression<Unresolved> {
     pub fn new(parts: Located<Vec<InternId>>) -> Self {
-        Self { parts, bound: Option::None, state: PhantomData }
+        Self {
+            parts,
+            bound: Option::None,
+            state: PhantomData,
+        }
     }
 
     pub fn resolve(self, bound: Bound) -> PathExpression<Resolved> {
         PathExpression {
             parts: self.parts,
             bound: Some(bound),
-            state: PhantomData
+            state: PhantomData,
         }
     }
 }
@@ -116,7 +139,7 @@ impl PathExpression<Resolved> {
         PathExpression {
             parts: self.parts,
             bound: self.bound,
-            state: PhantomData
+            state: PhantomData,
         }
     }
 }
@@ -135,7 +158,10 @@ pub struct ApplicationExpression<T> {
 
 impl<T> ApplicationExpression<T> {
     pub fn new(function: Located<Expression<T>>, argument: Located<Expression<T>>) -> Self {
-        Self { function: Box::new(function), argument: Box::new(argument) }
+        Self {
+            function: Box::new(function),
+            argument: Box::new(argument),
+        }
     }
 
     pub fn destruct(self) -> (Located<Expression<T>>, Located<Expression<T>>) {
@@ -155,7 +181,7 @@ impl<T> ApplicationExpression<T> {
 pub struct LambdaExpression<T> {
     variable: Located<InternId>,
     expression: Box<Located<Expression<T>>>,
-    captures: Option<Vec<Capture>>
+    captures: Option<Vec<Capture>>,
 }
 
 impl<T> LambdaExpression<T> {
@@ -175,13 +201,25 @@ impl<T> LambdaExpression<T> {
 
 impl LambdaExpression<Unresolved> {
     pub fn new(variable: Located<InternId>, expression: Located<Expression<Unresolved>>) -> Self {
-        Self { variable, expression: Box::new(expression), captures: None }
+        Self {
+            variable,
+            expression: Box::new(expression),
+            captures: None,
+        }
     }
 }
 
 impl LambdaExpression<Resolved> {
-    pub fn new(variable: Located<InternId>, expression: Located<Expression<Resolved>>, captures: Vec<Capture>) -> Self {
-        Self { variable, expression: Box::new(expression), captures: Some(captures) }
+    pub fn new(
+        variable: Located<InternId>,
+        expression: Located<Expression<Resolved>>,
+        captures: Vec<Capture>,
+    ) -> Self {
+        Self {
+            variable,
+            expression: Box::new(expression),
+            captures: Some(captures),
+        }
     }
 
     pub fn captures(&self) -> &[Capture] {
@@ -190,8 +228,16 @@ impl LambdaExpression<Resolved> {
 }
 
 impl LambdaExpression<Renamed> {
-    pub fn new(variable: Located<InternId>, expression: Located<Expression<Renamed>>, captures: Vec<Capture>) -> Self {
-        Self { variable, expression: Box::new(expression), captures: Some(captures) }
+    pub fn new(
+        variable: Located<InternId>,
+        expression: Located<Expression<Renamed>>,
+        captures: Vec<Capture>,
+    ) -> Self {
+        Self {
+            variable,
+            expression: Box::new(expression),
+            captures: Some(captures),
+        }
     }
 }
 
@@ -206,7 +252,7 @@ impl<T> LetExpression<T> {
     pub fn new(
         variable: Located<InternId>,
         variable_expression: Located<Expression<T>>,
-        return_expression: Located<Expression<T>>
+        return_expression: Located<Expression<T>>,
     ) -> Self {
         Self {
             variable,
@@ -228,8 +274,18 @@ impl<T> LetExpression<T> {
         &self.return_expression
     }
 
-    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>, Located<Expression<T>>) {
-        (self.variable, *self.variable_expression, *self.return_expression)
+    pub fn destruct(
+        self,
+    ) -> (
+        Located<InternId>,
+        Located<Expression<T>>,
+        Located<Expression<T>>,
+    ) {
+        (
+            self.variable,
+            *self.variable_expression,
+            *self.return_expression,
+        )
     }
 }
 
@@ -241,7 +297,10 @@ pub struct MatchExpression<T> {
 
 impl<T> MatchExpression<T> {
     pub fn new(expression: Located<Expression<T>>, branches: Vec<Located<MatchBranch<T>>>) -> Self {
-        Self { expression: Box::new(expression), branches }
+        Self {
+            expression: Box::new(expression),
+            branches,
+        }
     }
 
     pub fn destruct(self) -> (Located<Expression<T>>, Vec<Located<MatchBranch<T>>>) {
@@ -265,7 +324,10 @@ pub struct MatchBranch<T> {
 
 impl<T> MatchBranch<T> {
     pub fn new(pattern: Located<Pattern<T>>, expression: Located<Expression<T>>) -> Self {
-        Self { pattern, expression }
+        Self {
+            pattern,
+            expression,
+        }
     }
 
     pub fn destruct(self) -> (Located<Pattern<T>>, Located<Expression<T>>) {
@@ -294,7 +356,7 @@ pub struct StructurePattern<State> {
     arguments: Vec<Located<Pattern<State>>>,
     type_path: Option<Path>,
     order: Option<usize>,
-    state: PhantomData<State>
+    state: PhantomData<State>,
 }
 
 impl<T> StructurePattern<T> {
@@ -308,8 +370,17 @@ impl<T> StructurePattern<T> {
 }
 
 impl StructurePattern<Unresolved> {
-    pub fn new(parts: Located<Vec<InternId>>, arguments: Vec<Located<Pattern<Unresolved>>>) -> Self {
-        Self { parts, arguments, type_path: None, order: None, state: PhantomData }
+    pub fn new(
+        parts: Located<Vec<InternId>>,
+        arguments: Vec<Located<Pattern<Unresolved>>>,
+    ) -> Self {
+        Self {
+            parts,
+            arguments,
+            type_path: None,
+            order: None,
+            state: PhantomData,
+        }
     }
 
     pub fn destruct(self) -> (Located<Vec<InternId>>, Vec<Located<Pattern<Unresolved>>>) {
@@ -318,12 +389,35 @@ impl StructurePattern<Unresolved> {
 }
 
 impl StructurePattern<Resolved> {
-    pub fn new(parts: Located<Vec<InternId>>, arguments: Vec<Located<Pattern<Resolved>>>, type_path: Path, order: usize) -> Self {
-        Self { parts, arguments, type_path: Some(type_path), order: Some(order), state: PhantomData }
+    pub fn new(
+        parts: Located<Vec<InternId>>,
+        arguments: Vec<Located<Pattern<Resolved>>>,
+        type_path: Path,
+        order: usize,
+    ) -> Self {
+        Self {
+            parts,
+            arguments,
+            type_path: Some(type_path),
+            order: Some(order),
+            state: PhantomData,
+        }
     }
 
-    pub fn destruct(self) -> (Located<Vec<InternId>>, Vec<Located<Pattern<Resolved>>>, Path, usize) {
-        (self.parts, self.arguments, self.type_path.unwrap(), self.order.unwrap())
+    pub fn destruct(
+        self,
+    ) -> (
+        Located<Vec<InternId>>,
+        Vec<Located<Pattern<Resolved>>>,
+        Path,
+        usize,
+    ) {
+        (
+            self.parts,
+            self.arguments,
+            self.type_path.unwrap(),
+            self.order.unwrap(),
+        )
     }
 
     pub fn type_path(&self) -> &Path {
@@ -332,8 +426,19 @@ impl StructurePattern<Resolved> {
 }
 
 impl StructurePattern<Renamed> {
-    pub fn new(parts: Located<Vec<InternId>>, arguments: Vec<Located<Pattern<Renamed>>>, type_path: Path, order: usize) -> Self {
-        Self { parts, arguments, type_path: Some(type_path), order: Some(order), state: PhantomData }
+    pub fn new(
+        parts: Located<Vec<InternId>>,
+        arguments: Vec<Located<Pattern<Renamed>>>,
+        type_path: Path,
+        order: usize,
+    ) -> Self {
+        Self {
+            parts,
+            arguments,
+            type_path: Some(type_path),
+            order: Some(order),
+            state: PhantomData,
+        }
     }
 
     pub fn order(&self) -> usize {

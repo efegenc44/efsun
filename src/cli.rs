@@ -6,7 +6,7 @@ pub struct Command {
     name: &'static str,
     arguments: &'static str,
     description: &'static str,
-    action: fn(Vec<String>)
+    action: fn(Vec<String>),
 }
 
 impl Command {
@@ -14,15 +14,23 @@ impl Command {
         name: &'static str,
         arguments: &'static str,
         description: &'static str,
-        action: fn(Vec<String>)
+        action: fn(Vec<String>),
     ) -> Self {
-        Self { name, arguments, description, action }
+        Self {
+            name,
+            arguments,
+            description,
+            action,
+        }
     }
 }
 
 const COMMANDS: &[Command] = &[
-    Command::new("help", "[COMMAND]", "Displays this message", |args| {
-        match args.as_slice() {
+    Command::new(
+        "help",
+        "[COMMAND]",
+        "Displays this message",
+        |args| match args.as_slice() {
             [] => help(),
             [command] => {
                 if let Some(command) = COMMANDS.iter().find(|c| c.name == command) {
@@ -32,17 +40,25 @@ const COMMANDS: &[Command] = &[
                 }
             }
             _ => error("Provided too many arguments"),
-        }
-    }),
-    Command::new("interactive", "", "Enter the the interactive efsun session", |_| {
-        run::repl();
-    }),
-    Command::new("execute", "FILE*", "Execute an efsun program from a file", |args| {
-        match args.as_slice() {
+        },
+    ),
+    Command::new(
+        "interactive",
+        "",
+        "Enter the the interactive efsun session",
+        |_| {
+            run::repl();
+        },
+    ),
+    Command::new(
+        "execute",
+        "FILE*",
+        "Execute an efsun program from a file",
+        |args| match args.as_slice() {
             [] => error("No file provided"),
             _ => run::from_file(args),
-        }
-    })
+        },
+    ),
 ];
 
 fn help() {

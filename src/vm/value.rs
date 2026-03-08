@@ -6,7 +6,7 @@ pub enum Value {
     Constructor(ConstructorValue),
     Structure(StructureValue),
     String(usize),
-    Bool(bool)
+    Bool(bool),
 }
 
 impl std::fmt::Debug for Value {
@@ -22,7 +22,7 @@ impl std::fmt::Debug for Value {
                 }
                 string.push('}');
                 write!(f, "{string}")
-            },
+            }
             Self::String(string) => write!(f, "Str({string})"),
             Self::Bool(bool) => write!(f, "{bool}"),
         }
@@ -33,7 +33,7 @@ impl Value {
     pub fn display(&self, strings: &[String]) -> String {
         match self {
             Self::Lambda(lambda) => format!("<lambda@{}>", lambda.address),
-            Self::Constructor(_) => format!("<constructor>"),
+            Self::Constructor(_) => "<constructor>".to_string(),
             Self::Structure(structure) => {
                 let mut string = String::from("{ ");
                 for value in structure.values.iter() {
@@ -42,7 +42,7 @@ impl Value {
                 }
                 string.push('}');
                 string
-            },
+            }
             Self::String(offset) => strings[*offset].to_string(),
             Self::Bool(bool) => bool.to_string(),
         }
@@ -76,17 +76,13 @@ impl Value {
     }
 
     pub fn into_string(self) -> usize {
-        let Self::String(string) = self else {
-            panic!()
-        };
+        let Self::String(string) = self else { panic!() };
 
         string
     }
 
     pub fn into_bool(self) -> bool {
-        let Self::Bool(bool) = self else {
-            panic!()
-        };
+        let Self::Bool(bool) = self else { panic!() };
 
         bool
     }
@@ -94,12 +90,15 @@ impl Value {
 #[derive(Clone, Debug)]
 pub struct LambdaValue {
     address: usize,
-    captures: Rc<Vec<Value>>
+    captures: Rc<Vec<Value>>,
 }
 
 impl LambdaValue {
     pub fn new(address: usize, captures: Vec<Value>) -> Self {
-        Self { address, captures: Rc::new(captures) }
+        Self {
+            address,
+            captures: Rc::new(captures),
+        }
     }
 
     pub fn destruct(self) -> (usize, Rc<Vec<Value>>) {
@@ -116,7 +115,11 @@ pub struct ConstructorValue {
 
 impl ConstructorValue {
     pub fn new(order: usize, arity: usize, captures: Vec<Value>) -> Self {
-        Self { order, arity, captures: Rc::new(captures) }
+        Self {
+            order,
+            arity,
+            captures: Rc::new(captures),
+        }
     }
 
     pub fn destruct(self) -> (usize, usize, Rc<Vec<Value>>) {
@@ -132,7 +135,10 @@ pub struct StructureValue {
 
 impl StructureValue {
     pub fn new(order: usize, values: Vec<Value>) -> Self {
-        Self { order, values: Rc::new(values) }
+        Self {
+            order,
+            values: Rc::new(values),
+        }
     }
 
     pub fn destruct(self) -> (usize, Rc<Vec<Value>>) {
