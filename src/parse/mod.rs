@@ -22,7 +22,7 @@ use expression::{
 use type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression};
 
 use definition::{
-    Constructor, Definition, ImportDefinition, ImportName, ModuleDefinition, NameDefinition,
+    Constructor, Definition, ImportDefinition, ImportName, LetDefinition, ModuleDefinition,
     StructureDefinition,
 };
 
@@ -388,7 +388,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let identifier = self.expect_identifier()?;
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
-        let definiton = NameDefinition::<Unresolved>::new(identifier, expression);
+        let definiton = LetDefinition::<Unresolved>::new(identifier, expression);
 
         Ok(Definition::Name(definiton))
     }

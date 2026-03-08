@@ -10,7 +10,7 @@ use crate::{
     interner::{InternId, Interner},
     location::{Located, Span},
     parse::{
-        definition::{Constructor, Definition, ImportName, NameDefinition, StructureDefinition},
+        definition::{Constructor, Definition, ImportName, LetDefinition, StructureDefinition},
         expression::{
             ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
             MatchExpression, PathExpression, Pattern, StructurePattern,
@@ -582,16 +582,14 @@ impl ExpressionResolver {
 
     fn let_definition(
         &mut self,
-        let_definition: NameDefinition<Unresolved>,
-    ) -> Result<NameDefinition<Resolved>> {
+        let_definition: LetDefinition<Unresolved>,
+    ) -> Result<LetDefinition<Resolved>> {
         let (identifier, expression) = let_definition.destruct();
 
         let expression = self.expression(expression)?;
         let path = self.current_module_path.append(*identifier.data());
 
-        Ok(NameDefinition::<Resolved>::new(
-            identifier, expression, path,
-        ))
+        Ok(LetDefinition::<Resolved>::new(identifier, expression, path))
     }
 
     fn structure_definition(
@@ -808,20 +806,20 @@ impl ANFResolver {
         definition: anf::ANFDefinition<Unresolved>,
     ) -> anf::ANFDefinition<Resolved> {
         match definition {
-            anf::ANFDefinition::Name(name) => anf::ANFDefinition::Name(self.let_definition(name)),
+            anf::ANFDefinition::Let(name) => anf::ANFDefinition::Let(self.let_definition(name)),
             anf::ANFDefinition::Structure(structure) => anf::ANFDefinition::Structure(structure),
         }
     }
 
     fn let_definition(
         &mut self,
-        let_definition: anf::NameDefinition<Unresolved>,
-    ) -> anf::NameDefinition<Resolved> {
+        let_definition: anf::LetDefinition<Unresolved>,
+    ) -> anf::LetDefinition<Resolved> {
         let (identifier, expression, path) = let_definition.destruct();
 
         let expression = self.expression(expression);
 
-        anf::NameDefinition::new(identifier, expression, path)
+        anf::LetDefinition::new(identifier, expression, path)
     }
 }
 

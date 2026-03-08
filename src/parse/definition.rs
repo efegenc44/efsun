@@ -8,7 +8,7 @@ use crate::{
 #[derive(Clone)]
 pub enum Definition<State> {
     Module(ModuleDefinition),
-    Name(NameDefinition<State>),
+    Name(LetDefinition<State>),
     Import(ImportDefinition),
     Structure(StructureDefinition<State>),
 }
@@ -64,13 +64,13 @@ impl ModuleDefinition {
 }
 
 #[derive(Clone)]
-pub struct NameDefinition<T> {
+pub struct LetDefinition<T> {
     identifier: Located<InternId>,
     expression: Located<Expression<T>>,
     path: Option<Path>,
 }
 
-impl<T> NameDefinition<T> {
+impl<T> LetDefinition<T> {
     pub fn identifier(&self) -> Located<InternId> {
         self.identifier
     }
@@ -78,13 +78,9 @@ impl<T> NameDefinition<T> {
     pub fn expression(&self) -> &Located<Expression<T>> {
         &self.expression
     }
-
-    pub fn destruct(self) -> (Located<InternId>, Located<Expression<T>>) {
-        (self.identifier, self.expression)
-    }
 }
 
-impl NameDefinition<Unresolved> {
+impl LetDefinition<Unresolved> {
     pub fn new(identifier: Located<InternId>, expression: Located<Expression<Unresolved>>) -> Self {
         Self {
             identifier,
@@ -92,9 +88,13 @@ impl NameDefinition<Unresolved> {
             path: None,
         }
     }
+
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<Unresolved>>) {
+        (self.identifier, self.expression)
+    }
 }
 
-impl NameDefinition<Resolved> {
+impl LetDefinition<Resolved> {
     pub fn new(
         identifier: Located<InternId>,
         expression: Located<Expression<Resolved>>,
@@ -110,15 +110,13 @@ impl NameDefinition<Resolved> {
     pub fn path(&self) -> &Path {
         self.path.as_ref().unwrap()
     }
-}
 
-impl NameDefinition<Renamed> {
-    pub fn path(&self) -> &Path {
-        self.path.as_ref().unwrap()
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<Resolved>>, Path) {
+        (self.identifier, self.expression, self.path.unwrap())
     }
 }
 
-impl NameDefinition<Renamed> {
+impl LetDefinition<Renamed> {
     pub fn new(
         identifier: Located<InternId>,
         expression: Located<Expression<Renamed>>,
@@ -129,6 +127,10 @@ impl NameDefinition<Renamed> {
             expression,
             path: Some(path),
         }
+    }
+
+    pub fn destruct(self) -> (Located<InternId>, Located<Expression<Renamed>>, Path) {
+        (self.identifier, self.expression, self.path.unwrap())
     }
 }
 
@@ -309,3 +311,6 @@ impl Constructor<Renamed> {
         self.path.as_ref().unwrap()
     }
 }
+
+pub type Module<T> = Vec<Definition<T>>;
+pub type Program<T> = Vec<Module<T>>;

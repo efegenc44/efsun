@@ -7,7 +7,7 @@ use crate::{
     interner::Interner,
     location::{Located, Span},
     parse::{
-        definition::{Definition, NameDefinition},
+        definition::{Definition, LetDefinition},
         expression::{
             ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
             MatchExpression, PathExpression, Pattern,
@@ -487,7 +487,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(())
     }
 
-    fn let_definition(&mut self, let_definition: &'ast NameDefinition<Resolved>) -> Result<()> {
+    fn let_definition(&mut self, let_definition: &'ast LetDefinition<Resolved>) -> Result<()> {
         self.name_expressions.visiting(let_definition.path());
         let m = self.infer(let_definition.expression())?;
 

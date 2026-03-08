@@ -2,7 +2,7 @@ use crate::{
     interner::InternId,
     location::Located,
     parse::{
-        definition::{Definition, NameDefinition},
+        definition::{Definition, LetDefinition},
         expression::{
             ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
             MatchExpression, PathExpression, Pattern, StructurePattern,
@@ -205,13 +205,12 @@ impl Renamer {
 
     fn let_definition(
         &mut self,
-        let_definition: NameDefinition<Resolved>,
-    ) -> NameDefinition<Renamed> {
-        let path = let_definition.path().clone();
-        let (name, expression) = let_definition.destruct();
+        let_definition: LetDefinition<Resolved>,
+    ) -> LetDefinition<Renamed> {
+        let (name, expression, path) = let_definition.destruct();
 
         let expression = self.expression(expression);
 
-        NameDefinition::<Renamed>::new(name, expression, path)
+        LetDefinition::<Renamed>::new(name, expression, path)
     }
 }

@@ -4,7 +4,7 @@ pub mod instruction;
 use std::collections::HashMap;
 
 use crate::{
-    interner::{InternId, Interner, WithInterner},
+    interner::{InternId, Interner},
     parse::expression::Pattern,
     resolution::{
         Resolved,
@@ -94,7 +94,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
     fn collect_names(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
-            if let ANFDefinition::Name(name) = definition {
+            if let ANFDefinition::Let(name) = definition {
                 // self.names.insert(name.path(), vec![]);
                 self.name_anfs.insert(name.path(), name.expression());
             }
@@ -111,7 +111,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
     pub fn module(&mut self, definitions: &'anf [ANFDefinition<Resolved>]) {
         for definition in definitions {
-            if let ANFDefinition::Name(name) = definition
+            if let ANFDefinition::Let(name) = definition
                 && !self.names.contains_key(name.path())
             {
                 self.names.insert(name.path(), vec![]);
