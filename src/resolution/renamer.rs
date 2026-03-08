@@ -152,7 +152,7 @@ impl Renamer {
             }
             Pattern::String(id) => Pattern::String(id),
             Pattern::Structure(structure) => {
-                let (parts, arguments, bound, order) = structure.destruct();
+                let (parts, arguments, bound, constructor_name, order) = structure.destruct();
 
                 let mut renamed_arguments = Vec::new();
                 for argument in arguments {
@@ -164,6 +164,7 @@ impl Renamer {
                     parts,
                     renamed_arguments,
                     bound,
+                    constructor_name,
                     order,
                 ))
             }

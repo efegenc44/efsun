@@ -1,9 +1,9 @@
 module Main
 
 let main = \a
-    Test2.test2 "AAAA" "HMMM"
+    test3 "AAAA" "HMMM"
 
-import Test2 (Test3 as test3)
+import Test2 (test2 Test3 as test3)
 import Test2
 
 let id = \x \y \z x

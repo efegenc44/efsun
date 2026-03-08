@@ -25,7 +25,9 @@ fn expression(
 ) -> Result<(Value, MonoType, ConstantPool)> {
     let expression =
         Parser::from_source("<interactive>".to_string(), source, interner).expression()?;
-    let resolved = ExpressionResolver::interactive(interner).expression(expression)?;
+    let resolved = ExpressionResolver::new()
+        .interactive_environment(interner)
+        .expression(expression)?;
     let t = TypeChecker::new()
         .interactive_environment()
         .infer(&resolved)?;

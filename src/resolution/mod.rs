@@ -2,7 +2,10 @@ pub mod bound;
 pub mod frame;
 pub mod renamer;
 
-use std::{collections::HashMap, fmt::Debug};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Debug,
+};
 
 use crate::{
     compilation::anf::{self, ANF, ANFLocal, Atom},
@@ -31,8 +34,9 @@ pub struct Renamed;
 
 pub struct ExpressionResolver {
     stack: ResolutionStack<InternId>,
-    type_locals: Vec<InternId>,
-
+    type_variables: Vec<InternId>,
+    names: HashSet<Path>,
+    types: HashSet<Path>,
     modules: HashMap<Path, Module>,
     current_module_path: Path,
 }
@@ -44,22 +48,23 @@ impl ExpressionResolver {
 
         ExpressionResolver {
             stack,
-            type_locals: Vec::new(),
+            type_variables: Vec::new(),
+            names: HashSet::new(),
+            types: HashSet::new(),
             modules: HashMap::new(),
             current_module_path: Path::empty(),
         }
     }
 
-    pub fn interactive(interner: &mut Interner) -> Self {
-        let mut resolver = Self::new();
+    pub fn interactive_environment(mut self, interner: &mut Interner) -> Self {
         let interactive_id = interner.intern(String::from("interactive"));
         let path = Path::from_parts(vec![interactive_id]);
         let module = Module::empty("<interactive>".to_string());
 
-        resolver.modules.insert(path.clone(), module);
-        resolver.current_module_path = path;
+        self.modules.insert(path.clone(), module);
+        self.current_module_path = path;
 
-        resolver
+        self
     }
 
     fn current_module(&self) -> &Module {
@@ -90,19 +95,28 @@ impl ExpressionResolver {
         Ok(Located::new(expression, span))
     }
 
+    fn base_path(&self, base: &InternId) -> Path {
+        if let Some(import_path) = self.current_module().imports().get(base) {
+            import_path.clone()
+        } else {
+            self.current_module_path.append(*base)
+        }
+    }
+
     fn identifier(&mut self, identifier: InternId, span: Span) -> Result<Bound> {
         match self.stack.locally_resolve(identifier) {
             Some(bound) => Ok(bound),
             None => {
-                if self.current_module().names().contains(&identifier) {
-                    Ok(Bound::Absolute(self.current_module_path.append(identifier)))
-                } else {
+                let path = self.base_path(&identifier);
+                if !self.names.contains(&path) {
                     let error = ResolutionError::UnboundPath(Path::from_parts(vec![identifier]));
                     Err(located_error(
                         error,
                         span,
                         self.current_module().source_name().to_string(),
                     ))
+                } else {
+                    Ok(Bound::Absolute(path))
                 }
             }
         }
@@ -113,75 +127,22 @@ impl ExpressionResolver {
         path: PathExpression<Unresolved>,
         span: Span,
     ) -> Result<PathExpression<Resolved>> {
-        let bound = match &path.parts().data()[..] {
+        let bound = match path.parts().data().as_slice() {
             [] => unreachable!(),
             [identifier] => self.identifier(*identifier, span),
-            [base, mid @ .., name] => {
-                let mut module_path = if let Some(path) = self.current_module().imports().get(base)
-                {
-                    path.append_parts(mid.to_vec())
-                } else {
-                    let mut parts = vec![*base];
-                    parts.extend_from_slice(mid);
-                    Path::from_parts(parts)
+            [base, rest @ ..] => {
+                let path = self.base_path(base).append_parts(rest.to_vec());
+
+                let true = self.names.contains(&path) else {
+                    let error = ResolutionError::UnboundPath(path);
+                    return Err(located_error(
+                        error,
+                        span,
+                        self.current_module().source_name().to_string(),
+                    ));
                 };
 
-                if let Some(constructors) = self.current_module().types().get(base) {
-                    assert!(mid.is_empty());
-
-                    let true = constructors.contains(name) else {
-                        todo!("Error");
-                    };
-
-                    let path = self.current_module_path.append(*base).append(*name);
-
-                    Ok(Bound::Absolute(path))
-                } else if let Some(module) = self.modules.get(&module_path) {
-                    module_path.push(*name);
-                    if module.names().contains(name) {
-                        Ok(Bound::Absolute(module_path))
-                    } else {
-                        let error = ResolutionError::UnboundPath(module_path);
-                        Err(located_error(
-                            error,
-                            span,
-                            self.current_module().source_name().to_string(),
-                        ))
-                    }
-                } else {
-                    let type_name = module_path.pop();
-
-                    let Some(module) = self.modules.get(&module_path) else {
-                        let error = ResolutionError::UnboundPath(module_path);
-                        return Err(located_error(
-                            error,
-                            span,
-                            self.current_module().source_name().to_string(),
-                        ));
-                    };
-
-                    module_path.push(type_name);
-                    let Some(constructors) = module.types().get(&type_name) else {
-                        let error = ResolutionError::UnboundPath(module_path);
-                        return Err(located_error(
-                            error,
-                            span,
-                            self.current_module().source_name().to_string(),
-                        ));
-                    };
-
-                    module_path.push(*name);
-                    let true = constructors.contains(name) else {
-                        let error = ResolutionError::UnboundPath(module_path);
-                        return Err(located_error(
-                            error,
-                            span,
-                            self.current_module().source_name().to_string(),
-                        ));
-                    };
-
-                    Ok(Bound::Absolute(module_path))
-                }
+                Ok(Bound::Absolute(path))
             }
         };
 
@@ -255,14 +216,14 @@ impl ExpressionResolver {
         let (pattern, span) = pattern.destruct();
 
         let len = self.stack.len();
-        let pattern = self.pattern(pattern)?;
+        let pattern = self.pattern(pattern, span)?;
         let expression = self.expression(expression)?;
         self.stack.truncate(len);
 
         Ok(MatchBranch::new(Located::new(pattern, span), expression))
     }
 
-    fn pattern(&mut self, pattern: Pattern<Unresolved>) -> Result<Pattern<Resolved>> {
+    fn pattern(&mut self, pattern: Pattern<Unresolved>, span: Span) -> Result<Pattern<Resolved>> {
         match pattern {
             Pattern::Any(id) => {
                 self.stack.push_local(id);
@@ -275,37 +236,30 @@ impl ExpressionResolver {
                 let mut renamed_arguments = Vec::new();
                 for argument in arguments {
                     let (argument, span) = argument.destruct();
-                    renamed_arguments.push(Located::new(self.pattern(argument)?, span));
+                    renamed_arguments.push(Located::new(self.pattern(argument, span)?, span));
                 }
 
-                let (type_path, order) = match &parts.data()[..] {
-                    [] | [_] => unreachable!(),
-                    [t, c] => {
-                        let Some(constructors) = self.current_module().types().get(t) else {
-                            todo!("Error");
+                let (type_path, constructor_name, order) = match parts.data().as_slice() {
+                    [] => unreachable!(),
+                    [base, rest @ ..] => {
+                        let mut path = self.base_path(base).append_parts(rest.to_vec());
+
+                        let true = self.names.contains(&path) else {
+                            let error = ResolutionError::UnboundPath(path);
+                            return Err(located_error(
+                                error,
+                                span,
+                                self.current_module().source_name().to_string(),
+                            ));
                         };
 
-                        let Some(order) = constructors.iter().position(|cs| cs == c) else {
-                            todo!("Error");
-                        };
+                        let c = path.pop();
+                        let t = path.pop();
 
-                        (self.current_module_path.append(*t), order)
-                    }
-                    [module @ .., t, c] => {
-                        dbg!(parts.data());
+                        let constructors = &self.modules[&path].types()[&t];
+                        let order = constructors.iter().position(|cs| cs == &c).unwrap();
 
-                        let module_path = Path::from_parts(module.to_vec());
-                        let module = &self.modules[&module_path];
-
-                        let Some(constructors) = module.types().get(t) else {
-                            todo!("Error");
-                        };
-
-                        let Some(order) = constructors.iter().position(|cs| cs == c) else {
-                            todo!("Error");
-                        };
-
-                        (module_path.append(*t), order)
+                        (path.append(t), c, order)
                     }
                 };
 
@@ -313,6 +267,7 @@ impl ExpressionResolver {
                     parts,
                     renamed_arguments,
                     type_path,
+                    constructor_name,
                     order,
                 )))
             }
@@ -335,6 +290,33 @@ impl ExpressionResolver {
         Ok(Located::new(expression, span))
     }
 
+    fn type_identifier(&self, identifier: &InternId, span: Span) -> Result<Bound> {
+        let mut id = None;
+        for (index, intern_id) in self.type_variables.iter().rev().enumerate() {
+            if identifier == intern_id {
+                id = Some(BoundId::new(self.type_variables.len() - 1 - index));
+                break;
+            }
+        }
+
+        match id {
+            Some(id) => Ok(Bound::Local(id)),
+            None => {
+                let path = self.base_path(identifier);
+                if !self.types.contains(&path) {
+                    let error = ResolutionError::UnboundPath(Path::from_parts(vec![*identifier]));
+                    Err(located_error(
+                        error,
+                        span,
+                        self.current_module().source_name().to_string(),
+                    ))
+                } else {
+                    Ok(Bound::Absolute(path))
+                }
+            }
+        }
+    }
+
     fn type_path(
         &mut self,
         path: PathTypeExpression<Unresolved>,
@@ -342,42 +324,12 @@ impl ExpressionResolver {
     ) -> Result<PathTypeExpression<Resolved>> {
         let bound = match &path.parts().data()[..] {
             [] => unreachable!(),
-            [identifier] => {
-                let mut bound = None;
-                for (index, intern_id) in self.type_locals.iter().rev().enumerate() {
-                    if identifier == intern_id {
-                        bound = Some(BoundId::new(self.type_locals.len() - 1 - index));
-                        break;
-                    }
-                }
+            [identifier] => self.type_identifier(identifier, span),
+            [base, rest @ ..] => {
+                let path = self.base_path(base).append_parts(rest.to_vec());
 
-                if let Some(bound) = bound {
-                    Ok(Bound::Local(bound))
-                } else if self.current_module().types().get(identifier).is_some() {
-                    Ok(Bound::Absolute(
-                        self.current_module_path.append(*identifier),
-                    ))
-                } else {
-                    let error = ResolutionError::UnboundPath(Path::from_parts(vec![*identifier]));
-                    Err(located_error(
-                        error,
-                        span,
-                        self.current_module().source_name().to_string(),
-                    ))
-                }
-            }
-            [base, mid @ .., name] => {
-                let mut module_path = if let Some(path) = self.current_module().imports().get(base)
-                {
-                    path.append_parts(mid.to_vec())
-                } else {
-                    let mut parts = vec![*base];
-                    parts.extend_from_slice(mid);
-                    Path::from_parts(parts)
-                };
-
-                let Some(module) = self.modules.get(&module_path) else {
-                    let error = ResolutionError::UnboundPath(module_path);
+                let true = self.types.contains(&path) else {
+                    let error = ResolutionError::UnboundPath(path);
                     return Err(located_error(
                         error,
                         span,
@@ -385,17 +337,7 @@ impl ExpressionResolver {
                     ));
                 };
 
-                module_path.push(*name);
-                if module.types().get(name).is_some() {
-                    Ok(Bound::Absolute(module_path))
-                } else {
-                    let error = ResolutionError::UnboundPath(module_path);
-                    Err(located_error(
-                        error,
-                        span,
-                        self.current_module().source_name().to_string(),
-                    ))
-                }
+                Ok(Bound::Absolute(path))
             }
         };
 
@@ -479,14 +421,27 @@ impl ExpressionResolver {
                 self.current_module_mut()
                     .names_mut()
                     .insert(*name.identifier().data());
+
+                self.names
+                    .insert(self.current_module_path.append(*name.identifier().data()));
             }
 
             if let Definition::Structure(structure) = definition {
-                // TODO: Check for duplicate definitions
-                let mut constructors = Vec::new();
+                let structure_path = self.current_module_path.append(*structure.name().data());
+
                 for constructor in structure.constructors() {
-                    constructors.push(*constructor.name().data());
+                    self.names
+                        .insert(structure_path.append(*constructor.name().data()));
                 }
+
+                self.types.insert(structure_path);
+
+                // TODO: Check for duplicate definitions
+                let constructors = structure
+                    .constructors()
+                    .iter()
+                    .map(|constructor| *constructor.name().data())
+                    .collect();
 
                 self.current_module_mut()
                     .types_mut()
@@ -543,23 +498,11 @@ impl ExpressionResolver {
     fn check_if_imports_exist(&self) -> Result<()> {
         for module in self.modules.values() {
             for import in module.imports().values() {
-                if !self.modules.contains_key(import) {
-                    let mut module = import.clone();
-                    let name = module.pop();
-
-                    let Some(module) = self.modules.get(&module) else {
-                        return Err(eof_error(
-                            ResolutionError::UnresolvedImport(import.clone()),
-                            self.current_module().source_name().to_string(),
-                        ));
-                    };
-
-                    let true = module.names().contains(&name) else {
-                        return Err(eof_error(
-                            ResolutionError::UnresolvedImport(import.clone()),
-                            self.current_module().source_name().to_string(),
-                        ));
-                    };
+                if !(self.names.contains(import) || self.types.contains(import)) {
+                    return Err(eof_error(
+                        ResolutionError::UnresolvedImport(import.clone()),
+                        self.current_module().source_name().to_string(),
+                    ));
                 }
             }
         }
@@ -600,7 +543,8 @@ impl ExpressionResolver {
 
         let structure_path = self.current_module_path.append(*name.data());
 
-        self.type_locals.extend(variables.iter().map(|v| *v.data()));
+        self.type_variables
+            .extend(variables.iter().map(|v| *v.data()));
         let mut resolved_constructors = Vec::new();
         for constructor in constructors {
             let (name, arguments) = constructor.destruct();
@@ -617,7 +561,7 @@ impl ExpressionResolver {
                 path,
             ));
         }
-        self.type_locals.clear();
+        self.type_variables.clear();
 
         Ok(StructureDefinition::<Resolved>::new(
             name,
@@ -666,7 +610,7 @@ impl ANFResolver {
         } else {
             let bound = match path.path() {
                 anf::ANFPath::ANFLocal(id) => self.identifier(ANFLocal::ANF(*id)),
-                anf::ANFPath::Normal(parts) => match &parts[..] {
+                anf::ANFPath::Normal(parts) => match parts.as_slice() {
                     [identifier] => self.identifier(ANFLocal::Normal(*identifier)),
                     _ => unreachable!(),
                 },

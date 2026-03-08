@@ -62,10 +62,6 @@ impl Path {
         Self(parts)
     }
 
-    pub fn push(&mut self, identifier: InternId) {
-        self.0.push(identifier);
-    }
-
     pub fn pop(&mut self) -> InternId {
         self.0.pop().unwrap()
     }
@@ -117,10 +113,6 @@ impl Module {
             imports: HashMap::new(),
             source_name,
         }
-    }
-
-    pub fn names(&self) -> &HashSet<InternId> {
-        &self.names
     }
 
     pub fn names_mut(&mut self) -> &mut HashSet<InternId> {

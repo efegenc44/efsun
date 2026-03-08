@@ -355,6 +355,7 @@ pub struct StructurePattern<State> {
     parts: Located<Vec<InternId>>,
     arguments: Vec<Located<Pattern<State>>>,
     type_path: Option<Path>,
+    constructor_name: Option<InternId>,
     order: Option<usize>,
     state: PhantomData<State>,
 }
@@ -362,10 +363,6 @@ pub struct StructurePattern<State> {
 impl<T> StructurePattern<T> {
     pub fn arguments(&self) -> &[Located<Pattern<T>>] {
         &self.arguments
-    }
-
-    pub fn parts(&self) -> &Located<Vec<InternId>> {
-        &self.parts
     }
 }
 
@@ -378,6 +375,7 @@ impl StructurePattern<Unresolved> {
             parts,
             arguments,
             type_path: None,
+            constructor_name: None,
             order: None,
             state: PhantomData,
         }
@@ -393,12 +391,14 @@ impl StructurePattern<Resolved> {
         parts: Located<Vec<InternId>>,
         arguments: Vec<Located<Pattern<Resolved>>>,
         type_path: Path,
+        constructor_name: InternId,
         order: usize,
     ) -> Self {
         Self {
             parts,
             arguments,
             type_path: Some(type_path),
+            constructor_name: Some(constructor_name),
             order: Some(order),
             state: PhantomData,
         }
@@ -410,18 +410,24 @@ impl StructurePattern<Resolved> {
         Located<Vec<InternId>>,
         Vec<Located<Pattern<Resolved>>>,
         Path,
+        InternId,
         usize,
     ) {
         (
             self.parts,
             self.arguments,
             self.type_path.unwrap(),
+            *self.constructor_name.as_ref().unwrap(),
             self.order.unwrap(),
         )
     }
 
     pub fn type_path(&self) -> &Path {
         self.type_path.as_ref().unwrap()
+    }
+
+    pub fn constructor_name(&self) -> InternId {
+        *self.constructor_name.as_ref().unwrap()
     }
 }
 
@@ -430,12 +436,14 @@ impl StructurePattern<Renamed> {
         parts: Located<Vec<InternId>>,
         arguments: Vec<Located<Pattern<Renamed>>>,
         type_path: Path,
+        constructor_name: InternId,
         order: usize,
     ) -> Self {
         Self {
             parts,
             arguments,
             type_path: Some(type_path),
+            constructor_name: Some(constructor_name),
             order: Some(order),
             state: PhantomData,
         }

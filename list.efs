@@ -1,12 +1,14 @@
 module Main
 
 let main = \a
-    map (\x "mapped") (List.Cons "AA" (List.Cons "BB" List.Empty))
+    map (\x "mapped") (Cons "AA" (Cons "BB" nil))
 
 let map = \f \l match l
-    | List.Empty       = List.Empty
-    | List.Cons ~x ~xs = List.Cons (f x) (map f xs)
+    | nil         = nil
+    | Cons ~x ~xs = Cons (f x) (map f xs)
 
 structure List[a]
     | Empty
     | Cons a List[a]
+
+import Main.List (Empty as nil Cons)

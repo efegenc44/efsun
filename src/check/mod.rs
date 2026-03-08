@@ -373,8 +373,7 @@ impl<'ast> TypeChecker<'ast> {
                     ));
                 };
 
-                let constructor = structure.parts().data().last().unwrap();
-                let constructor_path = type_path.append(*constructor);
+                let constructor_path = type_path.append(structure.constructor_name());
                 let constructor_type = self.names[&constructor_path].clone();
 
                 let m = match constructor_type {
