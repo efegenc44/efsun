@@ -44,7 +44,10 @@ impl Error {
                 }
             },
             Self::Check(error) => match error {
-                TypeCheckError::TypeMismatch { first, second } => {
+                TypeCheckError::TypeMismatch {
+                    t1: first,
+                    t2: second,
+                } => {
                     format!(
                         "Couldn't match type `{}` with `{}`",
                         WithInterner::new(first, interner),
@@ -56,6 +59,15 @@ impl Error {
                         "`{}` is defined cyclically",
                         WithInterner::new(path, interner)
                     )
+                }
+                TypeCheckError::ExpectedStructure(expected) => {
+                    format!(
+                        "Can only apply to structures not `{}`",
+                        WithInterner::new(expected, interner)
+                    )
+                }
+                TypeCheckError::TypeArityMismatch { expected, found } => {
+                    format!("Expected {expected} number of type parameters but found {found}")
                 }
             },
         }

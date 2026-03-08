@@ -24,25 +24,32 @@ use crate::{
 use typ::{ArrowType, MonoType, StructureType, Type};
 
 pub struct TypeChecker<'ast> {
+    /// Stack for local variables
     stack: CheckStack<Type>,
-    type_locals: Vec<MonoType>,
+    /// Stack for type variables in structure definitions
+    type_variables: Vec<MonoType>,
+    /// True if currently type checking a lambda expression.
+    ///     Its purpose is to check for cyclic definitions  
     in_lambda: bool,
+    /// Map for accesing expressions of let definitions and keeping track of cylic definitions
     name_expressions: ExpressionMap<'ast>,
-    names: HashMap<Path, Type>,
+    /// Map from path of the let definition to its type
+    names: HashMap<&'ast Path, Type>,
+    /// Map from path of the structure definition to its parameter count
     types: HashMap<&'ast Path, usize>,
+    /// Counter for generating fresh type variables
     newvar_counter: usize,
+    /// Map from type variable id (usize) to its substitution (MonoType)
     unification_table: HashMap<usize, MonoType>,
+    /// Source file name of the current module for error reporting
     current_source_name: String,
 }
 
 impl<'ast> TypeChecker<'ast> {
     pub fn new() -> Self {
-        let mut stack = CheckStack::new();
-        stack.push_frame(vec![]);
-
         Self {
-            stack,
-            type_locals: Vec::new(),
+            stack: CheckStack::new(),
+            type_variables: Vec::new(),
             in_lambda: false,
             name_expressions: ExpressionMap::new(),
             names: HashMap::new(),
@@ -51,6 +58,11 @@ impl<'ast> TypeChecker<'ast> {
             unification_table: HashMap::default(),
             current_source_name: String::new(),
         }
+    }
+
+    pub fn interactive_environment(mut self) -> Self {
+        self.stack.push_frame(Vec::with_capacity(0));
+        self
     }
 
     fn newvar(&mut self) -> MonoType {
@@ -63,62 +75,80 @@ impl<'ast> TypeChecker<'ast> {
         match t {
             Type::Mono(mono) => mono,
             Type::Poly(variables, mono) => {
-                let mut table = HashMap::new();
-                for variable in variables {
-                    table.insert(variable, self.newvar());
-                }
+                let table = variables
+                    .into_iter()
+                    .map(|variable| (variable, self.newvar()))
+                    .collect();
 
                 mono.substitute(&table)
             }
         }
     }
 
-    fn eval_type_expression(&mut self, expression: &Located<TypeExpression<Resolved>>) -> MonoType {
-        match expression.data() {
-            TypeExpression::Path(path) => self.eval_type_path(path),
-            TypeExpression::Application(application) => self.eval_type_application(application),
-        }
+    fn go_in_lambda(&mut self) -> bool {
+        let old = self.in_lambda;
+        self.in_lambda = true;
+        old
     }
 
-    fn eval_type_path(&mut self, path: &PathTypeExpression<Resolved>) -> MonoType {
-        match path.bound() {
-            Bound::Capture(_) => unreachable!(),
-            Bound::Local(id) => self.type_locals[id.value()].clone(),
-            Bound::Absolute(path) => {
-                let mut arguments = Vec::new();
-                for _ in 0..self.types[path] {
-                    arguments.push(self.newvar());
-                }
+    fn go_out_lambda(&mut self, old: bool) {
+        self.in_lambda = old;
+    }
 
-                let structure = StructureType::new(path.clone(), arguments);
-                MonoType::Structure(structure)
+    fn evaluate_type_expression(
+        &mut self,
+        expression: &Located<TypeExpression<Resolved>>,
+    ) -> Result<MonoType> {
+        match expression.data() {
+            TypeExpression::Path(path) => self.evaluate_type_path(path),
+            TypeExpression::Application(application) => {
+                self.evaluate_type_application(application, expression.span())
             }
         }
     }
 
-    fn eval_type_application(
-        &mut self,
-        application: &ApplicationTypeExpression<Resolved>,
-    ) -> MonoType {
-        let MonoType::Structure(structure) = self.eval_type_expression(application.function())
-        else {
-            todo!("Expected a structure");
+    fn evaluate_type_path(&mut self, path: &PathTypeExpression<Resolved>) -> Result<MonoType> {
+        let t = match path.bound() {
+            Bound::Capture(_) => unreachable!(),
+            Bound::Local(id) => self.type_variables[id.value()].clone(),
+            Bound::Absolute(path) => {
+                let arguments = (0..self.types[path]).map(|_| self.newvar()).collect();
+                let structure = StructureType::new(path.clone(), arguments);
+                MonoType::Structure(structure)
+            }
         };
 
-        let true = application.arguments().len() == structure.arguments().len() else {
-            todo!("Type artiy mismatch");
+        Ok(t)
+    }
+
+    fn evaluate_type_application(
+        &mut self,
+        application: &ApplicationTypeExpression<Resolved>,
+        span: Span,
+    ) -> Result<MonoType> {
+        let m = self.evaluate_type_expression(application.function())?;
+        let MonoType::Structure(structure) = m else {
+            let error = TypeCheckError::ExpectedStructure(m);
+            return Err(located_error(error, span, self.current_source_name.clone()));
+        };
+
+        let expected = structure.arguments().len();
+        let found = application.arguments().len();
+        let true = found == expected else {
+            let error = TypeCheckError::TypeArityMismatch { expected, found };
+            return Err(located_error(error, span, self.current_source_name.clone()));
         };
 
         let mut application_arguments = Vec::new();
         for argument in application.arguments() {
-            application_arguments.push(self.eval_type_expression(argument));
+            application_arguments.push(self.evaluate_type_expression(argument)?);
         }
 
         let structure = StructureType::new(structure.path().clone(), application_arguments);
-        MonoType::Structure(structure)
+        Ok(MonoType::Structure(structure))
     }
 
-    pub fn infer(&mut self, expression: &Located<Expression<Resolved>>) -> Result<MonoType> {
+    pub fn infer(&mut self, expression: &'ast Located<Expression<Resolved>>) -> Result<MonoType> {
         match expression.data() {
             Expression::String(_) => Ok(MonoType::String),
             Expression::Path(path) => self.path(path, expression.span()),
@@ -138,10 +168,9 @@ impl<'ast> TypeChecker<'ast> {
     fn unify(&mut self, t1: &MonoType, t2: &MonoType) -> result::Result<(), (MonoType, MonoType)> {
         match (t1, t2) {
             (MonoType::Variable(id1), MonoType::Variable(id2)) => {
-                match (
-                    self.unification_table.get(id1),
-                    self.unification_table.get(id2),
-                ) {
+                let m1 = self.unification_table.get(id1);
+                let m2 = self.unification_table.get(id2);
+                match (m1, m2) {
                     (None, None) => {
                         let newvar = self.newvar();
                         self.unification_table.insert(*id1, newvar.clone());
@@ -174,7 +203,7 @@ impl<'ast> TypeChecker<'ast> {
             }
             (MonoType::Structure(structure1), MonoType::Structure(structure2)) => {
                 if structure1.path() != structure2.path() {
-                    Err((t1.clone(), t2.clone()))
+                    Err((self.substitute(t1.clone()), self.substitute(t2.clone())))
                 } else {
                     let arguments = structure1.arguments().iter().zip(structure2.arguments());
                     for (argument1, argument2) in arguments {
@@ -185,20 +214,14 @@ impl<'ast> TypeChecker<'ast> {
                 }
             }
             (MonoType::String, MonoType::String) => Ok(()),
-            _ => Err((t1.clone(), t2.clone())),
+            _ => Err((self.substitute(t1.clone()), self.substitute(t2.clone()))),
         }
     }
 
-    fn path(&mut self, path: &PathExpression<Resolved>, span: Span) -> Result<MonoType> {
-        match path.bound() {
-            Bound::Local(id) => {
-                let t = self.stack.get_local(*id);
-                Ok(self.instantiate(t))
-            }
-            Bound::Capture(id) => {
-                let t = self.stack.get_capture(*id);
-                Ok(self.instantiate(t))
-            }
+    fn path(&mut self, path: &'ast PathExpression<Resolved>, span: Span) -> Result<MonoType> {
+        let t = match path.bound() {
+            Bound::Local(id) => self.stack.get_local(*id),
+            Bound::Capture(id) => self.stack.get_capture(*id),
             Bound::Absolute(path) => {
                 if let Type::Mono(MonoType::Variable(variable)) = self.names[path].clone() {
                     if self.name_expressions.is_currently_visiting(path) {
@@ -219,27 +242,27 @@ impl<'ast> TypeChecker<'ast> {
                     self.name_expressions.leaving(path);
 
                     let t = MonoType::Variable(variable);
-                    let Ok(()) = self.unify(&m, &t) else {
-                        let error = TypeCheckError::TypeMismatch {
-                            first: self.substitute(m),
-                            second: self.substitute(t),
-                        };
+                    if let Err((t1, t2)) = self.unify(&m, &t) {
+                        let error = TypeCheckError::TypeMismatch { t1, t2 };
+                        let span = self.name_expressions.get(path).span();
                         return Err(located_error(error, span, self.current_source_name.clone()));
                     };
 
                     let t = m.generalize();
-                    self.names.insert(path.clone(), t.clone());
-                    Ok(self.instantiate(t))
+                    self.names.insert(path, t.clone());
+                    t
                 } else {
-                    Ok(self.instantiate(self.names[path].clone().clone()))
+                    self.names[path].clone()
                 }
             }
-        }
+        };
+
+        Ok(self.instantiate(t))
     }
 
     fn application(
         &mut self,
-        application: &ApplicationExpression<Resolved>,
+        application: &'ast ApplicationExpression<Resolved>,
         span: Span,
     ) -> Result<MonoType> {
         let return_type = self.newvar();
@@ -248,26 +271,22 @@ impl<'ast> TypeChecker<'ast> {
         let arrow = ArrowType::new(argument.clone(), return_type.clone());
         let arrow = MonoType::Arrow(arrow);
 
-        if let Err((first, second)) = self.unify(&function, &arrow) {
-            let error = TypeCheckError::TypeMismatch {
-                first: self.substitute(first),
-                second: self.substitute(second),
-            };
+        if let Err((t1, t2)) = self.unify(&function, &arrow) {
+            let error = TypeCheckError::TypeMismatch { t1, t2 };
             Err(located_error(error, span, self.current_source_name.clone()))
         } else {
             Ok(self.substitute(return_type))
         }
     }
 
-    fn lambda(&mut self, lambda: &LambdaExpression<Resolved>) -> Result<MonoType> {
+    fn lambda(&mut self, lambda: &'ast LambdaExpression<Resolved>) -> Result<MonoType> {
         let argument = self.newvar();
 
         self.stack.push_frame(lambda.captures().to_vec());
         self.stack.push_local(Type::Mono(argument.clone()));
-        let old_in_lambda = self.in_lambda;
-        self.in_lambda = true;
+        let old = self.go_in_lambda();
         let return_type = self.infer(lambda.expression())?;
-        self.in_lambda = old_in_lambda;
+        self.go_out_lambda(old);
         self.stack.pop_local();
         self.stack.pop_frame();
 
@@ -276,7 +295,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(MonoType::Arrow(arrow))
     }
 
-    fn letin(&mut self, letin: &LetExpression<Resolved>) -> Result<MonoType> {
+    fn letin(&mut self, letin: &'ast LetExpression<Resolved>) -> Result<MonoType> {
         let variable_type = self.infer(letin.variable_expression())?;
         let variable_type = variable_type.generalize();
 
@@ -287,19 +306,15 @@ impl<'ast> TypeChecker<'ast> {
         Ok(self.substitute(return_type))
     }
 
-    fn matchlet(&mut self, matchlet: &MatchExpression<Resolved>) -> Result<MonoType> {
+    fn matchlet(&mut self, matchlet: &'ast MatchExpression<Resolved>) -> Result<MonoType> {
         let t = self.infer(matchlet.expression())?;
-
         let return_type = self.newvar();
 
         for branch in matchlet.branches() {
             let t = self.match_branch(&t, branch.data())?;
 
-            if let Err((first, second)) = self.unify(&return_type, &t) {
-                let error = TypeCheckError::TypeMismatch {
-                    first: self.substitute(first),
-                    second: self.substitute(second),
-                };
+            if let Err((t1, t2)) = self.unify(&return_type, &t) {
+                let error = TypeCheckError::TypeMismatch { t1, t2 };
                 return Err(located_error(
                     error,
                     branch.span(),
@@ -311,49 +326,61 @@ impl<'ast> TypeChecker<'ast> {
         Ok(self.substitute(return_type))
     }
 
-    fn match_branch(&mut self, t: &MonoType, branch: &MatchBranch<Resolved>) -> Result<MonoType> {
+    fn match_branch(
+        &mut self,
+        t: &MonoType,
+        branch: &'ast MatchBranch<Resolved>,
+    ) -> Result<MonoType> {
         let len = self.stack.len();
-        self.pattern(t, branch.pattern().data())?;
+        self.match_pattern_and_define_locals(t, branch.pattern())?;
         let m = self.infer(branch.expression())?;
         self.stack.truncate(len);
 
         Ok(m)
     }
 
-    fn pattern(&mut self, t: &MonoType, pattern: &Pattern<Resolved>) -> Result<()> {
-        match pattern {
+    fn match_pattern_and_define_locals(
+        &mut self,
+        t: &MonoType,
+        pattern: &Located<Pattern<Resolved>>,
+    ) -> Result<()> {
+        match pattern.data() {
             Pattern::Any(_) => {
                 self.stack.push_local(Type::Mono(t.clone()));
             }
             Pattern::String(_) => {
-                let Ok(_) = self.unify(t, &MonoType::String) else {
-                    todo!("Error");
+                if let Err((t1, t2)) = self.unify(t, &MonoType::String) {
+                    let error = TypeCheckError::TypeMismatch { t1, t2 };
+                    return Err(located_error(
+                        error,
+                        pattern.span(),
+                        self.current_source_name.clone(),
+                    ));
                 };
             }
             Pattern::Structure(structure) => {
                 let type_path = structure.type_path();
+                let arguments: Vec<_> = (0..self.types[type_path]).map(|_| self.newvar()).collect();
+                let structure_type = StructureType::new(type_path.clone(), arguments.clone());
+                let structure_type = MonoType::Structure(structure_type);
 
-                let mut arguments = Vec::new();
-                for _ in 0..self.types[type_path] {
-                    arguments.push(self.newvar());
-                }
-
-                let structure_t = StructureType::new(type_path.clone(), arguments.clone());
-                let structure_t = MonoType::Structure(structure_t);
-
-                let Ok(_) = self.unify(t, &structure_t) else {
-                    todo!("Error");
+                if let Err((t1, t2)) = self.unify(t, &structure_type) {
+                    let error = TypeCheckError::TypeMismatch { t1, t2 };
+                    return Err(located_error(
+                        error,
+                        pattern.span(),
+                        self.current_source_name.clone(),
+                    ));
                 };
 
                 let constructor = structure.parts().data().last().unwrap();
                 let constructor_path = type_path.append(*constructor);
-                let constructor_t = self.names[&constructor_path].clone();
+                let constructor_type = self.names[&constructor_path].clone();
 
-                let m = match constructor_t {
+                let m = match constructor_type {
                     Type::Mono(m) => m,
                     Type::Poly(variables, m) => {
                         let table = variables.into_iter().zip(arguments).collect();
-
                         m.substitute(&table)
                     }
                 };
@@ -361,12 +388,13 @@ impl<'ast> TypeChecker<'ast> {
                 if let MonoType::Arrow(constructor) = m {
                     let mut t = &constructor;
                     for argument in structure.arguments() {
-                        self.pattern(t.from(), argument.data())?;
+                        self.match_pattern_and_define_locals(t.from(), argument)?;
                         if let MonoType::Arrow(arrow) = t.to() {
                             t = arrow;
                         }
                     }
                 } else {
+                    // NOTE: Type constructors are either functions or constants
                     assert!(matches!(m, MonoType::Structure(_)));
                 }
             }
@@ -381,7 +409,7 @@ impl<'ast> TypeChecker<'ast> {
         interner: &Interner,
     ) -> Result<Type> {
         for (module, _) in modules {
-            self.collect_names(module)?;
+            self.collect_definitions(module)?;
         }
 
         for (module, source_name) in modules {
@@ -394,40 +422,36 @@ impl<'ast> TypeChecker<'ast> {
             .map(|s| interner.intern_id(s))
             .collect::<Vec<_>>();
 
-        let path = Path::from_parts(parts);
-        //let main = self.name_expressions.get(&path);
-
-        //Ok(self.infer(main)?.generalize())
-        Ok(self.names[&path].clone())
+        Ok(self.names[&Path::from_parts(parts)].clone())
     }
 
-    pub fn module(&mut self, definitions: &[Definition<Resolved>]) -> Result<()> {
+    pub fn module(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
         for definition in definitions {
-            match definition {
-                Definition::Module(_) => (),
-                Definition::Name(name) => self.let_definition(name)?,
-                Definition::Import(_) => (),
-                Definition::Structure(_) => (),
+            if let Definition::Name(name) = definition {
+                self.let_definition(name)?
             }
         }
 
         Ok(())
     }
 
-    fn collect_names(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
+    fn collect_definitions(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
         for definition in definitions {
-            if let Definition::Name(name) = definition {
-                let newvar = self.newvar();
-                self.names.insert(name.path().clone(), Type::Mono(newvar));
-                self.name_expressions.add(name.path(), name.expression());
-            }
-
-            if let Definition::Structure(structure) = definition {
-                self.types
-                    .insert(structure.path(), structure.variables().len());
+            match definition {
+                Definition::Name(name) => {
+                    let newvar = self.newvar();
+                    self.names.insert(name.path(), Type::Mono(newvar));
+                    self.name_expressions.add(name.path(), name.expression());
+                }
+                Definition::Structure(structure) => {
+                    self.types
+                        .insert(structure.path(), structure.variables().len());
+                }
+                _ => (),
             }
         }
 
+        // Type constructors
         for definition in definitions {
             if let Definition::Structure(structure) = definition {
                 let mut arguments = Vec::new();
@@ -441,38 +465,35 @@ impl<'ast> TypeChecker<'ast> {
                     };
                     variables.push(id);
 
-                    self.type_locals.push(newvar);
+                    self.type_variables.push(newvar);
                 }
 
-                let structure_t = StructureType::new(structure.path().clone(), arguments);
+                let structure_type = StructureType::new(structure.path().clone(), arguments);
                 for constructor in structure.constructors() {
-                    let mut t = MonoType::Structure(structure_t.clone());
+                    let mut t = MonoType::Structure(structure_type.clone());
                     for argument in constructor.arguments().iter().rev() {
-                        let argument = self.eval_type_expression(argument);
+                        let argument = self.evaluate_type_expression(argument)?;
                         t = MonoType::Arrow(ArrowType::new(argument, t));
                     }
 
                     let t = Type::Poly(variables.clone(), t);
-                    self.names.insert(constructor.path().clone(), t);
+                    self.names.insert(constructor.path(), t);
                 }
 
-                self.type_locals.clear();
+                self.type_variables.clear();
             }
         }
 
         Ok(())
     }
 
-    fn let_definition(&mut self, let_definition: &NameDefinition<Resolved>) -> Result<()> {
+    fn let_definition(&mut self, let_definition: &'ast NameDefinition<Resolved>) -> Result<()> {
         self.name_expressions.visiting(let_definition.path());
         let m = self.infer(let_definition.expression())?;
 
         let t = self.instantiate(self.names[let_definition.path()].clone());
-        let Ok(()) = self.unify(&m, &t) else {
-            let error = TypeCheckError::TypeMismatch {
-                first: self.substitute(m),
-                second: self.substitute(t),
-            };
+        if let Err((t1, t2)) = self.unify(&m, &t) {
+            let error = TypeCheckError::TypeMismatch { t1, t2 };
             return Err(located_error(
                 error,
                 let_definition.identifier().span(),
@@ -481,7 +502,7 @@ impl<'ast> TypeChecker<'ast> {
         };
 
         let t = m.generalize();
-        self.names.insert(let_definition.path().clone(), t);
+        self.names.insert(let_definition.path(), t);
         self.name_expressions.leaving(let_definition.path());
 
         Ok(())
@@ -522,6 +543,8 @@ impl<'ast> ExpressionMap<'ast> {
 
 #[derive(Debug, Clone)]
 pub enum TypeCheckError {
-    TypeMismatch { first: MonoType, second: MonoType },
+    TypeMismatch { t1: MonoType, t2: MonoType },
     CyclicDefinition(Path),
+    ExpectedStructure(MonoType),
+    TypeArityMismatch { expected: usize, found: usize },
 }

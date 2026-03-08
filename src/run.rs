@@ -26,7 +26,9 @@ fn expression(
     let expression =
         Parser::from_source("<interactive>".to_string(), source, interner).expression()?;
     let resolved = ExpressionResolver::interactive(interner).expression(expression)?;
-    let t = TypeChecker::new().infer(&resolved)?;
+    let t = TypeChecker::new()
+        .interactive_environment()
+        .infer(&resolved)?;
     let renamed = Renamer::new().expression(resolved);
     let anf = ANFTransformer::new().transform(renamed.into_data());
     let resolved_anf = ANFResolver::new().expression(anf);
