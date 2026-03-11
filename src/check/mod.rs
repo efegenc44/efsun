@@ -85,14 +85,10 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn go_in_lambda(&mut self) -> bool {
-        let old = self.in_lambda;
-        self.in_lambda = true;
-        old
-    }
-
-    fn go_out_lambda(&mut self, old: bool) {
-        self.in_lambda = old;
+    fn replace_in_lambda(&mut self, value: bool) -> bool {
+        let before = self.in_lambda;
+        self.in_lambda = value;
+        before
     }
 
     fn evaluate_type_expression(
@@ -238,7 +234,9 @@ impl<'ast> TypeChecker<'ast> {
                     }
 
                     self.name_expressions.visiting(path);
+                    let before = self.replace_in_lambda(false);
                     let m = self.infer(self.name_expressions.get(path))?;
+                    self.replace_in_lambda(before);
                     self.name_expressions.leaving(path);
 
                     let t = MonoType::Variable(variable);
@@ -284,9 +282,9 @@ impl<'ast> TypeChecker<'ast> {
 
         self.stack.push_frame(lambda.captures().to_vec());
         self.stack.push_local(Type::Mono(argument.clone()));
-        let old = self.go_in_lambda();
+        let before = self.replace_in_lambda(true);
         let return_type = self.infer(lambda.expression())?;
-        self.go_out_lambda(old);
+        self.replace_in_lambda(before);
         self.stack.pop_local();
         self.stack.pop_frame();
 
