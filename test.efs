@@ -1,7 +1,7 @@
 module Main
 
 let main = \a
-    test3 "AAAA" "HMMM"
+    test2 "AAAA" "HMMM"
 
 import Test2 (test2 Test3 as test3)
 import Test2

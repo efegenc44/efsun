@@ -18,13 +18,15 @@ pub struct Renamer {
 
 impl Renamer {
     pub fn new() -> Self {
-        let mut stack = CheckStack::new();
-        stack.push_frame(vec![]);
-
         Self {
-            stack,
+            stack: CheckStack::new(),
             newname_counter: 0,
         }
+    }
+
+    pub fn interactive_environment(mut self) -> Self {
+        self.stack.push_frame(Vec::new());
+        self
     }
 
     fn new_name(&mut self) -> InternId {

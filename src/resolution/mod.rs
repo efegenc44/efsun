@@ -216,14 +216,18 @@ impl ExpressionResolver {
         let (pattern, span) = pattern.destruct();
 
         let len = self.stack.len();
-        let pattern = self.pattern(pattern, span)?;
+        let pattern = self.define_pattern_locals(pattern, span)?;
         let expression = self.expression(expression)?;
         self.stack.truncate(len);
 
         Ok(MatchBranch::new(Located::new(pattern, span), expression))
     }
 
-    fn pattern(&mut self, pattern: Pattern<Unresolved>, span: Span) -> Result<Pattern<Resolved>> {
+    fn define_pattern_locals(
+        &mut self,
+        pattern: Pattern<Unresolved>,
+        span: Span,
+    ) -> Result<Pattern<Resolved>> {
         match pattern {
             Pattern::Any(id) => {
                 self.stack.push_local(id);
@@ -236,7 +240,10 @@ impl ExpressionResolver {
                 let mut renamed_arguments = Vec::new();
                 for argument in arguments {
                     let (argument, span) = argument.destruct();
-                    renamed_arguments.push(Located::new(self.pattern(argument, span)?, span));
+                    renamed_arguments.push(Located::new(
+                        self.define_pattern_locals(argument, span)?,
+                        span,
+                    ));
                 }
 
                 let (type_path, constructor_name, order) = match parts.data().as_slice() {
@@ -498,7 +505,10 @@ impl ExpressionResolver {
     fn check_if_imports_exist(&self) -> Result<()> {
         for module in self.modules.values() {
             for import in module.imports().values() {
-                if !(self.names.contains(import) || self.types.contains(import)) {
+                if !(self.names.contains(import)
+                    || self.types.contains(import)
+                    || self.modules.contains_key(import))
+                {
                     return Err(eof_error(
                         ResolutionError::UnresolvedImport(import.clone()),
                         self.current_module().source_name().to_string(),
@@ -578,10 +588,14 @@ pub struct ANFResolver {
 
 impl ANFResolver {
     pub fn new() -> Self {
-        let mut stack = ResolutionStack::new();
-        stack.push_frame();
+        ANFResolver {
+            stack: ResolutionStack::new(),
+        }
+    }
 
-        ANFResolver { stack }
+    pub fn interactive_environment(mut self) -> Self {
+        self.stack.push_frame();
+        self
     }
 
     pub fn expression(&mut self, anf: ANF<Unresolved>) -> ANF<Resolved> {

@@ -16,8 +16,8 @@ structure Nat[]
 import Main.Nat (Zero Succ)
 
 let add = \n \m match Pair n m
-    | Pair ~a Nat.Zero      = a
-    | Pair ~a (Nat.Succ ~b) = Succ (add a b)
+    | Pair ~a Zero      = a
+    | Pair ~a (Succ ~b) = Succ (add a b)
 
 let mul = \n \m match Pair n m
     | Pair ~a Zero      = Zero
