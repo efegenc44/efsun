@@ -6,6 +6,89 @@ use crate::{
     resolution::ResolutionError,
 };
 
+fn lex_error_description(error: &LexError, _interner: &Interner) -> String {
+    match error {
+        LexError::UnknownStartOfAToken(unknown) => {
+            format!("Encountered an unknown start of a token `{unknown}`")
+        }
+        LexError::UnterminatedStringLiteral => "Unterminated string literal".to_string(),
+    }
+}
+
+fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
+    match error {
+        ParseError::UnexpectedEOF => "Encountered unexpected EOF.".to_string(),
+        ParseError::UnexpectedToken {
+            unexpected,
+            expected,
+        } => {
+            let mut message = format!(
+                "Encountered unexpected token `{}`, expected ",
+                WithInterner::new(unexpected, interner)
+            );
+            match expected.as_slice() {
+                [] => unreachable!(),
+                [token] => {
+                    message.push_str(token.kind_string());
+                }
+                [tail @ .., head] => {
+                    for token in tail {
+                        message.push_str(&format!("either {}, ", token.kind_string()));
+                    }
+                    message.push_str(&format!("or {}", head.kind_string()));
+                }
+            }
+
+            message
+        }
+        ParseError::IllFormedExpression => {
+            "Ill formed expression, not all tokens are able to be consumed.".to_string()
+        }
+    }
+}
+
+fn resolution_error_description(error: &ResolutionError, interner: &Interner) -> String {
+    match error {
+        ResolutionError::UnboundPath(path) => {
+            format!("`{}` is not bound.", WithInterner::new(path, interner))
+        }
+        ResolutionError::MissingModuleDefinition => "Module definiton is missing.".to_string(),
+        ResolutionError::UnresolvedImport(path) => {
+            format!(
+                "Import `{}` could not be resolved.",
+                WithInterner::new(path, interner)
+            )
+        }
+    }
+}
+
+fn type_check_error_description(error: &TypeCheckError, interner: &Interner) -> String {
+    match error {
+        TypeCheckError::TypeMismatch { t1, t2 } => {
+            format!(
+                "Couldn't match type `{}` with `{}`",
+                WithInterner::new(t1, interner),
+                WithInterner::new(t2, interner),
+            )
+        }
+        TypeCheckError::CyclicDefinition(path) => {
+            format!(
+                "`{}` is defined cyclically",
+                WithInterner::new(path, interner)
+            )
+        }
+        TypeCheckError::ExpectedStructure(expected) => {
+            format!(
+                "Can only apply to structures not `{}`",
+                WithInterner::new(expected, interner)
+            )
+        }
+        TypeCheckError::TypeArityMismatch { expected, found } => {
+            format!("Expected {expected} number of type parameters but found {found}")
+        }
+    }
+}
+
 #[derive(Clone)]
 pub enum Error {
     Lex(LexError),
@@ -17,59 +100,10 @@ pub enum Error {
 impl Error {
     pub fn description(&self, interner: &Interner) -> String {
         match self {
-            Self::Lex(error) => match error {
-                LexError::UnknownStartOfAToken(unknown) => {
-                    format!("Encountered an unknown start of a token `{unknown}`")
-                }
-                LexError::UnterminatedStringLiteral => "Unterminated string literal".to_string(),
-            },
-            Self::Parse(error) => match error {
-                ParseError::UnexpectedEOF => "Encountered unexpected EOF.".to_string(),
-                ParseError::UnexpectedToken(token) => {
-                    format!("Encountered unexpected token `{}`", token.display(interner))
-                }
-            },
-            Self::Resolution(error) => match error {
-                ResolutionError::UnboundPath(path) => {
-                    format!("`{}` is not bound.", WithInterner::new(path, interner))
-                }
-                ResolutionError::MissingModuleDefinition => {
-                    "Module definiton is missing.".to_string()
-                }
-                ResolutionError::UnresolvedImport(path) => {
-                    format!(
-                        "Import `{}` could not be resolved.",
-                        WithInterner::new(path, interner)
-                    )
-                }
-            },
-            Self::Check(error) => match error {
-                TypeCheckError::TypeMismatch {
-                    t1: first,
-                    t2: second,
-                } => {
-                    format!(
-                        "Couldn't match type `{}` with `{}`",
-                        WithInterner::new(first, interner),
-                        WithInterner::new(second, interner),
-                    )
-                }
-                TypeCheckError::CyclicDefinition(path) => {
-                    format!(
-                        "`{}` is defined cyclically",
-                        WithInterner::new(path, interner)
-                    )
-                }
-                TypeCheckError::ExpectedStructure(expected) => {
-                    format!(
-                        "Can only apply to structures not `{}`",
-                        WithInterner::new(expected, interner)
-                    )
-                }
-                TypeCheckError::TypeArityMismatch { expected, found } => {
-                    format!("Expected {expected} number of type parameters but found {found}")
-                }
-            },
+            Self::Lex(error) => lex_error_description(error, interner),
+            Self::Parse(error) => parse_error_description(error, interner),
+            Self::Resolution(error) => resolution_error_description(error, interner),
+            Self::Check(error) => type_check_error_description(error, interner),
         }
     }
 }

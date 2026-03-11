@@ -136,16 +136,16 @@ impl LetDefinition<Renamed> {
 
 #[derive(Clone)]
 pub struct ImportDefinition {
-    module_path: Vec<InternId>,
+    module_path: Located<Vec<InternId>>,
     name: Option<ImportName>,
 }
 
 impl ImportDefinition {
-    pub fn new(module_path: Vec<InternId>, name: Option<ImportName>) -> Self {
+    pub fn new(module_path: Located<Vec<InternId>>, name: Option<ImportName>) -> Self {
         Self { module_path, name }
     }
 
-    pub fn module_path(&self) -> &[InternId] {
+    pub fn module_path(&self) -> &Located<Vec<InternId>> {
         &self.module_path
     }
 
@@ -164,7 +164,7 @@ pub enum ImportName {
 pub struct StructureDefinition<T> {
     name: Located<InternId>,
     variables: Vec<Located<InternId>>,
-    constructors: Vec<Constructor<T>>,
+    constructors: Vec<Located<Constructor<T>>>,
     path: Option<Path>,
 }
 
@@ -177,7 +177,7 @@ impl<T> StructureDefinition<T> {
         &self.variables
     }
 
-    pub fn constructors(&self) -> &[Constructor<T>] {
+    pub fn constructors(&self) -> &[Located<Constructor<T>>] {
         &self.constructors
     }
 }
@@ -186,7 +186,7 @@ impl StructureDefinition<Unresolved> {
     pub fn new(
         name: Located<InternId>,
         variables: Vec<Located<InternId>>,
-        constructors: Vec<Constructor<Unresolved>>,
+        constructors: Vec<Located<Constructor<Unresolved>>>,
     ) -> Self {
         Self {
             name,
@@ -201,7 +201,7 @@ impl StructureDefinition<Unresolved> {
     ) -> (
         Located<InternId>,
         Vec<Located<InternId>>,
-        Vec<Constructor<Unresolved>>,
+        Vec<Located<Constructor<Unresolved>>>,
     ) {
         (self.name, self.variables, self.constructors)
     }
@@ -211,7 +211,7 @@ impl StructureDefinition<Resolved> {
     pub fn new(
         name: Located<InternId>,
         variables: Vec<Located<InternId>>,
-        constructors: Vec<Constructor<Resolved>>,
+        constructors: Vec<Located<Constructor<Resolved>>>,
         path: Path,
     ) -> Self {
         Self {
@@ -230,7 +230,10 @@ impl StructureDefinition<Resolved> {
         let constructors = self
             .constructors
             .into_iter()
-            .map(|argument| argument.renamed())
+            .map(|argument| {
+                let span = argument.span();
+                Located::new(argument.into_data().renamed(), span)
+            })
             .collect();
 
         StructureDefinition {

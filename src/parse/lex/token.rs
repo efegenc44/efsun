@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::interner::{InternId, Interner, WithInterner};
+use crate::interner::{InternId, WithInterner};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Token {
@@ -50,26 +50,26 @@ impl Display for WithInterner<'_, &Token> {
 }
 
 impl Token {
-    pub fn display<'interner>(&self, interner: &'interner Interner) -> &'interner str {
+    pub fn kind_string(&self) -> &str {
         match self {
-            Self::Identifier(id) => interner.lookup(id),
-            Self::String(_id) => todo!(), // format!("\"{}\"", interner.lookup(*id)),
-            Self::LeftParenthesis => "(",
-            Self::RightParenthesis => ")",
-            Self::LeftBracket => "[",
-            Self::RightBracket => "]",
-            Self::Backslash => "\\",
-            Self::Equals => "=",
-            Self::Dot => ".",
-            Self::Bar => "|",
-            Self::Tilde => "~",
-            Self::LetKeyword => "let",
-            Self::InKeyword => "in",
-            Self::ModuleKeyword => "module",
-            Self::ImportKeyword => "import",
-            Self::AsKeyword => "as",
-            Self::MatchKeyword => "match",
-            Self::StructureKeyword => "structure",
+            Token::Identifier(_) => "an identifier",
+            Token::String(_) => "a string",
+            Token::LeftParenthesis => "(",
+            Token::RightParenthesis => ")",
+            Token::LeftBracket => "[",
+            Token::RightBracket => "]",
+            Token::Backslash => "\\",
+            Token::Equals => "=",
+            Token::Dot => ".",
+            Token::Bar => "|",
+            Token::Tilde => "~",
+            Token::LetKeyword => "let",
+            Token::InKeyword => "in",
+            Token::ModuleKeyword => "module",
+            Token::ImportKeyword => "import",
+            Token::AsKeyword => "as",
+            Token::MatchKeyword => "match",
+            Token::StructureKeyword => "structure",
         }
     }
 }

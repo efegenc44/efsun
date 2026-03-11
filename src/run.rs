@@ -24,7 +24,7 @@ fn expression(
     interner: &mut Interner,
 ) -> Result<(Value, MonoType, ConstantPool)> {
     let expression =
-        Parser::from_source("<interactive>".to_string(), source, interner).expression()?;
+        Parser::from_source("<interactive>".to_string(), source, interner).expression_repl()?;
     let resolved = ExpressionResolver::new()
         .interactive_environment(interner)
         .expression(expression)?;

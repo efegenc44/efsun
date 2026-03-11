@@ -438,7 +438,7 @@ impl ExpressionResolver {
 
                 for constructor in structure.constructors() {
                     self.names
-                        .insert(structure_path.append(*constructor.name().data()));
+                        .insert(structure_path.append(*constructor.data().name().data()));
                 }
 
                 self.types.insert(structure_path);
@@ -447,7 +447,7 @@ impl ExpressionResolver {
                 let constructors = structure
                     .constructors()
                     .iter()
-                    .map(|constructor| *constructor.name().data())
+                    .map(|constructor| *constructor.data().name().data())
                     .collect();
 
                 self.current_module_mut()
@@ -456,7 +456,7 @@ impl ExpressionResolver {
             }
 
             if let Definition::Import(import) = definition {
-                let base = Path::from_parts(import.module_path().to_vec());
+                let base = Path::from_parts(import.module_path().data().to_vec());
 
                 match import.name() {
                     Some(import_name) => {
@@ -465,7 +465,7 @@ impl ExpressionResolver {
                     None => {
                         self.current_module_mut()
                             .imports_mut()
-                            .insert(*import.module_path().last().unwrap(), base);
+                            .insert(*import.module_path().data().last().unwrap(), base);
                     }
                 }
             }
@@ -483,7 +483,7 @@ impl ExpressionResolver {
             }
             ImportName::Import(imports) => {
                 for import in imports {
-                    let base = base.append_parts(import.module_path().to_vec());
+                    let base = base.append_parts(import.module_path().data().to_vec());
 
                     match import.name() {
                         Some(import_name) => {
@@ -492,7 +492,7 @@ impl ExpressionResolver {
                         None => {
                             self.current_module_mut()
                                 .imports_mut()
-                                .insert(*import.module_path().last().unwrap(), base);
+                                .insert(*import.module_path().data().last().unwrap(), base);
                         }
                     }
                 }
@@ -557,6 +557,7 @@ impl ExpressionResolver {
             .extend(variables.iter().map(|v| *v.data()));
         let mut resolved_constructors = Vec::new();
         for constructor in constructors {
+            let (constructor, span) = constructor.destruct();
             let (name, arguments) = constructor.destruct();
 
             let mut resolved_arguments = Vec::new();
@@ -565,10 +566,9 @@ impl ExpressionResolver {
             }
 
             let path = structure_path.append(*name.data());
-            resolved_constructors.push(Constructor::<Resolved>::new(
-                name,
-                resolved_arguments,
-                path,
+            resolved_constructors.push(Located::new(
+                Constructor::<Resolved>::new(name, resolved_arguments, path),
+                span,
             ));
         }
         self.type_variables.clear();

@@ -470,13 +470,13 @@ impl<'ast> TypeChecker<'ast> {
                 let structure_type = StructureType::new(structure.path().clone(), arguments);
                 for constructor in structure.constructors() {
                     let mut t = MonoType::Structure(structure_type.clone());
-                    for argument in constructor.arguments().iter().rev() {
+                    for argument in constructor.data().arguments().iter().rev() {
                         let argument = self.evaluate_type_expression(argument)?;
                         t = MonoType::Arrow(ArrowType::new(argument, t));
                     }
 
                     let t = Type::Poly(variables.clone(), t);
-                    self.names.insert(constructor.path(), t);
+                    self.names.insert(constructor.data().path(), t);
                 }
 
                 self.type_variables.clear();

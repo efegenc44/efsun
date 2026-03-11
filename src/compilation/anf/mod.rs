@@ -607,7 +607,12 @@ impl ANFTransformer {
         let constructors = structure_definition
             .constructors()
             .iter()
-            .map(|constructor| (constructor.path().clone(), constructor.arguments().len()))
+            .map(|constructor| {
+                (
+                    constructor.data().path().clone(),
+                    constructor.data().arguments().len(),
+                )
+            })
             .collect();
 
         ANFDefinition::Structure(StructureDefinition::new(constructors))

@@ -12,7 +12,7 @@ impl InternId {
         Self(value)
     }
 
-    pub fn dummy() -> Self {
+    pub const fn dummy() -> Self {
         Self(0)
     }
 }
