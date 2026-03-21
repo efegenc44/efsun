@@ -35,8 +35,8 @@ pub struct TypeChecker<'ast> {
     name_expressions: ExpressionMap<'ast>,
     /// Map from path of the let definition to its type
     names: HashMap<&'ast Path, Type>,
-    /// Map from path of the structure definition to its parameter count
-    types: HashMap<&'ast Path, usize>,
+    /// Map from path of the structure definition to its corresponding type
+    types: HashMap<&'ast Path, Type>,
     /// Counter for generating fresh type variables
     newvar_counter: usize,
     /// Map from type variable id (usize) to its substitution (MonoType)
@@ -91,6 +91,15 @@ impl<'ast> TypeChecker<'ast> {
         before
     }
 
+    fn initialize_structure_type(&mut self, path: Path, argument_count: usize) -> Type {
+        if argument_count == 0 {
+            Type::Mono(MonoType::Structure(StructureType::new(path, vec![])))
+        } else {
+            let arguments = (0..argument_count).map(|_| self.newvar()).collect();
+            MonoType::Structure(StructureType::new(path, arguments)).generalize()
+        }
+    }
+
     fn evaluate_type_expression(
         &mut self,
         expression: &Located<TypeExpression<Resolved>>,
@@ -108,9 +117,8 @@ impl<'ast> TypeChecker<'ast> {
             Bound::Capture(_) => unreachable!(),
             Bound::Local(id) => self.type_variables[id.value()].clone(),
             Bound::Absolute(path) => {
-                let arguments = (0..self.types[path]).map(|_| self.newvar()).collect();
-                let structure = StructureType::new(path.clone(), arguments);
-                MonoType::Structure(structure)
+                let t = self.types[path].clone();
+                self.instantiate(t)
             }
         };
 
@@ -357,10 +365,7 @@ impl<'ast> TypeChecker<'ast> {
                 };
             }
             Pattern::Structure(structure) => {
-                let type_path = structure.type_path();
-                let arguments: Vec<_> = (0..self.types[type_path]).map(|_| self.newvar()).collect();
-                let structure_type = StructureType::new(type_path.clone(), arguments.clone());
-                let structure_type = MonoType::Structure(structure_type);
+                let structure_type = self.instantiate(self.types[structure.type_path()].clone());
 
                 if let Err((t1, t2)) = self.unify(t, &structure_type) {
                     let error = TypeCheckError::TypeMismatch { t1, t2 };
@@ -371,8 +376,11 @@ impl<'ast> TypeChecker<'ast> {
                     ));
                 };
 
-                let constructor_path = type_path.append(structure.constructor_name());
+                let constructor_path = structure.type_path().append(structure.constructor_name());
                 let constructor_type = self.names[&constructor_path].clone();
+
+                let variables = structure_type.variables();
+                let arguments = variables.iter().copied().map(MonoType::Variable);
 
                 let m = match constructor_type {
                     Type::Mono(m) => m,
@@ -441,8 +449,12 @@ impl<'ast> TypeChecker<'ast> {
                     self.name_expressions.add(name.path(), name.expression());
                 }
                 Definition::Structure(structure) => {
-                    self.types
-                        .insert(structure.path(), structure.variables().len());
+                    let t = self.initialize_structure_type(
+                        structure.path().clone(),
+                        structure.variables().len(),
+                    );
+
+                    self.types.insert(structure.path(), t);
                 }
                 _ => (),
             }
@@ -451,23 +463,14 @@ impl<'ast> TypeChecker<'ast> {
         // Type constructors
         for definition in definitions {
             if let Definition::Structure(structure) = definition {
-                let mut arguments = Vec::new();
-                let mut variables = Vec::new();
-                for _ in 0..self.types[structure.path()] {
-                    let newvar = self.newvar();
-                    arguments.push(newvar.clone());
+                let structure_type = self.instantiate(self.types[structure.path()].clone());
+                let variables = structure_type.variables();
 
-                    let MonoType::Variable(id) = newvar else {
-                        unreachable!()
-                    };
-                    variables.push(id);
+                self.type_variables
+                    .extend(variables.iter().copied().map(MonoType::Variable));
 
-                    self.type_variables.push(newvar);
-                }
-
-                let structure_type = StructureType::new(structure.path().clone(), arguments);
                 for constructor in structure.constructors() {
-                    let mut t = MonoType::Structure(structure_type.clone());
+                    let mut t = structure_type.clone();
                     for argument in constructor.data().arguments().iter().rev() {
                         let argument = self.evaluate_type_expression(argument)?;
                         t = MonoType::Arrow(ArrowType::new(argument, t));

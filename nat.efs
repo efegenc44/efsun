@@ -9,7 +9,7 @@ structure Pair[a b]
 
 import Main.Pair.Pair
 
-structure Nat[]
+structure Nat
     | Zero
     | Succ Nat
 

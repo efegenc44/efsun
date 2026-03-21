@@ -46,10 +46,13 @@ pub enum MonoType {
 
 impl MonoType {
     pub fn generalize(self) -> Type {
+        Type::Poly(self.variables(), self)
+    }
+
+    pub fn variables(&self) -> Vec<usize> {
         let mut variables = Vec::new();
         self.gather_variables(&mut variables);
-
-        Type::Poly(variables, self)
+        variables
     }
 
     fn gather_variables(&self, variables: &mut Vec<usize>) {
