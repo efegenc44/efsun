@@ -1,10 +1,11 @@
 use std::marker::PhantomData;
 
 use crate::{
+    error::{Result, located_error},
     interner::{InternId, Interner, WithInterner},
-    location::Located,
+    location::{Located, Span},
     resolution::{
-        Renamed, Resolved, Unresolved,
+        ExpressionResolver, Renamed, ResolutionError, Resolved, Unresolved,
         bound::{Bound, Capture, Path},
     },
 };
@@ -17,6 +18,30 @@ pub enum Expression<State> {
     Lambda(LambdaExpression<State>),
     Let(LetExpression<State>),
     Match(MatchExpression<State>),
+}
+
+impl Located<Expression<Unresolved>> {
+    pub fn resolve(
+        self,
+        resolver: &mut ExpressionResolver,
+    ) -> Result<Located<Expression<Resolved>>> {
+        let span = self.span();
+
+        self.map_result(|expression| {
+            let expression = match expression {
+                Expression::String(string) => Expression::String(string),
+                Expression::Path(path) => Expression::Path(path.resolve(resolver, span)?),
+                Expression::Application(application) => {
+                    Expression::Application(application.resolve(resolver)?)
+                }
+                Expression::Lambda(lambda) => Expression::Lambda(lambda.resolve(resolver)?),
+                Expression::Let(letin) => Expression::Let(letin.resolve(resolver)?),
+                Expression::Match(matc) => Expression::Match(matc.resolve(resolver)?),
+            };
+
+            Ok(expression)
+        })
+    }
 }
 
 impl<T> Expression<T> {
@@ -109,12 +134,35 @@ impl PathExpression<Unresolved> {
         }
     }
 
-    pub fn resolve(self, bound: Bound) -> PathExpression<Resolved> {
-        PathExpression {
+    pub fn resolve(
+        self,
+        resolver: &mut ExpressionResolver,
+        span: Span,
+    ) -> Result<PathExpression<Resolved>> {
+        let bound = match self.parts.data().as_slice() {
+            [] => unreachable!(),
+            [identifier] => resolver.identifier(*identifier, span)?,
+            [base, rest @ ..] => {
+                let path = resolver.base_path(base).append_parts(rest.to_vec());
+
+                let true = resolver.names().contains(&path) else {
+                    let error = ResolutionError::UnboundPath(path);
+                    return Err(located_error(
+                        error,
+                        span,
+                        resolver.current_module().source_name().to_string(),
+                    ));
+                };
+
+                Bound::Absolute(path)
+            }
+        };
+
+        Ok(PathExpression {
             parts: self.parts,
             bound: Some(bound),
             state: PhantomData,
-        }
+        })
     }
 }
 
@@ -154,6 +202,18 @@ impl PathExpression<Renamed> {
 pub struct ApplicationExpression<T> {
     function: Box<Located<Expression<T>>>,
     argument: Box<Located<Expression<T>>>,
+}
+
+impl ApplicationExpression<Unresolved> {
+    pub fn resolve(
+        self,
+        resolver: &mut ExpressionResolver,
+    ) -> Result<ApplicationExpression<Resolved>> {
+        let function = self.function.resolve(resolver)?;
+        let argument = self.argument.resolve(resolver)?;
+
+        Ok(ApplicationExpression::new(function, argument))
+    }
 }
 
 impl<T> ApplicationExpression<T> {
@@ -207,21 +267,23 @@ impl LambdaExpression<Unresolved> {
             captures: None,
         }
     }
+
+    pub fn resolve(self, resolver: &mut ExpressionResolver) -> Result<LambdaExpression<Resolved>> {
+        resolver.stack_mut().push_frame();
+        resolver.stack_mut().push_local(self.variable.into_data());
+        let expression = self.expression.resolve(resolver)?;
+        resolver.stack_mut().pop_local();
+        let captures = resolver.stack_mut().pop_frame();
+
+        Ok(LambdaExpression {
+            variable: self.variable,
+            expression: Box::new(expression),
+            captures: Some(captures),
+        })
+    }
 }
 
 impl LambdaExpression<Resolved> {
-    pub fn new(
-        variable: Located<InternId>,
-        expression: Located<Expression<Resolved>>,
-        captures: Vec<Capture>,
-    ) -> Self {
-        Self {
-            variable,
-            expression: Box::new(expression),
-            captures: Some(captures),
-        }
-    }
-
     pub fn captures(&self) -> &[Capture] {
         self.captures.as_ref().unwrap()
     }
@@ -246,6 +308,21 @@ pub struct LetExpression<T> {
     variable: Located<InternId>,
     variable_expression: Box<Located<Expression<T>>>,
     return_expression: Box<Located<Expression<T>>>,
+}
+
+impl LetExpression<Unresolved> {
+    pub fn resolve(self, resolver: &mut ExpressionResolver) -> Result<LetExpression<Resolved>> {
+        let variable_expression = self.variable_expression.resolve(resolver)?;
+        resolver.stack_mut().push_local(self.variable.into_data());
+        let return_expression = self.return_expression.resolve(resolver)?;
+        resolver.stack_mut().pop_local();
+
+        Ok(LetExpression {
+            variable: self.variable,
+            variable_expression: Box::new(variable_expression),
+            return_expression: Box::new(return_expression),
+        })
+    }
 }
 
 impl<T> LetExpression<T> {
@@ -295,6 +372,20 @@ pub struct MatchExpression<T> {
     branches: Vec<Located<MatchBranch<T>>>,
 }
 
+impl MatchExpression<Unresolved> {
+    pub fn resolve(self, resolver: &mut ExpressionResolver) -> Result<MatchExpression<Resolved>> {
+        let expression = self.expression.resolve(resolver)?;
+
+        let mut resolved_branches = Vec::new();
+        for branch in self.branches {
+            let branch = branch.map_result(|branch| branch.resolve(resolver))?;
+            resolved_branches.push(branch);
+        }
+
+        Ok(MatchExpression::new(expression, resolved_branches))
+    }
+}
+
 impl<T> MatchExpression<T> {
     pub fn new(expression: Located<Expression<T>>, branches: Vec<Located<MatchBranch<T>>>) -> Self {
         Self {
@@ -320,6 +411,23 @@ impl<T> MatchExpression<T> {
 pub struct MatchBranch<T> {
     pattern: Located<Pattern<T>>,
     expression: Located<Expression<T>>,
+}
+
+impl MatchBranch<Unresolved> {
+    pub fn resolve(self, resolver: &mut ExpressionResolver) -> Result<MatchBranch<Resolved>> {
+        let len = resolver.stack_mut().len();
+        let span = self.pattern.span();
+        let pattern = self
+            .pattern
+            .map_result(|pattern| resolver.define_pattern_locals(pattern, span))?;
+        let expression = self.expression.resolve(resolver)?;
+        resolver.stack_mut().truncate(len);
+
+        Ok(MatchBranch {
+            pattern,
+            expression,
+        })
+    }
 }
 
 impl<T> MatchBranch<T> {

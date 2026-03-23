@@ -14,10 +14,7 @@ use crate::{
     location::{Located, Span},
     parse::{
         definition::{Constructor, Definition, ImportName, LetDefinition, StructureDefinition},
-        expression::{
-            ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
-            MatchExpression, PathExpression, Pattern, StructurePattern,
-        },
+        expression::{Pattern, StructurePattern},
         type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression},
     },
 };
@@ -56,6 +53,14 @@ impl ExpressionResolver {
         }
     }
 
+    pub fn stack_mut(&mut self) -> &mut ResolutionStack<InternId> {
+        &mut self.stack
+    }
+
+    pub fn names(&self) -> &HashSet<Path> {
+        &self.names
+    }
+
     pub fn interactive_environment(mut self, interner: &mut Interner) -> Self {
         let interactive_id = interner.intern(String::from("interactive"));
         let path = Path::from_parts(vec![interactive_id]);
@@ -67,7 +72,7 @@ impl ExpressionResolver {
         self
     }
 
-    fn current_module(&self) -> &Module {
+    pub fn current_module(&self) -> &Module {
         &self.modules[&self.current_module_path]
     }
 
@@ -75,27 +80,7 @@ impl ExpressionResolver {
         self.modules.get_mut(&self.current_module_path).unwrap()
     }
 
-    pub fn expression(
-        &mut self,
-        expression: Located<Expression<Unresolved>>,
-    ) -> Result<Located<Expression<Resolved>>> {
-        let (expression, span) = expression.destruct();
-
-        let expression = match expression {
-            Expression::String(string) => Expression::String(string),
-            Expression::Path(path) => Expression::Path(self.path(path, span)?),
-            Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
-            Expression::Application(application) => {
-                Expression::Application(self.application(application)?)
-            }
-            Expression::Let(letin) => Expression::Let(self.letin(letin)?),
-            Expression::Match(matchlet) => Expression::Match(self.matchlet(matchlet)?),
-        };
-
-        Ok(Located::new(expression, span))
-    }
-
-    fn base_path(&self, base: &InternId) -> Path {
+    pub fn base_path(&self, base: &InternId) -> Path {
         if let Some(import_path) = self.current_module().imports().get(base) {
             import_path.clone()
         } else {
@@ -103,7 +88,7 @@ impl ExpressionResolver {
         }
     }
 
-    fn identifier(&mut self, identifier: InternId, span: Span) -> Result<Bound> {
+    pub fn identifier(&mut self, identifier: InternId, span: Span) -> Result<Bound> {
         match self.stack.locally_resolve(identifier) {
             Some(bound) => Ok(bound),
             None => {
@@ -122,108 +107,7 @@ impl ExpressionResolver {
         }
     }
 
-    fn path(
-        &mut self,
-        path: PathExpression<Unresolved>,
-        span: Span,
-    ) -> Result<PathExpression<Resolved>> {
-        let bound = match path.parts().data().as_slice() {
-            [] => unreachable!(),
-            [identifier] => self.identifier(*identifier, span),
-            [base, rest @ ..] => {
-                let path = self.base_path(base).append_parts(rest.to_vec());
-
-                let true = self.names.contains(&path) else {
-                    let error = ResolutionError::UnboundPath(path);
-                    return Err(located_error(
-                        error,
-                        span,
-                        self.current_module().source_name().to_string(),
-                    ));
-                };
-
-                Ok(Bound::Absolute(path))
-            }
-        };
-
-        Ok(path.resolve(bound?))
-    }
-
-    fn lambda(
-        &mut self,
-        lambda: LambdaExpression<Unresolved>,
-    ) -> Result<LambdaExpression<Resolved>> {
-        let (variable, expression) = lambda.destruct();
-
-        self.stack.push_frame();
-        self.stack.push_local(*variable.data());
-        let expression = self.expression(expression)?;
-        self.stack.pop_local();
-        let captures = self.stack.pop_frame();
-
-        Ok(LambdaExpression::<Resolved>::new(
-            variable, expression, captures,
-        ))
-    }
-
-    fn application(
-        &mut self,
-        application: ApplicationExpression<Unresolved>,
-    ) -> Result<ApplicationExpression<Resolved>> {
-        let (function, argument) = application.destruct();
-
-        let function = self.expression(function)?;
-        let argument = self.expression(argument)?;
-
-        Ok(ApplicationExpression::new(function, argument))
-    }
-
-    fn letin(&mut self, letin: LetExpression<Unresolved>) -> Result<LetExpression<Resolved>> {
-        let (variable, variable_expression, return_expression) = letin.destruct();
-
-        let variable_expression = self.expression(variable_expression)?;
-        self.stack.push_local(*variable.data());
-        let return_expression = self.expression(return_expression)?;
-        self.stack.pop_local();
-
-        Ok(LetExpression::new(
-            variable,
-            variable_expression,
-            return_expression,
-        ))
-    }
-
-    fn matchlet(
-        &mut self,
-        matchlet: MatchExpression<Unresolved>,
-    ) -> Result<MatchExpression<Resolved>> {
-        let (expression, branches) = matchlet.destruct();
-
-        let expression = self.expression(expression)?;
-
-        let mut resolved_branches = Vec::new();
-        for branch in branches {
-            let (branch, span) = branch.destruct();
-            let branch = Located::new(self.match_branch(branch)?, span);
-            resolved_branches.push(branch);
-        }
-
-        Ok(MatchExpression::new(expression, resolved_branches))
-    }
-
-    fn match_branch(&mut self, branch: MatchBranch<Unresolved>) -> Result<MatchBranch<Resolved>> {
-        let (pattern, expression) = branch.destruct();
-        let (pattern, span) = pattern.destruct();
-
-        let len = self.stack.len();
-        let pattern = self.define_pattern_locals(pattern, span)?;
-        let expression = self.expression(expression)?;
-        self.stack.truncate(len);
-
-        Ok(MatchBranch::new(Located::new(pattern, span), expression))
-    }
-
-    fn define_pattern_locals(
+    pub fn define_pattern_locals(
         &mut self,
         pattern: Pattern<Unresolved>,
         span: Span,
@@ -539,7 +423,7 @@ impl ExpressionResolver {
     ) -> Result<LetDefinition<Resolved>> {
         let (identifier, expression) = let_definition.destruct();
 
-        let expression = self.expression(expression)?;
+        let expression = expression.resolve(self)?;
         let path = self.current_module_path.append(*identifier.data());
 
         Ok(LetDefinition::<Resolved>::new(identifier, expression, path))
