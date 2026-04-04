@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::{
     interner::{InternId, Interner},
-    parse::expression::Pattern,
+    parse::pattern,
     resolution::{
         Resolved,
         bound::{Bound, Path},
@@ -199,11 +199,11 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
         for branch in matchlet.branches() {
             match branch.pattern() {
-                Pattern::Any(_) => {
+                pattern::Pattern::Any(_) => {
                     instructions.extend(self.atom(branch.matched()));
                     instructions.extend(self.expression(branch.expression()));
                 }
-                Pattern::String(string) => {
+                pattern::Pattern::String(string) => {
                     instructions.extend(self.atom(branch.matched()));
                     instructions.extend(self.string(*string));
                     instructions.push(Instruction::StringEquals);
@@ -211,12 +211,12 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                     instructions.push(Instruction::SkipIfFalse(expression.len()));
                     instructions.extend(expression);
                 }
-                Pattern::Structure(structure) => {
+                pattern::Pattern::Structure(structure) => {
                     instructions.extend(self.atom(branch.matched()));
                     instructions.push(Instruction::StructurePatternMatch(structure.clone()));
                     let mut ins = vec![];
                     ins.extend(self.atom(branch.matched()));
-                    ins.push(Instruction::PatternLocals(Pattern::Structure(
+                    ins.push(Instruction::PatternLocals(pattern::Pattern::Structure(
                         structure.clone(),
                     )));
                     ins.extend(self.expression(branch.expression()));

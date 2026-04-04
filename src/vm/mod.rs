@@ -5,7 +5,7 @@ use std::rc::Rc;
 use crate::{
     compilation::{ConstantPool, instruction::Instruction},
     interner::Interner,
-    parse::expression::Pattern,
+    parse::pattern::Pattern,
     resolution::{Renamed, bound::Capture},
 };
 

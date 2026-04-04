@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     compilation::ConstantPool,
-    parse::expression::{Pattern, StructurePattern},
+    parse::pattern,
     resolution::{
         Renamed,
         bound::{Capture, Path},
@@ -20,8 +20,8 @@ pub enum Instruction {
     GetAbsolutePath(Path),
     Jump(usize),
     StringEquals,
-    StructurePatternMatch(StructurePattern<Renamed>),
-    PatternLocals(Pattern<Renamed>),
+    StructurePatternMatch(pattern::structure::Structure<Renamed>),
+    PatternLocals(pattern::Pattern<Renamed>),
     SkipIfFalse(usize),
     Skip(usize),
     SetBase,

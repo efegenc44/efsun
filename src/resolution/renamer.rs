@@ -3,10 +3,8 @@ use crate::{
     location::Located,
     parse::{
         definition::{Definition, LetDefinition},
-        expression::{
-            ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
-            MatchExpression, PathExpression, Pattern, StructurePattern,
-        },
+        expression::{self, Expression},
+        pattern::{self, Pattern},
     },
     resolution::{Renamed, Resolved, bound::Bound, frame::CheckStack},
 };
@@ -48,60 +46,86 @@ impl Renamer {
                 Expression::Application(self.application(application))
             }
             Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)),
-            Expression::Let(letin) => Expression::Let(self.letin(letin)),
-            Expression::Match(matchlet) => Expression::Match(self.matchlet(matchlet)),
+            Expression::LetIn(letin) => Expression::LetIn(self.letin(letin)),
+            Expression::MatchAs(matchlet) => Expression::MatchAs(self.matchlet(matchlet)),
         };
 
         Located::new(expression, span)
     }
 
-    fn path(&mut self, path: PathExpression<Resolved>) -> PathExpression<Renamed> {
-        match path.bound() {
+    fn path(&mut self, path: expression::Path<Resolved>) -> expression::Path<Renamed> {
+        let expression::path::ResolvedObservation { parts, bound } = path.observe();
+
+        let observation = match &bound {
             Bound::Local(id) => {
                 let name = self.stack.get_local(*id);
-                path.rename(name)
+
+                let (mut parts, span) = parts.destruct();
+                *parts.last_mut().unwrap() = name;
+
+                expression::path::RenamedObservation {
+                    parts: Located::new(parts, span),
+                    bound,
+                }
             }
             Bound::Capture(id) => {
                 let name = self.stack.get_capture(*id);
-                path.rename(name)
+
+                let (mut parts, span) = parts.destruct();
+                *parts.last_mut().unwrap() = name;
+
+                expression::path::RenamedObservation {
+                    parts: Located::new(parts, span),
+                    bound,
+                }
             }
-            Bound::Absolute(_) => path.rename_absolute(),
-        }
+            Bound::Absolute(_) => expression::path::RenamedObservation { parts, bound },
+        };
+
+        observation.into()
     }
 
     fn application(
         &mut self,
-        application: ApplicationExpression<Resolved>,
-    ) -> ApplicationExpression<Renamed> {
-        let (function, argument) = application.destruct();
+        application: expression::Application<Resolved>,
+    ) -> expression::Application<Renamed> {
+        let expression::application::Observation { function, argument } = application.observe();
 
         let function = self.expression(function);
         let argument = self.expression(argument);
 
-        ApplicationExpression::new(function, argument)
+        expression::application::Observation { function, argument }.into()
     }
 
-    fn lambda(&mut self, lambda: LambdaExpression<Resolved>) -> LambdaExpression<Renamed> {
-        let captures = lambda.captures().to_vec();
-        let (variable, experssion) = lambda.destruct();
+    fn lambda(&mut self, lambda: expression::Lambda<Resolved>) -> expression::Lambda<Renamed> {
+        let expression::lambda::ResolvedObservation {
+            variable,
+            expression,
+            captures,
+        } = lambda.observe();
 
         let newname = self.new_name();
 
         self.stack.push_frame(captures.clone());
         self.stack.push_local(newname);
-        let expression = self.expression(experssion);
+        let expression = self.expression(expression);
         self.stack.pop_local();
         self.stack.pop_frame();
 
-        LambdaExpression::<Renamed>::new(
-            Located::new(newname, variable.span()),
+        expression::lambda::RenamedObservation {
+            variable: Located::new(newname, variable.span()),
             expression,
             captures,
-        )
+        }
+        .into()
     }
 
-    fn letin(&mut self, letin: LetExpression<Resolved>) -> LetExpression<Renamed> {
-        let (variable, variable_expression, return_expression) = letin.destruct();
+    fn letin(&mut self, letin: expression::LetIn<Resolved>) -> expression::LetIn<Renamed> {
+        let expression::letin::Observation {
+            variable,
+            variable_expression,
+            return_expression,
+        } = letin.observe();
 
         let variable_expression = self.expression(variable_expression);
 
@@ -111,15 +135,19 @@ impl Renamer {
         let return_expression = self.expression(return_expression);
         self.stack.pop_local();
 
-        LetExpression::new(
-            Located::new(new_name, variable.span()),
+        expression::letin::Observation {
+            variable: Located::new(new_name, variable.span()),
             variable_expression,
             return_expression,
-        )
+        }
+        .into()
     }
 
-    fn matchlet(&mut self, matchlet: MatchExpression<Resolved>) -> MatchExpression<Renamed> {
-        let (expression, branches) = matchlet.destruct();
+    fn matchlet(&mut self, matchas: expression::MatchAs<Resolved>) -> expression::MatchAs<Renamed> {
+        let expression::matchas::Observation {
+            expression,
+            branches,
+        } = matchas.observe();
 
         let expression = self.expression(expression);
 
@@ -130,11 +158,21 @@ impl Renamer {
             renamed_branches.push(branch);
         }
 
-        MatchExpression::new(expression, renamed_branches)
+        expression::matchas::Observation {
+            expression,
+            branches: renamed_branches,
+        }
+        .into()
     }
 
-    fn match_branch(&mut self, branch: MatchBranch<Resolved>) -> MatchBranch<Renamed> {
-        let (pattern, expression) = branch.destruct();
+    fn match_branch(
+        &mut self,
+        branch: expression::matchas::Branch<Resolved>,
+    ) -> expression::matchas::Branch<Renamed> {
+        let expression::matchas::branch::Observation {
+            pattern,
+            expression,
+        } = branch.observe();
         let (pattern, span) = pattern.destruct();
 
         let len = self.stack.len();
@@ -142,7 +180,11 @@ impl Renamer {
         let expression = self.expression(expression);
         self.stack.truncate(len);
 
-        MatchBranch::new(Located::new(pattern, span), expression)
+        expression::matchas::branch::Observation {
+            pattern: Located::new(pattern, span),
+            expression,
+        }
+        .into()
     }
 
     fn pattern(&mut self, pattern: Pattern<Resolved>) -> Pattern<Renamed> {
@@ -154,7 +196,13 @@ impl Renamer {
             }
             Pattern::String(id) => Pattern::String(id),
             Pattern::Structure(structure) => {
-                let (parts, arguments, bound, constructor_name, order) = structure.destruct();
+                let pattern::structure::ResolvedObservation {
+                    parts,
+                    arguments,
+                    type_path,
+                    constructor_name,
+                    order,
+                } = structure.observe();
 
                 let mut renamed_arguments = Vec::new();
                 for argument in arguments {
@@ -162,13 +210,16 @@ impl Renamer {
                     renamed_arguments.push(Located::new(self.pattern(argument), span));
                 }
 
-                Pattern::Structure(StructurePattern::<Renamed>::new(
+                let structure = pattern::structure::RenamedObservation {
                     parts,
-                    renamed_arguments,
-                    bound,
+                    arguments: renamed_arguments,
+                    type_path,
                     constructor_name,
                     order,
-                ))
+                }
+                .into();
+
+                Pattern::Structure(structure)
             }
         }
     }

@@ -8,10 +8,8 @@ use crate::{
     location::{Located, Span},
     parse::{
         definition::{Definition, LetDefinition},
-        expression::{
-            ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
-            MatchExpression, PathExpression, Pattern,
-        },
+        expression::{self, Expression},
+        pattern::Pattern,
         type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression},
     },
     resolution::{
@@ -29,7 +27,7 @@ pub struct TypeChecker<'ast> {
     /// Stack for type variables in structure definitions
     type_variables: Vec<MonoType>,
     /// True if currently type checking a lambda expression.
-    ///     Its purpose is to check for cyclic definitions  
+    ///     Its purpose is to check for cyclic definitions
     in_lambda: bool,
     /// Map for accesing expressions of let definitions and keeping track of cylic definitions
     name_expressions: ExpressionMap<'ast>,
@@ -160,8 +158,8 @@ impl<'ast> TypeChecker<'ast> {
                 self.application(application, expression.span())
             }
             Expression::Lambda(lambda) => self.lambda(lambda),
-            Expression::Let(letin) => self.letin(letin),
-            Expression::Match(matchlet) => self.matchlet(matchlet),
+            Expression::LetIn(letin) => self.letin(letin),
+            Expression::MatchAs(matchlet) => self.matchlet(matchlet),
         }
     }
 
@@ -222,7 +220,7 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn path(&mut self, path: &'ast PathExpression<Resolved>, span: Span) -> Result<MonoType> {
+    fn path(&mut self, path: &'ast expression::Path<Resolved>, span: Span) -> Result<MonoType> {
         let t = match path.bound() {
             Bound::Local(id) => self.stack.get_local(*id),
             Bound::Capture(id) => self.stack.get_capture(*id),
@@ -268,7 +266,7 @@ impl<'ast> TypeChecker<'ast> {
 
     fn application(
         &mut self,
-        application: &'ast ApplicationExpression<Resolved>,
+        application: &'ast expression::Application<Resolved>,
         span: Span,
     ) -> Result<MonoType> {
         let return_type = self.newvar();
@@ -285,7 +283,7 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn lambda(&mut self, lambda: &'ast LambdaExpression<Resolved>) -> Result<MonoType> {
+    fn lambda(&mut self, lambda: &'ast expression::Lambda<Resolved>) -> Result<MonoType> {
         let argument = self.newvar();
 
         self.stack.push_frame(lambda.captures().to_vec());
@@ -301,7 +299,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(MonoType::Arrow(arrow))
     }
 
-    fn letin(&mut self, letin: &'ast LetExpression<Resolved>) -> Result<MonoType> {
+    fn letin(&mut self, letin: &'ast expression::LetIn<Resolved>) -> Result<MonoType> {
         let variable_type = self.infer(letin.variable_expression())?;
         let variable_type = variable_type.generalize();
 
@@ -312,7 +310,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(self.substitute(return_type))
     }
 
-    fn matchlet(&mut self, matchlet: &'ast MatchExpression<Resolved>) -> Result<MonoType> {
+    fn matchlet(&mut self, matchlet: &'ast expression::MatchAs<Resolved>) -> Result<MonoType> {
         let t = self.infer(matchlet.expression())?;
         let return_type = self.newvar();
 
@@ -335,7 +333,7 @@ impl<'ast> TypeChecker<'ast> {
     fn match_branch(
         &mut self,
         t: &MonoType,
-        branch: &'ast MatchBranch<Resolved>,
+        branch: &'ast expression::matchas::Branch<Resolved>,
     ) -> Result<MonoType> {
         let len = self.stack.len();
         self.match_pattern_and_define_locals(t, branch.pattern())?;

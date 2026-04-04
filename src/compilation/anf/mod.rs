@@ -4,7 +4,8 @@ use crate::{
     interner::{InternId, Interner, WithInterner},
     parse::{
         definition::{self, Definition, Module, Program},
-        expression::{self, Expression, Pattern},
+        expression::{self, Expression},
+        pattern::Pattern,
     },
     resolution::{
         Renamed, Resolved, Unresolved,
@@ -624,13 +625,13 @@ impl ANFTransformer {
             Expression::Path(path) => self.path(path, k),
             Expression::Application(application) => self.application(application, k),
             Expression::Lambda(lambda) => self.lambda(lambda, k),
-            Expression::Let(letin) => self.letin(letin, k),
-            Expression::Match(matc) => self.matc(matc, k),
+            Expression::LetIn(letin) => self.letin(letin, k),
+            Expression::MatchAs(matchas) => self.matchas(matchas, k),
         }
     }
 
-    fn path(&self, path: expression::PathExpression<Renamed>, k: Continuation) -> ANF<Unresolved> {
-        let (parts, bound) = path.destruct();
+    fn path(&self, path: expression::Path<Renamed>, k: Continuation) -> ANF<Unresolved> {
+        let expression::path::RenamedObservation { parts, bound } = path.observe();
 
         let path_expression = match &bound {
             Bound::Absolute(_) => PathExpression::new(ANFPath::Normal(parts.into_data()), bound),
@@ -644,16 +645,16 @@ impl ANFTransformer {
 
     fn application(
         &self,
-        application: expression::ApplicationExpression<Renamed>,
+        application: expression::Application<Renamed>,
         k: Continuation,
     ) -> ANF<Unresolved> {
-        let (function, argument) = application.destruct();
+        let expression::application::Observation { function, argument } = application.observe();
 
         self.expression(
             argument.into_data(),
             Box::new(|argument| {
                 self.expression(
-                    function.clone().into_data(),
+                    function.into_data(),
                     Box::new(|function| {
                         let id = self.new_local_id();
                         let path = Atom::Path(PathExpression::local(ANFPath::ANFLocal(id)));
@@ -670,12 +671,12 @@ impl ANFTransformer {
         )
     }
 
-    fn lambda(
-        &self,
-        lambda: expression::LambdaExpression<Renamed>,
-        k: Continuation,
-    ) -> ANF<Unresolved> {
-        let (variable, expression) = lambda.destruct();
+    fn lambda(&self, lambda: expression::Lambda<Renamed>, k: Continuation) -> ANF<Unresolved> {
+        let expression::lambda::RenamedObservation {
+            variable,
+            expression,
+            captures: _,
+        } = lambda.observe();
 
         k(Atom::Lambda(LambdaExpression::<Unresolved>::new(
             *variable.data(),
@@ -683,8 +684,12 @@ impl ANFTransformer {
         )))
     }
 
-    fn letin(&self, letin: expression::LetExpression<Renamed>, k: Continuation) -> ANF<Unresolved> {
-        let (variable, variable_expression, return_expression) = letin.destruct();
+    fn letin(&self, letin: expression::LetIn<Renamed>, k: Continuation) -> ANF<Unresolved> {
+        let expression::letin::Observation {
+            variable,
+            variable_expression,
+            return_expression,
+        } = letin.observe();
 
         self.expression(
             variable_expression.into_data(),
@@ -692,14 +697,17 @@ impl ANFTransformer {
                 ANF::Let(LetExpression::new(
                     variable.into_data(),
                     variable_expression,
-                    self.expression(return_expression.clone().into_data(), k),
+                    self.expression(return_expression.into_data(), k),
                 ))
             }),
         )
     }
 
-    fn matc(&self, matc: expression::MatchExpression<Renamed>, k: Continuation) -> ANF<Unresolved> {
-        let (expression, branches) = matc.destruct();
+    fn matchas(&self, matchas: expression::MatchAs<Renamed>, k: Continuation) -> ANF<Unresolved> {
+        let expression::matchas::Observation {
+            expression,
+            branches,
+        } = matchas.observe();
 
         self.expression(
             expression.into_data(),
@@ -713,8 +721,12 @@ impl ANFTransformer {
                 let id = self.new_local_id();
 
                 let mut branch_anfs = Vec::new();
-                for branch in branches.clone() {
-                    let (pattern, branch_expression) = branch.into_data().destruct();
+                for branch in branches {
+                    let expression::matchas::branch::Observation {
+                        pattern,
+                        expression: branch_expression,
+                    } = branch.into_data().observe();
+
                     let path = Atom::Path(PathExpression::local(ANFPath::ANFLocal(id)));
 
                     let k = |expression| ANF::Jump(Jump::new(join_label_id, expression));

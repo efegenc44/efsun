@@ -1,6 +1,7 @@
 pub mod definition;
 pub mod expression;
 pub mod lex;
+pub mod pattern;
 pub mod type_expression;
 
 use std::iter::Peekable;
@@ -14,12 +15,11 @@ use crate::{
 
 use lex::{Lexer, token::Token};
 
-use expression::{
-    ApplicationExpression, Expression, LambdaExpression, LetExpression, MatchBranch,
-    MatchExpression, PathExpression, Pattern, StructurePattern,
-};
+use expression::Expression;
 
 use type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression};
+
+use pattern::Pattern;
 
 use definition::{
     Constructor, Definition, ImportDefinition, ImportName, LetDefinition, ModuleDefinition,
@@ -164,7 +164,12 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let expression = self.expression()?;
         let end = expression.span().end();
 
-        let lambda = LambdaExpression::<Unresolved>::new(variable, expression);
+        let lambda = expression::lambda::UnresolvedObservation {
+            variable,
+            expression,
+        }
+        .into();
+
         let expression = Located::new(Expression::Lambda(lambda), Span::new(start, end));
 
         Ok(expression)
@@ -179,9 +184,14 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let return_expression = self.expression()?;
         let end = return_expression.span().end();
 
-        let letin =
-            LetExpression::<Unresolved>::new(variable, variable_expression, return_expression);
-        let expression = Located::new(Expression::Let(letin), Span::new(start, end));
+        let letin = expression::letin::Observation {
+            variable,
+            variable_expression,
+            return_expression,
+        }
+        .into();
+
+        let expression = Located::new(Expression::LetIn(letin), Span::new(start, end));
 
         Ok(expression)
     }
@@ -198,19 +208,27 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             branches.push(branch);
         }
 
-        let matchlet = MatchExpression::new(expression, branches);
-        let expression = Located::new(Expression::Match(matchlet), Span::new(start, end));
+        let matchlet = expression::matchas::Observation {
+            expression,
+            branches,
+        }
+        .into();
+        let expression = Located::new(Expression::MatchAs(matchlet), Span::new(start, end));
 
         Ok(expression)
     }
 
-    fn match_branch(&mut self) -> Result<Located<MatchBranch<Unresolved>>> {
+    fn match_branch(&mut self) -> Result<Located<expression::matchas::Branch<Unresolved>>> {
         let pattern = self.pattern()?;
         let start = pattern.span().start();
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
         let end = expression.span().end();
-        let branch = MatchBranch::new(pattern, expression);
+        let branch = expression::matchas::branch::Observation {
+            pattern,
+            expression,
+        }
+        .into();
         let branch = Located::new(branch, Span::new(start, end));
 
         Ok(branch)
@@ -262,7 +280,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             arguments.push(pattern);
         }
 
-        let structure = StructurePattern::<Unresolved>::new(parts, arguments);
+        let structure = pattern::structure::UnresolvedObservation { parts, arguments }.into();
         let pattern = Located::new(Pattern::Structure(structure), Span::new(start, end));
 
         Ok(pattern)
@@ -305,7 +323,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn path(&mut self) -> Result<Located<Expression<Unresolved>>> {
         let parts = self.path_parts()?;
         let span = parts.span();
-        let path = PathExpression::new(parts);
+        let path = expression::path::UnresolvedObservation { parts }.into();
         let expression = Located::new(Expression::Path(path), span);
 
         Ok(expression)
@@ -327,7 +345,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         while self.peek_is_one_of(PRIMARY_EXPRESSION_START)? {
             let argument = self.primary()?;
             let end = argument.span().end();
-            let application = ApplicationExpression::new(function, argument);
+            let application = expression::application::Observation { function, argument }.into();
             function = Located::new(Expression::Application(application), Span::new(start, end));
         }
 

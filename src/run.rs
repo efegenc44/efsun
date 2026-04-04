@@ -23,12 +23,11 @@ fn expression(
     vm: &mut VM,
     interner: &mut Interner,
 ) -> Result<(Value, MonoType, ConstantPool)> {
-    let mut resolver = ExpressionResolver::new().interactive_environment(interner);
-
-    let resolved = Parser::from_source("<interactive>".to_string(), source, interner)
-        .expression_repl()?
-        .resolve(&mut resolver)?;
-
+    let expression =
+        Parser::from_source("<interactive>".to_string(), source, interner).expression_repl()?;
+    let resolved = ExpressionResolver::new()
+        .interactive_environment(interner)
+        .expression(expression)?;
     let t = TypeChecker::new()
         .interactive_environment()
         .infer(&resolved)?;

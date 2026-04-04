@@ -5,7 +5,6 @@ use crate::{
     resolution::{Renamed, Resolved, Unresolved, bound::Path},
 };
 
-#[derive(Clone)]
 pub enum Definition<State> {
     Module(ModuleDefinition),
     Name(LetDefinition<State>),
@@ -63,7 +62,6 @@ impl ModuleDefinition {
     }
 }
 
-#[derive(Clone)]
 pub struct LetDefinition<T> {
     identifier: Located<InternId>,
     expression: Located<Expression<T>>,

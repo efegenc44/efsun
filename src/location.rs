@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use crate::error::Result;
-
 #[derive(Clone, Copy, Debug)]
 pub struct SourceLocation {
     row: usize,
@@ -100,13 +98,6 @@ impl<T> Located<T> {
 
     pub fn span(&self) -> Span {
         self.span
-    }
-
-    pub fn map_result<F, Y>(self, mut f: F) -> Result<Located<Y>>
-    where
-        F: FnMut(T) -> Result<Y>,
-    {
-        Ok(Located::new(f(self.data)?, self.span))
     }
 }
 
