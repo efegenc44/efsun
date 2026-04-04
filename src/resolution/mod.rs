@@ -13,10 +13,10 @@ use crate::{
     interner::{InternId, Interner},
     location::{Located, Span},
     parse::{
-        definition::{Constructor, Definition, ImportName, LetDefinition, StructureDefinition},
+        definition::{self, Definition},
         expression::{self, Expression},
         pattern::{self, Pattern},
-        type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression},
+        type_expression::{self, TypeExpression},
     },
 };
 
@@ -361,12 +361,14 @@ impl ExpressionResolver {
 
     fn type_path(
         &mut self,
-        path: PathTypeExpression<Unresolved>,
+        path: type_expression::Path<Unresolved>,
         span: Span,
-    ) -> Result<PathTypeExpression<Resolved>> {
-        let bound = match &path.parts().data()[..] {
+    ) -> Result<type_expression::Path<Resolved>> {
+        let type_expression::path::UnresolvedObservation { parts } = path.observe();
+
+        let bound = match parts.data().as_slice() {
             [] => unreachable!(),
-            [identifier] => self.type_identifier(identifier, span),
+            [identifier] => self.type_identifier(identifier, span)?,
             [base, rest @ ..] => {
                 let path = self.base_path(base).append_parts(rest.to_vec());
 
@@ -379,18 +381,18 @@ impl ExpressionResolver {
                     ));
                 };
 
-                Ok(Bound::Absolute(path))
+                Bound::Absolute(path)
             }
         };
 
-        Ok(path.resolve(bound?))
+        Ok(type_expression::path::ResolvedObservation { parts, bound }.into())
     }
 
     fn type_application(
         &mut self,
-        application: ApplicationTypeExpression<Unresolved>,
-    ) -> Result<ApplicationTypeExpression<Resolved>> {
-        let (function, arguments) = application.destruct();
+        application: type_expression::Application<Unresolved>,
+    ) -> Result<type_expression::Application<Resolved>> {
+        let type_expression::application::Observation { function, arguments } = application.observe();
 
         let function = self.type_expression(function)?;
         let mut resolved_arguments = Vec::new();
@@ -398,7 +400,7 @@ impl ExpressionResolver {
             resolved_arguments.push(self.type_expression(argument)?);
         }
 
-        Ok(ApplicationTypeExpression::new(function, resolved_arguments))
+        Ok(type_expression::application::Observation { function, arguments: resolved_arguments }.into())
     }
 
     pub fn program(
@@ -439,7 +441,7 @@ impl ExpressionResolver {
         definitions: (&[Definition<Unresolved>], &String),
     ) -> Result<Path> {
         for definition in definitions.0 {
-            if let Definition::Module(module) = definition {
+            if let Definition::ModulePath(module) = definition {
                 let module_path = Path::from_parts(module.parts().data().to_vec());
                 self.modules
                     .insert(module_path.clone(), Module::empty(definitions.1.clone()));
@@ -493,7 +495,7 @@ impl ExpressionResolver {
             if let Definition::Import(import) = definition {
                 let base = Path::from_parts(import.module_path().data().to_vec());
 
-                match import.name() {
+                match import.subimport() {
                     Some(import_name) => {
                         self.collect_import_name(import_name, &base)?;
                     }
@@ -509,20 +511,24 @@ impl ExpressionResolver {
         Ok(())
     }
 
-    fn collect_import_name(&mut self, import_name: &ImportName, base: &Path) -> Result<()> {
+    fn collect_import_name(
+        &mut self,
+        import_name: &definition::import::Subimport,
+        base: &Path,
+    ) -> Result<()> {
         match import_name {
-            ImportName::As(as_name) => {
+            definition::import::Subimport::As(as_name) => {
                 self.current_module_mut()
                     .imports_mut()
                     .insert(*as_name, base.clone());
             }
-            ImportName::Import(imports) => {
+            definition::import::Subimport::Import(imports) => {
                 for import in imports {
                     let base = base.append_parts(import.module_path().data().to_vec());
 
-                    match import.name() {
-                        Some(import_name) => {
-                            self.collect_import_name(import_name, &base)?;
+                    match import.subimport() {
+                        Some(subimport) => {
+                            self.collect_import_name(subimport, &base)?;
                         }
                         None => {
                             self.current_module_mut()
@@ -557,8 +563,8 @@ impl ExpressionResolver {
 
     fn definition(&mut self, definiton: Definition<Unresolved>) -> Result<Definition<Resolved>> {
         let definition = match definiton {
-            Definition::Module(module) => Definition::Module(module),
-            Definition::Name(name) => Definition::Name(self.let_definition(name)?),
+            Definition::ModulePath(module) => Definition::ModulePath(module),
+            Definition::Name(name) => Definition::Name(self.name_definition(name)?),
             Definition::Import(import) => Definition::Import(import),
             Definition::Structure(structure) => {
                 Definition::Structure(self.structure_definition(structure)?)
@@ -568,23 +574,35 @@ impl ExpressionResolver {
         Ok(definition)
     }
 
-    fn let_definition(
+    fn name_definition(
         &mut self,
-        let_definition: LetDefinition<Unresolved>,
-    ) -> Result<LetDefinition<Resolved>> {
-        let (identifier, expression) = let_definition.destruct();
+        name_definition: definition::Name<Unresolved>,
+    ) -> Result<definition::Name<Resolved>> {
+        let definition::name::UnresolvedObservation {
+            identifier,
+            expression,
+        } = name_definition.observe();
 
         let expression = self.expression(expression)?;
         let path = self.current_module_path.append(*identifier.data());
 
-        Ok(LetDefinition::<Resolved>::new(identifier, expression, path))
+        Ok(definition::name::ResolvedObservation {
+            identifier,
+            expression,
+            path,
+        }
+        .into())
     }
 
     fn structure_definition(
         &mut self,
-        structure_definition: StructureDefinition<Unresolved>,
-    ) -> Result<StructureDefinition<Resolved>> {
-        let (name, variables, constructors) = structure_definition.destruct();
+        structure_definition: definition::Structure<Unresolved>,
+    ) -> Result<definition::Structure<Resolved>> {
+        let definition::structure::UnresolvedObservation {
+            name,
+            variables,
+            constructors,
+        } = structure_definition.observe();
 
         let structure_path = self.current_module_path.append(*name.data());
 
@@ -593,7 +611,8 @@ impl ExpressionResolver {
         let mut resolved_constructors = Vec::new();
         for constructor in constructors {
             let (constructor, span) = constructor.destruct();
-            let (name, arguments) = constructor.destruct();
+            let definition::structure::constructor::UnresolvedObservation { name, arguments } =
+                constructor.observe();
 
             let mut resolved_arguments = Vec::new();
             for argument in arguments {
@@ -602,18 +621,24 @@ impl ExpressionResolver {
 
             let path = structure_path.append(*name.data());
             resolved_constructors.push(Located::new(
-                Constructor::<Resolved>::new(name, resolved_arguments, path),
+                definition::structure::constructor::ResolvedObservation {
+                    name,
+                    arguments: resolved_arguments,
+                    path,
+                }
+                .into(),
                 span,
             ));
         }
         self.type_variables.clear();
 
-        Ok(StructureDefinition::<Resolved>::new(
+        Ok(definition::structure::ResolvedObservation {
             name,
             variables,
-            resolved_constructors,
-            structure_path,
-        ))
+            constructors: resolved_constructors,
+            path: structure_path,
+        }
+        .into())
     }
 }
 

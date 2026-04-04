@@ -2,7 +2,7 @@ use crate::{
     interner::InternId,
     location::Located,
     parse::{
-        definition::{Definition, LetDefinition},
+        definition::{self, Definition},
         expression::{self, Expression},
         pattern::{self, Pattern},
     },
@@ -243,28 +243,46 @@ impl Renamer {
         for definition in definitions {
             match definition {
                 Definition::Name(name) => {
-                    let definition = Definition::Name(self.let_definition(name));
+                    let definition = Definition::Name(self.name_definition(name));
                     renamed_definitions.push(definition);
                 }
                 Definition::Structure(structure) => {
-                    let definition = Definition::Structure(structure.renamed());
+                    let definition = Definition::Structure(self.structure_definition(structure));
                     renamed_definitions.push(definition);
                 }
-                Definition::Module(_) | Definition::Import(_) => (),
+                Definition::ModulePath(_) | Definition::Import(_) => (),
             }
         }
 
         renamed_definitions
     }
 
-    fn let_definition(
+    fn name_definition(
         &mut self,
-        let_definition: LetDefinition<Resolved>,
-    ) -> LetDefinition<Renamed> {
-        let (name, expression, path) = let_definition.destruct();
+        name_definition: definition::Name<Resolved>,
+    ) -> definition::Name<Renamed> {
+        let definition::name::ResolvedObservation {
+            identifier,
+            expression,
+            path,
+        } = name_definition.observe();
 
         let expression = self.expression(expression);
 
-        LetDefinition::<Renamed>::new(name, expression, path)
+        definition::name::RenamedObservation {
+            identifier,
+            expression,
+            path,
+        }
+        .into()
+    }
+
+    fn structure_definition(
+        &self,
+        structure_definition: definition::Structure<Resolved>,
+    ) -> definition::Structure<Renamed> {
+        // NOTE: Nothing to rename in structure definitions
+        //   make state Renamed for bureaucracy
+        unsafe { std::mem::transmute(structure_definition) }
     }
 }

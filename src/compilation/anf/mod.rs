@@ -578,7 +578,7 @@ impl ANFTransformer {
         for definition in module {
             match definition {
                 Definition::Name(let_definition) => {
-                    anf_module.push(self.let_definition(let_definition));
+                    anf_module.push(self.name_definition(let_definition));
                 }
                 Definition::Structure(structure_definition) => {
                     anf_module.push(self.structure_definition(structure_definition));
@@ -590,11 +590,15 @@ impl ANFTransformer {
         anf_module
     }
 
-    fn let_definition(
+    fn name_definition(
         &self,
-        let_definition: definition::LetDefinition<Renamed>,
+        name_definition: definition::Name<Renamed>,
     ) -> ANFDefinition<Unresolved> {
-        let (identifier, expression, path) = let_definition.destruct();
+        let definition::name::RenamedObservation {
+            identifier,
+            expression,
+            path,
+        } = name_definition.observe();
 
         let expression = self.transform(expression.destruct().0);
 
@@ -603,7 +607,7 @@ impl ANFTransformer {
 
     fn structure_definition(
         &self,
-        structure_definition: definition::StructureDefinition<Renamed>,
+        structure_definition: definition::Structure<Renamed>,
     ) -> ANFDefinition<Unresolved> {
         let constructors = structure_definition
             .constructors()

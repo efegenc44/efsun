@@ -7,10 +7,10 @@ use crate::{
     interner::Interner,
     location::{Located, Span},
     parse::{
-        definition::{Definition, LetDefinition},
+        definition::{self, Definition},
         expression::{self, Expression},
         pattern::Pattern,
-        type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression},
+        type_expression::{self, TypeExpression},
     },
     resolution::{
         Resolved,
@@ -110,7 +110,7 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn evaluate_type_path(&mut self, path: &PathTypeExpression<Resolved>) -> Result<MonoType> {
+    fn evaluate_type_path(&mut self, path: &type_expression::Path<Resolved>) -> Result<MonoType> {
         let t = match path.bound() {
             Bound::Capture(_) => unreachable!(),
             Bound::Local(id) => self.type_variables[id.value()].clone(),
@@ -125,7 +125,7 @@ impl<'ast> TypeChecker<'ast> {
 
     fn evaluate_type_application(
         &mut self,
-        application: &ApplicationTypeExpression<Resolved>,
+        application: &type_expression::Application<Resolved>,
         span: Span,
     ) -> Result<MonoType> {
         let m = self.evaluate_type_expression(application.function())?;
@@ -485,23 +485,23 @@ impl<'ast> TypeChecker<'ast> {
         Ok(())
     }
 
-    fn let_definition(&mut self, let_definition: &'ast LetDefinition<Resolved>) -> Result<()> {
-        self.name_expressions.visiting(let_definition.path());
-        let m = self.infer(let_definition.expression())?;
+    fn let_definition(&mut self, name_definition: &'ast definition::Name<Resolved>) -> Result<()> {
+        self.name_expressions.visiting(name_definition.path());
+        let m = self.infer(name_definition.expression())?;
 
-        let t = self.instantiate(self.names[let_definition.path()].clone());
+        let t = self.instantiate(self.names[name_definition.path()].clone());
         if let Err((t1, t2)) = self.unify(&m, &t) {
             let error = TypeCheckError::TypeMismatch { t1, t2 };
             return Err(located_error(
                 error,
-                let_definition.identifier().span(),
+                name_definition.identifier().span(),
                 self.current_source_name.clone(),
             ));
         };
 
         let t = m.generalize();
-        self.names.insert(let_definition.path(), t);
-        self.name_expressions.leaving(let_definition.path());
+        self.names.insert(name_definition.path(), t);
+        self.name_expressions.leaving(name_definition.path());
 
         Ok(())
     }

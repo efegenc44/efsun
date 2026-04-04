@@ -15,16 +15,10 @@ use crate::{
 
 use lex::{Lexer, token::Token};
 
+use definition::Definition;
 use expression::Expression;
-
-use type_expression::{ApplicationTypeExpression, PathTypeExpression, TypeExpression};
-
 use pattern::Pattern;
-
-use definition::{
-    Constructor, Definition, ImportDefinition, ImportName, LetDefinition, ModuleDefinition,
-    StructureDefinition,
-};
+use type_expression::TypeExpression;
 
 const PRIMARY_EXPRESSION_START: &[Token] = &[
     Token::String(InternId::dummy()),
@@ -391,7 +385,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let parts = self.path_parts()?;
         let span = parts.span();
 
-        let path = PathTypeExpression::new(parts);
+        let path = type_expression::path::UnresolvedObservation { parts }.into();
         let mut type_expression = Located::new(TypeExpression::Path(path), span);
 
         if self.next_if_peek(Token::LeftBracket)? {
@@ -402,7 +396,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             }
             let end = self.expect(Token::RightBracket)?.span().end();
 
-            let application = ApplicationTypeExpression::new(type_expression, arguments);
+            let application = type_expression::application::Observation { function: type_expression, arguments }.into();
             type_expression = Located::new(
                 TypeExpression::Application(application),
                 Span::new(span.start(), end),
@@ -454,7 +448,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let identifier = self.expect_identifier()?;
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
-        let definiton = LetDefinition::<Unresolved>::new(identifier, expression);
+        let definiton = definition::name::UnresolvedObservation {
+            identifier,
+            expression,
+        }
+        .into();
 
         Ok(Definition::Name(definiton))
     }
@@ -463,9 +461,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         self.expect(Token::ModuleKeyword)?;
 
         let parts = self.path_parts()?;
-        let definition = ModuleDefinition::new(parts);
+        let definition = definition::ModulePath::new(parts);
 
-        Ok(Definition::Module(definition))
+        Ok(Definition::ModulePath(definition))
     }
 
     fn import_definition(&mut self) -> Result<Definition<Unresolved>> {
@@ -473,23 +471,25 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(Definition::Import(self.import()?))
     }
 
-    fn import(&mut self) -> Result<ImportDefinition> {
+    fn import(&mut self) -> Result<definition::Import> {
         let parts = self.path_parts()?;
 
-        let import_name = if self.next_if_peek(Token::LeftParenthesis)? {
+        let subimport = if self.next_if_peek(Token::LeftParenthesis)? {
             let mut imports = vec![];
             while !self.next_if_peek(Token::RightParenthesis)? {
                 imports.push(self.import()?);
             }
 
-            Some(ImportName::Import(imports))
+            Some(definition::import::Subimport::Import(imports))
         } else if self.next_if_peek(Token::AsKeyword)? {
-            Some(ImportName::As(self.expect_identifier()?.into_data()))
+            Some(definition::import::Subimport::As(
+                self.expect_identifier()?.into_data(),
+            ))
         } else {
             None
         };
 
-        Ok(ImportDefinition::new(parts, import_name))
+        Ok(definition::Import::new(parts, subimport))
     }
 
     fn structure_definition(&mut self) -> Result<Definition<Unresolved>> {
@@ -512,11 +512,16 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             constructors.push(self.constructor()?);
         }
 
-        let structure = StructureDefinition::<Unresolved>::new(name, variables, constructors);
+        let structure = definition::structure::UnresolvedObservation {
+            name,
+            variables,
+            constructors,
+        }
+        .into();
         Ok(Definition::Structure(structure))
     }
 
-    fn constructor(&mut self) -> Result<Located<Constructor<Unresolved>>> {
+    fn constructor(&mut self) -> Result<Located<definition::structure::Constructor<Unresolved>>> {
         let name = self.expect_identifier()?;
         let start = name.span().start();
         let mut end = name.span().end();
@@ -528,7 +533,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             arguments.push(primary);
         }
 
-        let constructor = Constructor::<Unresolved>::new(name, arguments);
+        let constructor =
+            definition::structure::constructor::UnresolvedObservation { name, arguments }.into();
         let constructor = Located::new(constructor, Span::new(start, end));
 
         Ok(constructor)
