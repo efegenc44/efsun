@@ -130,7 +130,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     #[must_use]
     fn expression(&mut self, expression: &'anf anf::Expression<Resolved>) -> Vec<Instruction> {
         match expression {
-            anf::Expression::Let(letin) => self.letin(letin),
+            anf::Expression::LetIn(letin) => self.letin(letin),
             anf::Expression::Application(application) => self.application(application),
             anf::Expression::Match(matchlet) => self.matchlet(matchlet),
             anf::Expression::Join(join) => self.join(join),
@@ -196,16 +196,14 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     fn matchlet(&mut self, matchlet: &'anf anf::expression::MatchAs<Resolved>) -> Vec<Instruction> {
         let mut instructions = vec![];
 
-        instructions.extend(self.atom(matchlet.variable_expression()));
-
         for branch in matchlet.branches() {
+            instructions.extend(self.atom(matchlet.expression()));
+
             match branch.pattern() {
                 pattern::Pattern::Any(_) => {
-                    instructions.extend(self.atom(branch.matched()));
                     instructions.extend(self.expression(branch.expression()));
                 }
                 pattern::Pattern::String(string) => {
-                    instructions.extend(self.atom(branch.matched()));
                     instructions.extend(self.string(*string));
                     instructions.push(Instruction::StringEquals);
                     let expression = self.expression(branch.expression());
@@ -213,10 +211,9 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                     instructions.extend(expression);
                 }
                 pattern::Pattern::Structure(structure) => {
-                    instructions.extend(self.atom(branch.matched()));
                     instructions.push(Instruction::StructurePatternMatch(structure.clone()));
                     let mut ins = vec![];
-                    ins.extend(self.atom(branch.matched()));
+                    ins.extend(self.atom(matchlet.expression()));
                     ins.push(Instruction::PatternLocals(pattern::Pattern::Structure(
                         structure.clone(),
                     )));

@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     compilation::anf::atom,
     interner::{Interner, WithInterner},
@@ -16,7 +18,7 @@ pub type Join<State> = join::Join<State>;
 pub type Jump<State> = jump::Jump<State>;
 
 pub enum Expression<State> {
-    Let(LetIn<State>),
+    LetIn(LetIn<State>),
     Application(Application<State>),
     Match(MatchAs<State>),
     Join(Join<State>),
@@ -27,64 +29,62 @@ pub enum Expression<State> {
 impl<State> Expression<State> {
     #[allow(unused)]
     pub fn print(&self, depth: usize, interner: &Interner) {
-        let indent = 2 * depth;
+        let level = 2 * depth;
+
+        fn indent(display: impl Display, depth: usize) {
+            println!("{:level$}{display}", "", level = depth * 2);
+        }
 
         match self {
-            Expression::Let(letin) => {
-                print!(
-                    "{:indent$}let {} = ",
-                    "",
-                    interner.lookup(&letin.variable())
+            Expression::LetIn(letin) => {
+                indent(
+                    format!("let {} =", interner.lookup(&letin.variable())),
+                    depth,
                 );
-                letin.variable_expression().print(depth, interner);
-                println!(" in");
-                letin.return_expression().print(depth + 1, interner);
-                println!();
+                letin.variable_expression().print(depth + 1, interner);
+                indent("in", depth);
+                letin.return_expression().print(depth, interner);
             }
             Expression::Application(application) => {
-                print!(
-                    "{:indent$}let {} = ",
-                    "",
-                    WithInterner::new(&application.variable(), interner)
+                indent(
+                    format!(
+                        "let application {} =",
+                        WithInterner::new(&application.variable(), interner)
+                    ),
+                    depth,
                 );
-                application.function().print(depth, interner);
-                application.argument().print(depth, interner);
-                println!(" in");
-                application.expression().print(depth + 1, interner);
-                println!();
+                application.function().print(depth + 1, interner);
+                application.argument().print(depth + 1, interner);
+                indent("in", depth);
+                application.expression().print(depth, interner);
             }
             Expression::Match(matchlet) => {
-                println!("{:indent$}Match:", "");
-                print!(
-                    "{:indent$}let {} = ",
-                    "",
-                    WithInterner::new(&matchlet.variable(), interner)
-                );
-                matchlet.variable_expression().print(depth, interner);
-                println!(" in");
+                indent("match", depth);
+                matchlet.expression().print(depth + 1, interner);
                 for branch in matchlet.branches() {
-                    branch.expression().print(depth + 1, interner);
+                    indent("branch:", depth + 1);
+                    branch.expression().print(depth + 2, interner);
                 }
-                println!();
             }
             Expression::Join(join) => {
-                join.join().print(depth + 1, interner);
-                println!("{:indent$}Join({}):", "", join.label());
-                print!(
-                    "{:indent$}let {} = ",
-                    "",
-                    WithInterner::new(&join.variable(), interner)
+                indent(
+                    format!(
+                        "let join({}) {} =",
+                        join.label(),
+                        WithInterner::new(&join.variable(), interner)
+                    ),
+                    depth,
                 );
-                println!(" in");
                 join.expression().print(depth + 1, interner);
+                indent("in", depth);
+                join.join().print(depth, interner);
             }
             Expression::Jump(jump) => {
-                println!("{:indent$}Jump: {}", "", jump.to());
+                indent(format!("jump({})", jump.to()), depth);
                 jump.expression().print(depth + 1, interner);
             }
             Expression::Atom(atom) => {
                 atom.print(depth, interner);
-                println!();
             }
         }
     }

@@ -60,6 +60,10 @@ impl<State> Path<State> {
     pub fn parts(&self) -> &Located<Vec<InternId>> {
         &self.parts
     }
+
+    pub fn try_bound(&self) -> Option<&Bound> {
+        self.bound.as_ref()
+    }
 }
 
 impl Path<Unresolved> {

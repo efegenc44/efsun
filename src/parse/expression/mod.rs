@@ -4,7 +4,7 @@ pub mod letin;
 pub mod matchas;
 pub mod path;
 
-use crate::interner::{InternId, Interner};
+use crate::interner::{InternId, Interner, WithInterner};
 
 pub type Application<State> = application::Application<State>;
 pub type Lambda<State> = lambda::Lambda<State>;
@@ -39,14 +39,14 @@ impl<T> Expression<T> {
                     .join(".");
 
                 println!(
-                    "{:indent$}Identifier: {}",
+                    "{:indent$}Identifier: {}{}",
                     "",
                     path_string,
-                    // if let Some(bound) = &path.bound {
-                    //     format!("#{}", WithInterner::new(bound, interner))
-                    // } else {
-                    //     "".to_string()
-                    // }
+                    if let Some(bound) = path.try_bound() {
+                        format!("#{}", WithInterner::new(bound, interner))
+                    } else {
+                        "".to_string()
+                    }
                 )
             }
             Self::Lambda(lambda) => {
@@ -87,7 +87,15 @@ impl<T> Expression<T> {
                     .print(depth + 2, interner);
                 letin.return_expression().data().print(depth + 1, interner);
             }
-            Self::MatchAs(_) => todo!(),
+            Self::MatchAs(matchas) => {
+                println!("{:indent$}Match:", "");
+                matchas.expression().data().print(depth + 1, interner);
+                for branch in matchas.branches() {
+                    println!("{:indent$}Branch:", "", indent = indent + 2);
+                    branch.data().pattern().data().print(depth + 2, interner);
+                    branch.data().expression().data().print(depth + 2, interner);
+                }
+            }
         }
     }
 }

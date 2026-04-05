@@ -9,7 +9,7 @@ use crate::{
         TypeChecker,
         typ::{MonoType, Type},
     },
-    compilation::anf::ANFTransformer,
+    compilation::anf,
     compilation::{Compiler, ConstantPool, instruction::display_instructions},
     error::Result,
     interner::{Interner, WithInterner},
@@ -34,7 +34,7 @@ fn expression(
     let renamed = Renamer::new()
         .interactive_environment()
         .expression(resolved);
-    let anf = ANFTransformer::new().transform(renamed.into_data());
+    let anf = anf::Transformer::new().transform(renamed.into_data());
     let resolved_anf = ANFResolver::new().interactive_environment().expression(anf);
     let (code, pool) = Compiler::new(interner).compile(&resolved_anf);
 
@@ -59,7 +59,7 @@ fn program(
     let resolved = ExpressionResolver::new().program(modules)?;
     let t = TypeChecker::new().program(&resolved, interner)?;
     let renamed = Renamer::new().program(resolved);
-    let anf = ANFTransformer::new().program(renamed);
+    let anf = anf::Transformer::new().program(renamed);
     let resolved_anf = ANFResolver::new().program(anf);
     let (code, pool) = Compiler::new(interner).program(&resolved_anf);
     let result = vm.run(&code, &pool, true, interner);

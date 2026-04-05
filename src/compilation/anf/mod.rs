@@ -4,13 +4,16 @@ pub mod expression;
 
 use std::{cell::RefCell, fmt::Display};
 
-use definition::{self as anf_definition};
+use definition::{self as anf_definition, Module, Program};
 use expression::{self as anf_expression};
 
 use crate::{
     interner::{InternId, WithInterner},
     parse::{
-        definition::{self as ast_definition, Definition as ASTDefinition, Module, Program},
+        definition::{
+            self as ast_definition, Definition as ASTDefinition, Module as ASTModule,
+            Program as ASTProgram,
+        },
         expression::{self as ast_expression, Expression as ASTExpression},
     },
     resolution::{Renamed, Unresolved, bound::Bound},
@@ -20,36 +23,51 @@ pub type Definition<State> = definition::Definition<State>;
 pub type Atom<State> = atom::Atom<State>;
 pub type Expression<State> = expression::Expression<State>;
 
-#[allow(clippy::upper_case_acronyms)]
+// TODO: Maybe don't seperate ANF and standard as in enum Local
+// and enum Path, but keep generating unique InternId's (or something)
+// it can simplify somethings but will also hide others
+
+/// Possible local variables in an ANF expression
+/// Either an ANF-intorduced local or a standard
+/// lexical local name from the AST
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ANFLocal {
-    ANF(usize),
-    Normal(InternId),
+pub enum Local {
+    ANFLocal(usize),
+    Standard(InternId),
 }
 
-impl<'interner> Display for WithInterner<'interner, &ANFLocal> {
+impl<'interner> Display for WithInterner<'interner, &Local> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.data() {
-            ANFLocal::ANF(id) => write!(f, "<ANF{id}>"),
-            ANFLocal::Normal(identifier) => write!(f, "{}", self.interner().lookup(identifier)),
+            Local::ANFLocal(id) => write!(f, "<ANF{id}>"),
+            Local::Standard(identifier) => write!(f, "{identifier}"),
         }
     }
 }
 
+/// Possible _lexical path_ element in an ANF expression
+/// Either an ANF-introduced local or a standart
+/// syntactic path element from the AST
 #[derive(Clone, PartialEq, Eq)]
-pub enum ANFPath {
+pub enum Path {
     ANFLocal(usize),
-    Normal(Vec<InternId>),
+    // bool field indicates if the bound is local or not
+    //   for purely debug purposes
+    Standard(Vec<InternId>, bool),
 }
 
-impl<'interner> Display for WithInterner<'interner, &ANFPath> {
+impl<'interner> Display for WithInterner<'interner, &Path> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.data() {
-            ANFPath::ANFLocal(id) => write!(f, "<ANF{id}>"),
-            ANFPath::Normal(parts) => match parts.as_slice() {
+            Path::ANFLocal(id) => write!(f, "<ANF{id}>"),
+            Path::Standard(parts, is_local) => match parts.as_slice() {
                 [] => unreachable!(),
                 [identifier] => {
-                    write!(f, "{}", self.interner().lookup(identifier))
+                    if *is_local {
+                        write!(f, "{identifier}")
+                    } else {
+                        write!(f, "{}", self.interner().lookup(identifier))
+                    }
                 }
                 [x, xs @ ..] => {
                     write!(f, "{}", self.interner().lookup(x))?;
@@ -66,11 +84,13 @@ impl<'interner> Display for WithInterner<'interner, &ANFPath> {
 
 type Continuation<'a> = Box<dyn FnOnce(Atom<Unresolved>) -> Expression<Unresolved> + 'a>;
 
-pub struct ANFTransformer {
+/// AST to ANF Transformer
+pub struct Transformer {
+    /// State for ANF-introduced local variables and jump labels
     counter: RefCell<usize>,
 }
 
-impl ANFTransformer {
+impl Transformer {
     pub fn new() -> Self {
         Self {
             counter: RefCell::new(0),
@@ -83,14 +103,26 @@ impl ANFTransformer {
         id
     }
 
-    pub fn program(&self, program: Program<Renamed>) -> anf_definition::Program<Unresolved> {
+    fn new_anf_local(&self) -> (Local, atom::Path<Unresolved>) {
+        let id = self.new_local_id();
+
+        let local = Local::ANFLocal(id);
+        let path = atom::path::UnresolvedObservation {
+            path: Path::ANFLocal(id),
+            bound: None,
+        };
+
+        (local, path.into())
+    }
+
+    pub fn program(&self, program: ASTProgram<Renamed>) -> Program<Unresolved> {
         program
             .into_iter()
             .map(|module| self.module(module))
             .collect()
     }
 
-    pub fn module(&self, module: Module<Renamed>) -> anf_definition::Module<Unresolved> {
+    pub fn module(&self, module: ASTModule<Renamed>) -> Module<Unresolved> {
         let mut anf_module = Vec::new();
 
         for definition in module {
@@ -108,34 +140,28 @@ impl ANFTransformer {
         anf_module
     }
 
-    fn name_definition(
-        &self,
-        name_definition: ast_definition::Name<Renamed>,
-    ) -> Definition<Unresolved> {
+    fn name_definition(&self, name: ast_definition::Name<Renamed>) -> Definition<Unresolved> {
         let ast_definition::name::RenamedObservation {
             identifier,
             expression,
             path,
-        } = name_definition.observe();
-
-        let expression = self.transform(expression.destruct().0);
+        } = name.observe();
 
         let name = anf_definition::name::Observation {
             identifier: identifier.into_data(),
-            expression,
+            expression: self.transform(expression.into_data()),
             path,
-        }
-        .into();
+        };
 
-        Definition::Name(name)
+        Definition::Name(name.into())
     }
 
     fn structure_definition(
         &self,
-        structure_definition: ast_definition::Structure<Renamed>,
+        structure: ast_definition::Structure<Renamed>,
     ) -> Definition<Unresolved> {
         let ast_definition::structure::RenamedObservation { constructors, .. } =
-            structure_definition.observe();
+            structure.observe();
 
         let constructors = constructors
             .into_iter()
@@ -150,8 +176,7 @@ impl ANFTransformer {
             })
             .collect();
 
-        let structure = anf_definition::Structure::new(constructors);
-        Definition::Structure(structure)
+        Definition::Structure(anf_definition::structure::Structure::new(constructors))
     }
 
     fn expression(
@@ -178,7 +203,7 @@ impl ANFTransformer {
         };
 
         let path = atom::path::UnresolvedObservation {
-            path: ANFPath::Normal(parts.into_data()),
+            path: Path::Standard(parts.into_data(), bound.is_none()),
             bound,
         };
 
@@ -192,33 +217,23 @@ impl ANFTransformer {
     ) -> Expression<Unresolved> {
         let ast_expression::application::Observation { function, argument } = application.observe();
 
-        self.expression(
-            argument.into_data(),
-            Box::new(|argument| {
-                self.expression(
-                    function.into_data(),
-                    Box::new(|function| {
-                        let id = self.new_local_id();
-                        let path = Atom::Path(
-                            atom::path::UnresolvedObservation {
-                                path: ANFPath::ANFLocal(id),
-                                bound: None,
-                            }
-                            .into(),
-                        );
-                        let application = anf_expression::application::Observation {
-                            variable: ANFLocal::ANF(id),
-                            function,
-                            argument,
-                            expression: k(path),
-                        }
-                        .into();
+        #[rustfmt::skip]
+        let result = self.expression(argument.into_data(), Box::new(|argument| {
+            self.expression(function.into_data(), Box::new(|function| {
+                let (variable, path) = self.new_anf_local();
 
-                        Expression::Application(application)
-                    }),
-                )
-            }),
-        )
+                let application = anf_expression::application::Observation {
+                    variable,
+                    function,
+                    argument,
+                    expression: k(Atom::Path(path)),
+                };
+
+                Expression::Application(application.into())
+            }))
+        }));
+
+        result
     }
 
     fn lambda(
@@ -229,16 +244,15 @@ impl ANFTransformer {
         let ast_expression::lambda::RenamedObservation {
             variable,
             expression,
-            captures: _,
+            ..
         } = lambda.observe();
 
-        k(Atom::Lambda(
-            atom::lambda::UnresolvedObservation {
-                variable: variable.into_data(),
-                expression: self.transform(expression.into_data()),
-            }
-            .into(),
-        ))
+        let lambda = atom::lambda::UnresolvedObservation {
+            variable: variable.into_data(),
+            expression: self.transform(expression.into_data()),
+        };
+
+        k(Atom::Lambda(lambda.into()))
     }
 
     fn letin(
@@ -252,19 +266,18 @@ impl ANFTransformer {
             return_expression,
         } = letin.observe();
 
-        self.expression(
-            variable_expression.into_data(),
-            Box::new(|variable_expression| {
-                Expression::Let(
-                    anf_expression::letin::Observation {
-                        variable: variable.into_data(),
-                        variable_expression,
-                        return_expression: self.expression(return_expression.into_data(), k),
-                    }
-                    .into(),
-                )
-            }),
-        )
+        #[rustfmt::skip]
+        let result = self.expression(variable_expression.into_data(), Box::new(|variable_expression| {
+            let letin = anf_expression::letin::Observation {
+                variable: variable.into_data(),
+                variable_expression,
+                return_expression: self.expression(return_expression.into_data(), k),
+            };
+
+            Expression::LetIn(letin.into())
+        }));
+
+        result
     }
 
     fn matchas(
@@ -277,74 +290,59 @@ impl ANFTransformer {
             branches,
         } = matchas.observe();
 
-        self.expression(
-            expression.into_data(),
-            Box::new(|expression| {
-                let join_label_id = self.new_local_id();
+        #[rustfmt::skip]
+        let result = self.expression(expression.into_data(), Box::new(|expression| {
+            let label = self.new_local_id();
 
-                let join_var_id = self.new_local_id();
-                let join_var_path = Atom::Path(
-                    atom::path::UnresolvedObservation {
-                        path: ANFPath::ANFLocal(join_var_id),
-                        bound: None,
-                    }
-                    .into(),
-                );
+            let branch_k = |expression| {
+                let jump = anf_expression::jump::Observation {
+                    to: label,
+                    expression,
+                };
 
-                let id = self.new_local_id();
+                Expression::Jump(jump.into())
+            };
 
-                let mut branch_anfs = Vec::new();
-                for branch in branches {
-                    let ast_expression::matchas::branch::Observation {
-                        pattern,
-                        expression: branch_expression,
-                    } = branch.into_data().observe();
+            let branches = branches
+                .into_iter()
+                .map(|branch| self.match_branch(branch.into_data(), Box::new(branch_k)))
+                .collect();
 
-                    let path = Atom::Path(
-                        atom::path::UnresolvedObservation {
-                            path: ANFPath::ANFLocal(id),
-                            bound: None,
-                        }
-                        .into(),
-                    );
+            let matchas = anf_expression::matchas::Observation {
+                expression,
+                branches,
+            };
 
-                    let k = |expression| {
-                        Expression::Jump(
-                            anf_expression::jump::Observation {
-                                to: join_label_id,
-                                expression,
-                            }
-                            .into(),
-                        )
-                    };
-                    let branch_anf = self.expression(branch_expression.into_data(), Box::new(k));
-                    let branch = anf_expression::matchas::branch::Observation {
-                        pattern: pattern.into_data(),
-                        matched: path,
-                        expression: branch_anf,
-                    }
-                    .into();
-                    branch_anfs.push(branch);
-                }
+            let (variable, path) = self.new_anf_local();
 
-                Expression::Join(
-                    anf_expression::join::Observation {
-                        label: join_label_id,
-                        variable: ANFLocal::ANF(join_var_id),
-                        join: Expression::Match(
-                            anf_expression::matchas::Observation {
-                                variable: ANFLocal::ANF(id),
-                                variable_expression: expression,
-                                branches: branch_anfs,
-                            }
-                            .into(),
-                        ),
-                        expression: k(join_var_path),
-                    }
-                    .into(),
-                )
-            }),
-        )
+            let join = anf_expression::join::Observation {
+                label,
+                variable,
+                join: Expression::Match(matchas.into()),
+                expression: k(Atom::Path(path)),
+            };
+
+            Expression::Join(join.into())
+        }));
+
+        result
+    }
+
+    fn match_branch(
+        &self,
+        branch: ast_expression::matchas::Branch<Renamed>,
+        k: Continuation,
+    ) -> anf_expression::matchas::Branch<Unresolved> {
+        let ast_expression::matchas::branch::Observation {
+            pattern,
+            expression,
+        } = branch.observe();
+
+        anf_expression::matchas::branch::Observation {
+            pattern: pattern.into_data(),
+            expression: self.expression(expression.into_data(), k),
+        }
+        .into()
     }
 
     pub fn transform(&self, expression: ASTExpression<Renamed>) -> Expression<Unresolved> {

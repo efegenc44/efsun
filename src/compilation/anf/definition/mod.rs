@@ -1,7 +1,9 @@
 pub mod name;
 pub mod structure;
 
-use crate::interner::Interner;
+use std::fmt::Display;
+
+use crate::interner::{Interner, WithInterner};
 
 pub type Name<State> = name::Name<State>;
 pub type Structure = structure::Structure;
@@ -14,20 +16,22 @@ pub enum Definition<State> {
 impl<T> Definition<T> {
     #[allow(unused)]
     pub fn print(&self, depth: usize, interner: &Interner) {
-        let indent = depth * 2;
+        fn indent(display: impl Display, depth: usize) {
+            println!("{:level$}{display}", "", level = depth * 2);
+        }
 
         match self {
             Definition::Name(name) => {
-                println!("{:indent$}Let:", "");
-                println!(
-                    "{:indent$}{}",
-                    "",
-                    interner.lookup(&name.identifier()),
-                    indent = indent + 2
-                );
+                indent("Name Definition:", depth);
+                indent(interner.lookup(&name.identifier()), depth + 1);
                 name.expression().print(depth + 1, interner);
             }
-            Definition::Structure(_) => todo!(),
+            Definition::Structure(structure) => {
+                indent("Structure Definition:", depth);
+                for constructor in structure.constructors() {
+                    indent(WithInterner::new(constructor.path(), interner), depth + 1);
+                }
+            }
         }
     }
 }

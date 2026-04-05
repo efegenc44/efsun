@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::interner::{InternId, Interner, WithInterner};
 
 pub mod lambda;
@@ -14,34 +16,46 @@ pub enum Atom<State> {
 
 impl<State> Atom<State> {
     pub fn print(&self, depth: usize, interner: &Interner) {
-        let indent = 2 * depth;
+        fn indent(display: impl Display, depth: usize) {
+            println!("{:level$}{display}", "", level = depth * 2);
+        }
 
         match self {
-            Atom::String(id) => print!("{:indent$}\"{}\"", "", interner.lookup(id)),
+            Atom::String(id) => indent(format!("\"{}\"", interner.lookup(id)), depth),
             Atom::Path(path) => {
-                print!(
-                    "{:indent$}{}",
-                    "",
-                    WithInterner::new(path.path(), interner),
-                    // if let Some(bound) = path.bound() {
-                    //     format!("#{}", WithInterner::new(bound, interner))
-                    // } else {
-                    //     "".to_string()
-                    // }
-                )
+                let bound_string = if let Some(bound) = path.try_bound() {
+                    format!("#{}", WithInterner::new(bound, interner))
+                } else {
+                    "".to_string()
+                };
+
+                indent(
+                    format!(
+                        "{}{}",
+                        WithInterner::new(path.path(), interner),
+                        bound_string
+                    ),
+                    depth,
+                );
             }
             Atom::Lambda(lambda) => {
-                print!("{:indent$}\\{} ", "", interner.lookup(&lambda.variable()));
-                // if let Some(captures) = lambda.captures()
-                //     && !captures.is_empty()
-                // {
-                //     print!("[ ");
-                //     for capture in captures {
-                //         print!("{} ", capture);
-                //     }
-                //     print!("]");
-                // }
-                lambda.expression().print(0, interner);
+                let mut captures_string = String::new();
+                if let Some(captures) = lambda.try_captures()
+                    && !captures.is_empty()
+                {
+                    captures_string.push_str("Captures: [");
+                    for capture in captures {
+                        captures_string.push_str(&capture.to_string());
+                    }
+                    captures_string.push(']');
+                }
+
+                indent("Lambda:", depth);
+                if !captures_string.is_empty() {
+                    indent(captures_string, depth + 1);
+                }
+                indent(lambda.variable(), depth + 1);
+                lambda.expression().print(depth + 1, interner);
             }
         }
     }

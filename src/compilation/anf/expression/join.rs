@@ -1,15 +1,15 @@
-use crate::compilation::anf::{self, ANFLocal};
+use crate::compilation::anf::{self, Local};
 
 pub struct Join<State> {
     label: usize,
-    variable: ANFLocal,
+    variable: Local,
     join: Box<anf::Expression<State>>,
     expression: Box<anf::Expression<State>>,
 }
 
 pub struct Observation<State> {
     pub label: usize,
-    pub variable: ANFLocal,
+    pub variable: Local,
     pub join: anf::Expression<State>,
     pub expression: anf::Expression<State>,
 }
@@ -30,7 +30,7 @@ impl<State> Join<State> {
         self.label
     }
 
-    pub fn variable(&self) -> ANFLocal {
+    pub fn variable(&self) -> Local {
         self.variable
     }
 

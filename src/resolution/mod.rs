@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    compilation::anf::{self, ANFLocal},
+    compilation::anf::{self, Local},
     error::{Result, eof_error, located_error},
     interner::{InternId, Interner},
     location::{Located, Span},
@@ -650,7 +650,7 @@ impl ExpressionResolver {
 }
 
 pub struct ANFResolver {
-    stack: ResolutionStack<anf::ANFLocal>,
+    stack: ResolutionStack<anf::Local>,
 }
 
 impl ANFResolver {
@@ -667,7 +667,7 @@ impl ANFResolver {
 
     pub fn expression(&mut self, anf: anf::Expression<Unresolved>) -> anf::Expression<Resolved> {
         match anf {
-            anf::Expression::Let(letin) => anf::Expression::Let(self.letin(letin)),
+            anf::Expression::LetIn(letin) => anf::Expression::LetIn(self.letin(letin)),
             anf::Expression::Application(application) => {
                 anf::Expression::Application(self.application(application))
             }
@@ -693,9 +693,9 @@ impl ANFResolver {
             bound
         } else {
             match &path {
-                anf::ANFPath::ANFLocal(id) => self.identifier(ANFLocal::ANF(*id)),
-                anf::ANFPath::Normal(parts) => match parts.as_slice() {
-                    [identifier] => self.identifier(ANFLocal::Normal(*identifier)),
+                anf::Path::ANFLocal(id) => self.identifier(Local::ANFLocal(*id)),
+                anf::Path::Standard(parts, _) => match parts.as_slice() {
+                    [identifier] => self.identifier(Local::Standard(*identifier)),
                     _ => unreachable!(),
                 },
             }
@@ -704,7 +704,7 @@ impl ANFResolver {
         anf::atom::path::ResolvedObservation { path, bound }.into()
     }
 
-    fn identifier(&mut self, identifier: ANFLocal) -> Bound {
+    fn identifier(&mut self, identifier: Local) -> Bound {
         self.stack.locally_resolve(identifier).unwrap()
     }
 
@@ -715,7 +715,7 @@ impl ANFResolver {
         } = lambda.observe();
 
         self.stack.push_frame();
-        self.stack.push_local(ANFLocal::Normal(variable));
+        self.stack.push_local(Local::Standard(variable));
         let expression = self.expression(expression);
         self.stack.pop_local();
         let captures = self.stack.pop_frame();
@@ -739,7 +739,7 @@ impl ANFResolver {
         } = letin.observe();
 
         let variable_expression = self.atom(variable_expression);
-        self.stack.push_local(ANFLocal::Normal(variable));
+        self.stack.push_local(Local::Standard(variable));
         let return_expression = self.expression(return_expression);
         self.stack.pop_local();
 
@@ -782,22 +782,18 @@ impl ANFResolver {
         matchas: anf::expression::MatchAs<Unresolved>,
     ) -> anf::expression::MatchAs<Resolved> {
         let anf::expression::matchas::Observation {
-            variable,
-            variable_expression,
+            expression,
             branches,
         } = matchas.observe();
 
-        let variable_expression = self.atom(variable_expression);
-        self.stack.push_local(variable);
+        let expression = self.atom(expression);
         let mut resolved_branches = Vec::new();
         for branch in branches {
             let anf::expression::matchas::branch::Observation {
                 pattern,
-                matched,
                 expression,
             } = branch.observe();
 
-            let matched = self.atom(matched);
             let len = self.stack.len();
             self.define_pattern_locals(&pattern);
             let expression = self.expression(expression);
@@ -805,17 +801,14 @@ impl ANFResolver {
             resolved_branches.push(
                 anf::expression::matchas::branch::Observation {
                     pattern,
-                    matched,
                     expression,
                 }
                 .into(),
             );
         }
-        self.stack.pop_local();
 
         anf::expression::matchas::Observation {
-            variable,
-            variable_expression,
+            expression,
             branches: resolved_branches,
         }
         .into()
@@ -824,7 +817,7 @@ impl ANFResolver {
     fn define_pattern_locals(&mut self, pattern: &Pattern<Renamed>) {
         match pattern {
             Pattern::Any(id) => {
-                self.stack.push_local(ANFLocal::Normal(*id));
+                self.stack.push_local(Local::Standard(*id));
             }
             pattern::Pattern::String(_) => (),
             pattern::Pattern::Structure(structure) => {

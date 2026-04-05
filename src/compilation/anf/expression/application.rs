@@ -1,14 +1,14 @@
-use crate::compilation::anf::{self, ANFLocal};
+use crate::compilation::anf::{self, Local};
 
 pub struct Application<State> {
-    variable: ANFLocal,
+    variable: Local,
     function: anf::Atom<State>,
     argument: anf::Atom<State>,
     expression: Box<anf::Expression<State>>,
 }
 
 pub struct Observation<State> {
-    pub variable: ANFLocal,
+    pub variable: Local,
     pub function: anf::Atom<State>,
     pub argument: anf::Atom<State>,
     pub expression: anf::Expression<State>,
@@ -26,7 +26,7 @@ impl<State> From<Observation<State>> for Application<State> {
 }
 
 impl<State> Application<State> {
-    pub fn variable(&self) -> ANFLocal {
+    pub fn variable(&self) -> Local {
         self.variable
     }
 

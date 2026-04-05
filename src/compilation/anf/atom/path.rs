@@ -1,18 +1,18 @@
 use std::marker::PhantomData;
 
 use crate::{
-    compilation::anf::ANFPath,
+    compilation::anf,
     resolution::{Resolved, Unresolved, bound::Bound},
 };
 
 pub struct Path<State> {
-    path: ANFPath,
+    path: anf::Path,
     bound: Option<Bound>,
     state: PhantomData<State>,
 }
 
 pub struct UnresolvedObservation {
-    pub path: ANFPath,
+    pub path: anf::Path,
     pub bound: Option<Bound>,
 }
 
@@ -27,7 +27,7 @@ impl From<UnresolvedObservation> for Path<Unresolved> {
 }
 
 pub struct ResolvedObservation {
-    pub path: ANFPath,
+    pub path: anf::Path,
     pub bound: Bound,
 }
 
@@ -42,8 +42,12 @@ impl From<ResolvedObservation> for Path<Resolved> {
 }
 
 impl<State> Path<State> {
-    pub fn path(&self) -> &ANFPath {
+    pub fn path(&self) -> &anf::Path {
         &self.path
+    }
+
+    pub fn try_bound(&self) -> Option<&Bound> {
+        self.bound.as_ref()
     }
 }
 

@@ -1,36 +1,29 @@
-use crate::compilation::anf::{self, ANFLocal};
+use crate::compilation::anf;
 
 pub type Branch<State> = branch::Branch<State>;
 
-pub struct MatchAs<T> {
-    variable: ANFLocal,
-    variable_expression: anf::Atom<T>,
-    branches: Vec<Branch<T>>,
+pub struct MatchAs<State> {
+    expression: anf::Atom<State>,
+    branches: Vec<Branch<State>>,
 }
 
 pub struct Observation<State> {
-    pub variable: ANFLocal,
-    pub variable_expression: anf::Atom<State>,
+    pub expression: anf::Atom<State>,
     pub branches: Vec<Branch<State>>,
 }
 
 impl<State> From<Observation<State>> for MatchAs<State> {
     fn from(value: Observation<State>) -> Self {
         Self {
-            variable: value.variable,
-            variable_expression: value.variable_expression,
+            expression: value.expression,
             branches: value.branches,
         }
     }
 }
 
 impl<State> MatchAs<State> {
-    pub fn variable(&self) -> ANFLocal {
-        self.variable
-    }
-
-    pub fn variable_expression(&self) -> &anf::Atom<State> {
-        &self.variable_expression
+    pub fn expression(&self) -> &anf::Atom<State> {
+        &self.expression
     }
 
     pub fn branches(&self) -> &[Branch<State>] {
@@ -39,29 +32,22 @@ impl<State> MatchAs<State> {
 
     pub fn observe(self) -> Observation<State> {
         Observation {
-            variable: self.variable,
-            variable_expression: self.variable_expression,
+            expression: self.expression,
             branches: self.branches,
         }
     }
 }
 
 pub mod branch {
-    use crate::{
-        compilation::anf::{Atom, Expression},
-        parse::pattern::Pattern,
-        resolution::Renamed,
-    };
+    use crate::{compilation::anf::Expression, parse::pattern::Pattern, resolution::Renamed};
 
     pub struct Branch<T> {
         pattern: Pattern<Renamed>,
-        matched: Atom<T>,
         expression: Expression<T>,
     }
 
     pub struct Observation<State> {
         pub pattern: Pattern<Renamed>,
-        pub matched: Atom<State>,
         pub expression: Expression<State>,
     }
 
@@ -69,7 +55,6 @@ pub mod branch {
         fn from(value: Observation<State>) -> Self {
             Self {
                 pattern: value.pattern,
-                matched: value.matched,
                 expression: value.expression,
             }
         }
@@ -80,10 +65,6 @@ pub mod branch {
             &self.pattern
         }
 
-        pub fn matched(&self) -> &Atom<State> {
-            &self.matched
-        }
-
         pub fn expression(&self) -> &Expression<State> {
             &self.expression
         }
@@ -91,7 +72,6 @@ pub mod branch {
         pub fn observe(self) -> Observation<State> {
             Observation {
                 pattern: self.pattern,
-                matched: self.matched,
                 expression: self.expression,
             }
         }
