@@ -1,422 +1,24 @@
-use std::{cell::RefCell, fmt::Display, marker::PhantomData};
+pub mod atom;
+pub mod definition;
+pub mod expression;
+
+use std::{cell::RefCell, fmt::Display};
+
+use definition::{self as anf_definition};
+use expression::{self as anf_expression};
 
 use crate::{
-    interner::{InternId, Interner, WithInterner},
+    interner::{InternId, WithInterner},
     parse::{
-        definition::{self, Definition, Module, Program},
-        expression::{self, Expression},
-        pattern::Pattern,
+        definition::{self as ast_definition, Definition as ASTDefinition, Module, Program},
+        expression::{self as ast_expression, Expression as ASTExpression},
     },
-    resolution::{
-        Renamed, Resolved, Unresolved,
-        bound::{Bound, Capture, Path},
-    },
+    resolution::{Renamed, Unresolved, bound::Bound},
 };
 
-pub type ANFModule<T> = Vec<ANFDefinition<T>>;
-pub type ANFProgram<T> = Vec<ANFModule<T>>;
-
-pub enum ANFDefinition<State> {
-    Let(LetDefinition<State>),
-    Structure(StructureDefinition),
-}
-
-impl<T> ANFDefinition<T> {
-    #[allow(unused)]
-    pub fn print(&self, depth: usize, interner: &Interner) {
-        let indent = depth * 2;
-
-        match self {
-            ANFDefinition::Let(name) => {
-                println!("{:indent$}Let:", "");
-                println!(
-                    "{:indent$}{}",
-                    "",
-                    interner.lookup(&name.identifier),
-                    indent = indent + 2
-                );
-                name.expression.print(depth + 1, interner);
-            }
-            ANFDefinition::Structure(_) => todo!(),
-        }
-    }
-}
-
-pub struct LetDefinition<T> {
-    identifier: InternId,
-    expression: ANF<T>,
-    path: Path,
-}
-
-impl<T> LetDefinition<T> {
-    pub fn new(identifier: InternId, expression: ANF<T>, path: Path) -> Self {
-        Self {
-            identifier,
-            expression,
-            path,
-        }
-    }
-
-    #[allow(unused)]
-    pub fn identifier(&self) -> InternId {
-        self.identifier
-    }
-
-    pub fn expression(&self) -> &ANF<T> {
-        &self.expression
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl LetDefinition<Unresolved> {
-    pub fn destruct(self) -> (InternId, ANF<Unresolved>, Path) {
-        (self.identifier, self.expression, self.path)
-    }
-}
-
-pub struct StructureDefinition {
-    constructors: Vec<(Path, usize)>,
-}
-
-impl StructureDefinition {
-    pub fn new(constructors: Vec<(Path, usize)>) -> Self {
-        Self { constructors }
-    }
-
-    pub fn constructors(&self) -> &[(Path, usize)] {
-        &self.constructors
-    }
-}
-
-#[allow(clippy::upper_case_acronyms)]
-pub enum ANF<State> {
-    Let(LetExpression<State>),
-    Application(ApplicationExpression<State>),
-    Match(MatchExpression<State>),
-    Join(Join<State>),
-    Jump(Jump<State>),
-    Atom(Atom<State>),
-}
-
-impl<T> ANF<T> {
-    #[allow(unused)]
-    pub fn print(&self, depth: usize, interner: &Interner) {
-        let indent = 2 * depth;
-
-        match self {
-            ANF::Let(letin) => {
-                print!("{:indent$}let {} = ", "", interner.lookup(&letin.variable));
-                letin.variable_expression.print(depth, interner);
-                println!(" in");
-                letin.return_expression.print(depth + 1, interner);
-                println!();
-            }
-            ANF::Application(application) => {
-                print!(
-                    "{:indent$}let {} = ",
-                    "",
-                    WithInterner::new(&application.variable, interner)
-                );
-                application.function.print(depth, interner);
-                application.argument.print(depth, interner);
-                println!(" in");
-                application.expression.print(depth + 1, interner);
-                println!();
-            }
-            ANF::Match(matchlet) => {
-                println!("{:indent$}Match:", "");
-                print!(
-                    "{:indent$}let {} = ",
-                    "",
-                    WithInterner::new(&matchlet.variable, interner)
-                );
-                matchlet.variable_expression.print(depth, interner);
-                println!(" in");
-                for branch in &matchlet.branches {
-                    branch.expression.print(depth + 1, interner);
-                }
-                println!();
-            }
-            ANF::Join(join) => {
-                join.join.print(depth + 1, interner);
-                println!("{:indent$}Join({}):", "", join.label);
-                print!(
-                    "{:indent$}let {} = ",
-                    "",
-                    WithInterner::new(&join.variable, interner)
-                );
-                println!(" in");
-                join.expression.print(depth + 1, interner);
-            }
-            ANF::Jump(jump) => {
-                println!("{:indent$}Jump: {}", "", jump.to);
-                jump.expression.print(depth + 1, interner);
-            }
-            ANF::Atom(atom) => {
-                atom.print(depth, interner);
-                println!();
-            }
-        }
-    }
-}
-
-pub struct LetExpression<T> {
-    variable: InternId,
-    variable_expression: Atom<T>,
-    return_expression: Box<ANF<T>>,
-}
-
-impl<T> LetExpression<T> {
-    pub fn new(
-        variable: InternId,
-        variable_expression: Atom<T>,
-        return_expression: ANF<T>,
-    ) -> Self {
-        Self {
-            variable,
-            variable_expression,
-            return_expression: Box::new(return_expression),
-        }
-    }
-
-    pub fn destruct(self) -> (InternId, Atom<T>, ANF<T>) {
-        (
-            self.variable,
-            self.variable_expression,
-            *self.return_expression,
-        )
-    }
-}
-
-impl LetExpression<Resolved> {
-    pub fn variable_expression(&self) -> &Atom<Resolved> {
-        &self.variable_expression
-    }
-
-    pub fn return_expression(&self) -> &ANF<Resolved> {
-        &self.return_expression
-    }
-}
-
-pub struct ApplicationExpression<T> {
-    variable: ANFLocal,
-    function: Atom<T>,
-    argument: Atom<T>,
-    expression: Box<ANF<T>>,
-}
-
-impl<T> ApplicationExpression<T> {
-    pub fn new(
-        variable: ANFLocal,
-        function: Atom<T>,
-        argument: Atom<T>,
-        expression: ANF<T>,
-    ) -> Self {
-        Self {
-            variable,
-            function,
-            argument,
-            expression: Box::new(expression),
-        }
-    }
-}
-
-impl ApplicationExpression<Unresolved> {
-    pub fn destruct(
-        self,
-    ) -> (
-        ANFLocal,
-        Atom<Unresolved>,
-        Atom<Unresolved>,
-        ANF<Unresolved>,
-    ) {
-        (
-            self.variable,
-            self.function,
-            self.argument,
-            *self.expression,
-        )
-    }
-}
-
-impl ApplicationExpression<Resolved> {
-    pub fn function(&self) -> &Atom<Resolved> {
-        &self.function
-    }
-
-    pub fn argument(&self) -> &Atom<Resolved> {
-        &self.argument
-    }
-
-    pub fn expression(&self) -> &ANF<Resolved> {
-        &self.expression
-    }
-}
-
-pub struct MatchExpression<T> {
-    variable: ANFLocal,
-    variable_expression: Atom<T>,
-    branches: Vec<MatchBranch<T>>,
-}
-
-impl<T> MatchExpression<T> {
-    pub fn new(
-        variable: ANFLocal,
-        variable_expression: Atom<T>,
-        branches: Vec<MatchBranch<T>>,
-    ) -> Self {
-        Self {
-            variable,
-            variable_expression,
-            branches,
-        }
-    }
-
-    pub fn destruct(self) -> (ANFLocal, Atom<T>, Vec<MatchBranch<T>>) {
-        (self.variable, self.variable_expression, self.branches)
-    }
-
-    pub fn variable_expression(&self) -> &Atom<T> {
-        &self.variable_expression
-    }
-
-    pub fn branches(&self) -> &[MatchBranch<T>] {
-        &self.branches
-    }
-}
-
-pub struct MatchBranch<T> {
-    pattern: Pattern<Renamed>,
-    matched: Atom<T>,
-    expression: ANF<T>,
-}
-
-impl<T> MatchBranch<T> {
-    pub fn new(pattern: Pattern<Renamed>, matched: Atom<T>, expression: ANF<T>) -> Self {
-        Self {
-            pattern,
-            matched,
-            expression,
-        }
-    }
-
-    pub fn destruct(self) -> (Pattern<Renamed>, Atom<T>, ANF<T>) {
-        (self.pattern, self.matched, self.expression)
-    }
-
-    pub fn pattern(&self) -> &Pattern<Renamed> {
-        &self.pattern
-    }
-
-    pub fn matched(&self) -> &Atom<T> {
-        &self.matched
-    }
-
-    pub fn expression(&self) -> &ANF<T> {
-        &self.expression
-    }
-}
-
-pub struct Join<T> {
-    label: usize,
-    variable: ANFLocal,
-    join: Box<ANF<T>>,
-    expression: Box<ANF<T>>,
-}
-
-impl<T> Join<T> {
-    pub fn new(label: usize, variable: ANFLocal, join: ANF<T>, expression: ANF<T>) -> Self {
-        Self {
-            label,
-            variable,
-            join: Box::new(join),
-            expression: Box::new(expression),
-        }
-    }
-
-    pub fn destruct(self) -> (usize, ANFLocal, ANF<T>, ANF<T>) {
-        (self.label, self.variable, *self.join, *self.expression)
-    }
-
-    pub fn label(&self) -> usize {
-        self.label
-    }
-
-    pub fn join(&self) -> &ANF<T> {
-        &self.join
-    }
-
-    pub fn expression(&self) -> &ANF<T> {
-        &self.expression
-    }
-}
-
-pub struct Jump<T> {
-    to: usize,
-    expression: Atom<T>,
-}
-
-impl<T> Jump<T> {
-    pub fn new(to: usize, expression: Atom<T>) -> Self {
-        Self { to, expression }
-    }
-
-    pub fn destruct(self) -> (usize, Atom<T>) {
-        (self.to, self.expression)
-    }
-
-    pub fn to(&self) -> usize {
-        self.to
-    }
-
-    pub fn expression(&self) -> &Atom<T> {
-        &self.expression
-    }
-}
-
-pub enum Atom<State> {
-    String(InternId),
-    Path(PathExpression<State>),
-    Lambda(LambdaExpression<State>),
-}
-
-impl<T> Atom<T> {
-    fn print(&self, depth: usize, interner: &Interner) {
-        let indent = 2 * depth;
-
-        match self {
-            Atom::String(id) => print!("{:indent$}\"{}\"", "", interner.lookup(id)),
-            Atom::Path(path) => {
-                print!(
-                    "{:indent$}{}{}",
-                    "",
-                    WithInterner::new(&path.path, interner),
-                    if let Some(bound) = &path.bound {
-                        format!("#{}", WithInterner::new(bound, interner))
-                    } else {
-                        "".to_string()
-                    }
-                )
-            }
-            Atom::Lambda(lambda) => {
-                print!("{:indent$}\\{} ", "", interner.lookup(&lambda.variable));
-                if let Some(captures) = &lambda.captures
-                    && !captures.is_empty()
-                {
-                    print!("[ ");
-                    for capture in captures {
-                        print!("{} ", capture);
-                    }
-                    print!("]");
-                }
-                lambda.expression.print(0, interner);
-            }
-        }
-    }
-}
+pub type Definition<State> = definition::Definition<State>;
+pub type Atom<State> = atom::Atom<State>;
+pub type Expression<State> = expression::Expression<State>;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -462,91 +64,7 @@ impl<'interner> Display for WithInterner<'interner, &ANFPath> {
     }
 }
 
-pub struct PathExpression<T> {
-    path: ANFPath,
-    bound: Option<Bound>,
-    state: PhantomData<T>,
-}
-
-impl PathExpression<Unresolved> {
-    fn new(path: ANFPath, bound: Bound) -> Self {
-        Self {
-            path,
-            bound: Some(bound),
-            state: PhantomData,
-        }
-    }
-
-    fn local(path: ANFPath) -> Self {
-        Self {
-            path,
-            bound: None,
-            state: PhantomData,
-        }
-    }
-
-    pub fn bound(&self) -> &Option<Bound> {
-        &self.bound
-    }
-
-    pub fn resolve(self, bound: Bound) -> PathExpression<Resolved> {
-        PathExpression {
-            path: self.path,
-            bound: Some(bound),
-            state: PhantomData,
-        }
-    }
-
-    pub fn path(&self) -> &ANFPath {
-        &self.path
-    }
-}
-
-impl PathExpression<Resolved> {
-    pub fn bound(&self) -> &Bound {
-        self.bound.as_ref().unwrap()
-    }
-}
-
-pub struct LambdaExpression<T> {
-    variable: InternId,
-    expression: Box<ANF<T>>,
-    captures: Option<Vec<Capture>>,
-}
-
-impl LambdaExpression<Unresolved> {
-    fn new(variable: InternId, expression: ANF<Unresolved>) -> Self {
-        Self {
-            variable,
-            expression: Box::new(expression),
-            captures: None,
-        }
-    }
-
-    pub fn destruct(self) -> (InternId, ANF<Unresolved>) {
-        (self.variable, *self.expression)
-    }
-}
-
-impl LambdaExpression<Resolved> {
-    pub fn new(variable: InternId, expression: ANF<Resolved>, captures: Vec<Capture>) -> Self {
-        Self {
-            variable,
-            expression: Box::new(expression),
-            captures: Some(captures),
-        }
-    }
-
-    pub fn expression(&self) -> &ANF<Resolved> {
-        &self.expression
-    }
-
-    pub fn captures(&self) -> &[Capture] {
-        self.captures.as_ref().unwrap()
-    }
-}
-
-type Continuation<'a> = Box<dyn FnOnce(Atom<Unresolved>) -> ANF<Unresolved> + 'a>;
+type Continuation<'a> = Box<dyn FnOnce(Atom<Unresolved>) -> Expression<Unresolved> + 'a>;
 
 pub struct ANFTransformer {
     counter: RefCell<usize>,
@@ -565,22 +83,22 @@ impl ANFTransformer {
         id
     }
 
-    pub fn program(&self, program: Program<Renamed>) -> ANFProgram<Unresolved> {
+    pub fn program(&self, program: Program<Renamed>) -> anf_definition::Program<Unresolved> {
         program
             .into_iter()
             .map(|module| self.module(module))
             .collect()
     }
 
-    pub fn module(&self, module: Module<Renamed>) -> ANFModule<Unresolved> {
+    pub fn module(&self, module: Module<Renamed>) -> anf_definition::Module<Unresolved> {
         let mut anf_module = Vec::new();
 
         for definition in module {
             match definition {
-                Definition::Name(let_definition) => {
+                ASTDefinition::Name(let_definition) => {
                     anf_module.push(self.name_definition(let_definition));
                 }
-                Definition::Structure(structure_definition) => {
+                ASTDefinition::Structure(structure_definition) => {
                     anf_module.push(self.structure_definition(structure_definition));
                 }
                 _ => (),
@@ -592,9 +110,9 @@ impl ANFTransformer {
 
     fn name_definition(
         &self,
-        name_definition: definition::Name<Renamed>,
-    ) -> ANFDefinition<Unresolved> {
-        let definition::name::RenamedObservation {
+        name_definition: ast_definition::Name<Renamed>,
+    ) -> Definition<Unresolved> {
+        let ast_definition::name::RenamedObservation {
             identifier,
             expression,
             path,
@@ -602,57 +120,77 @@ impl ANFTransformer {
 
         let expression = self.transform(expression.destruct().0);
 
-        ANFDefinition::Let(LetDefinition::new(*identifier.data(), expression, path))
+        let name = anf_definition::name::Observation {
+            identifier: identifier.into_data(),
+            expression,
+            path,
+        }
+        .into();
+
+        Definition::Name(name)
     }
 
     fn structure_definition(
         &self,
-        structure_definition: definition::Structure<Renamed>,
-    ) -> ANFDefinition<Unresolved> {
-        let constructors = structure_definition
-            .constructors()
-            .iter()
+        structure_definition: ast_definition::Structure<Renamed>,
+    ) -> Definition<Unresolved> {
+        let ast_definition::structure::RenamedObservation { constructors, .. } =
+            structure_definition.observe();
+
+        let constructors = constructors
+            .into_iter()
             .map(|constructor| {
-                (
-                    constructor.data().path().clone(),
-                    constructor.data().arguments().len(),
-                )
+                let ast_definition::structure::constructor::RenamedObservation {
+                    arguments,
+                    path,
+                    ..
+                } = constructor.into_data().observe();
+
+                anf_definition::structure::Constructor::new(path, arguments.len())
             })
             .collect();
 
-        ANFDefinition::Structure(StructureDefinition::new(constructors))
+        let structure = anf_definition::Structure::new(constructors);
+        Definition::Structure(structure)
     }
 
-    fn expression(&self, expression: Expression<Renamed>, k: Continuation) -> ANF<Unresolved> {
+    fn expression(
+        &self,
+        expression: ASTExpression<Renamed>,
+        k: Continuation,
+    ) -> Expression<Unresolved> {
         match expression {
-            Expression::String(id) => k(Atom::String(id)),
-            Expression::Path(path) => self.path(path, k),
-            Expression::Application(application) => self.application(application, k),
-            Expression::Lambda(lambda) => self.lambda(lambda, k),
-            Expression::LetIn(letin) => self.letin(letin, k),
-            Expression::MatchAs(matchas) => self.matchas(matchas, k),
+            ASTExpression::String(id) => k(Atom::String(id)),
+            ASTExpression::Path(path) => self.path(path, k),
+            ASTExpression::Application(application) => self.application(application, k),
+            ASTExpression::Lambda(lambda) => self.lambda(lambda, k),
+            ASTExpression::LetIn(letin) => self.letin(letin, k),
+            ASTExpression::MatchAs(matchas) => self.matchas(matchas, k),
         }
     }
 
-    fn path(&self, path: expression::Path<Renamed>, k: Continuation) -> ANF<Unresolved> {
-        let expression::path::RenamedObservation { parts, bound } = path.observe();
+    fn path(&self, path: ast_expression::Path<Renamed>, k: Continuation) -> Expression<Unresolved> {
+        let ast_expression::path::RenamedObservation { parts, bound } = path.observe();
 
-        let path_expression = match &bound {
-            Bound::Absolute(_) => PathExpression::new(ANFPath::Normal(parts.into_data()), bound),
-            Bound::Local(_) | Bound::Capture(_) => {
-                PathExpression::local(ANFPath::Normal(parts.into_data()))
-            }
+        let bound = match &bound {
+            Bound::Absolute(_) => Some(bound),
+            Bound::Local(_) | Bound::Capture(_) => None,
         };
 
-        k(Atom::Path(path_expression))
+        let path = atom::path::UnresolvedObservation {
+            path: ANFPath::Normal(parts.into_data()),
+            bound,
+        };
+
+        k(Atom::Path(path.into()))
     }
 
     fn application(
         &self,
-        application: expression::Application<Renamed>,
+        application: ast_expression::Application<Renamed>,
         k: Continuation,
-    ) -> ANF<Unresolved> {
-        let expression::application::Observation { function, argument } = application.observe();
+    ) -> Expression<Unresolved> {
+        let ast_expression::application::Observation { function, argument } = application.observe();
 
         self.expression(
             argument.into_data(),
@@ -661,35 +199,54 @@ impl ANFTransformer {
                     function.into_data(),
                     Box::new(|function| {
                         let id = self.new_local_id();
-                        let path = Atom::Path(PathExpression::local(ANFPath::ANFLocal(id)));
-                        let application = ApplicationExpression::new(
-                            ANFLocal::ANF(id),
+                        let path = Atom::Path(
+                            atom::path::UnresolvedObservation {
+                                path: ANFPath::ANFLocal(id),
+                                bound: None,
+                            }
+                            .into(),
+                        );
+                        let application = anf_expression::application::Observation {
+                            variable: ANFLocal::ANF(id),
                             function,
                             argument,
-                            k(path),
-                        );
-                        ANF::Application(application)
+                            expression: k(path),
+                        }
+                        .into();
+
+                        Expression::Application(application)
                     }),
                 )
             }),
         )
     }
 
-    fn lambda(&self, lambda: expression::Lambda<Renamed>, k: Continuation) -> ANF<Unresolved> {
-        let expression::lambda::RenamedObservation {
+    fn lambda(
+        &self,
+        lambda: ast_expression::Lambda<Renamed>,
+        k: Continuation,
+    ) -> Expression<Unresolved> {
+        let ast_expression::lambda::RenamedObservation {
             variable,
             expression,
             captures: _,
         } = lambda.observe();
 
-        k(Atom::Lambda(LambdaExpression::<Unresolved>::new(
-            *variable.data(),
-            self.transform(expression.into_data()),
-        )))
+        k(Atom::Lambda(
+            atom::lambda::UnresolvedObservation {
+                variable: variable.into_data(),
+                expression: self.transform(expression.into_data()),
+            }
+            .into(),
+        ))
     }
 
-    fn letin(&self, letin: expression::LetIn<Renamed>, k: Continuation) -> ANF<Unresolved> {
-        let expression::letin::Observation {
+    fn letin(
+        &self,
+        letin: ast_expression::LetIn<Renamed>,
+        k: Continuation,
+    ) -> Expression<Unresolved> {
+        let ast_expression::letin::Observation {
             variable,
             variable_expression,
             return_expression,
@@ -698,17 +255,24 @@ impl ANFTransformer {
         self.expression(
             variable_expression.into_data(),
             Box::new(|variable_expression| {
-                ANF::Let(LetExpression::new(
-                    variable.into_data(),
-                    variable_expression,
-                    self.expression(return_expression.into_data(), k),
-                ))
+                Expression::Let(
+                    anf_expression::letin::Observation {
+                        variable: variable.into_data(),
+                        variable_expression,
+                        return_expression: self.expression(return_expression.into_data(), k),
+                    }
+                    .into(),
+                )
             }),
         )
     }
 
-    fn matchas(&self, matchas: expression::MatchAs<Renamed>, k: Continuation) -> ANF<Unresolved> {
-        let expression::matchas::Observation {
+    fn matchas(
+        &self,
+        matchas: ast_expression::MatchAs<Renamed>,
+        k: Continuation,
+    ) -> Expression<Unresolved> {
+        let ast_expression::matchas::Observation {
             expression,
             branches,
         } = matchas.observe();
@@ -719,41 +283,71 @@ impl ANFTransformer {
                 let join_label_id = self.new_local_id();
 
                 let join_var_id = self.new_local_id();
-                let join_var_path =
-                    Atom::Path(PathExpression::local(ANFPath::ANFLocal(join_var_id)));
+                let join_var_path = Atom::Path(
+                    atom::path::UnresolvedObservation {
+                        path: ANFPath::ANFLocal(join_var_id),
+                        bound: None,
+                    }
+                    .into(),
+                );
 
                 let id = self.new_local_id();
 
                 let mut branch_anfs = Vec::new();
                 for branch in branches {
-                    let expression::matchas::branch::Observation {
+                    let ast_expression::matchas::branch::Observation {
                         pattern,
                         expression: branch_expression,
                     } = branch.into_data().observe();
 
-                    let path = Atom::Path(PathExpression::local(ANFPath::ANFLocal(id)));
+                    let path = Atom::Path(
+                        atom::path::UnresolvedObservation {
+                            path: ANFPath::ANFLocal(id),
+                            bound: None,
+                        }
+                        .into(),
+                    );
 
-                    let k = |expression| ANF::Jump(Jump::new(join_label_id, expression));
+                    let k = |expression| {
+                        Expression::Jump(
+                            anf_expression::jump::Observation {
+                                to: join_label_id,
+                                expression,
+                            }
+                            .into(),
+                        )
+                    };
                     let branch_anf = self.expression(branch_expression.into_data(), Box::new(k));
-                    let branch = MatchBranch::new(pattern.into_data(), path, branch_anf);
+                    let branch = anf_expression::matchas::branch::Observation {
+                        pattern: pattern.into_data(),
+                        matched: path,
+                        expression: branch_anf,
+                    }
+                    .into();
                     branch_anfs.push(branch);
                 }
 
-                ANF::Join(Join::new(
-                    join_label_id,
-                    ANFLocal::ANF(join_var_id),
-                    ANF::Match(MatchExpression::new(
-                        ANFLocal::ANF(id),
-                        expression,
-                        branch_anfs,
-                    )),
-                    k(join_var_path),
-                ))
+                Expression::Join(
+                    anf_expression::join::Observation {
+                        label: join_label_id,
+                        variable: ANFLocal::ANF(join_var_id),
+                        join: Expression::Match(
+                            anf_expression::matchas::Observation {
+                                variable: ANFLocal::ANF(id),
+                                variable_expression: expression,
+                                branches: branch_anfs,
+                            }
+                            .into(),
+                        ),
+                        expression: k(join_var_path),
+                    }
+                    .into(),
+                )
             }),
         )
     }
 
-    pub fn transform(&self, expression: Expression<Renamed>) -> ANF<Unresolved> {
-        self.expression(expression, Box::new(ANF::Atom))
+    pub fn transform(&self, expression: ASTExpression<Renamed>) -> Expression<Unresolved> {
+        self.expression(expression, Box::new(Expression::Atom))
     }
 }

@@ -96,6 +96,17 @@ impl Structure<Resolved> {
     }
 }
 
+impl Structure<Renamed> {
+    pub fn observe(self) -> RenamedObservation {
+        RenamedObservation {
+            name: self.name,
+            variables: self.variables,
+            constructors: self.constructors,
+            path: self.path.unwrap(),
+        }
+    }
+}
+
 pub mod constructor {
     use crate::{
         interner::InternId,
@@ -183,8 +194,12 @@ pub mod constructor {
     }
 
     impl Constructor<Renamed> {
-        pub fn path(&self) -> &Path {
-            self.path.as_ref().unwrap()
+        pub fn observe(self) -> RenamedObservation {
+            RenamedObservation {
+                name: self.name,
+                arguments: self.arguments,
+                path: self.path.unwrap(),
+            }
         }
     }
 }

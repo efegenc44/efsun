@@ -8,7 +8,7 @@ use std::{
 };
 
 use crate::{
-    compilation::anf::{self, ANF, ANFLocal, Atom},
+    compilation::anf::{self, ANFLocal},
     error::{Result, eof_error, located_error},
     interner::{InternId, Interner},
     location::{Located, Span},
@@ -392,7 +392,10 @@ impl ExpressionResolver {
         &mut self,
         application: type_expression::Application<Unresolved>,
     ) -> Result<type_expression::Application<Resolved>> {
-        let type_expression::application::Observation { function, arguments } = application.observe();
+        let type_expression::application::Observation {
+            function,
+            arguments,
+        } = application.observe();
 
         let function = self.type_expression(function)?;
         let mut resolved_arguments = Vec::new();
@@ -400,7 +403,11 @@ impl ExpressionResolver {
             resolved_arguments.push(self.type_expression(argument)?);
         }
 
-        Ok(type_expression::application::Observation { function, arguments: resolved_arguments }.into())
+        Ok(type_expression::application::Observation {
+            function,
+            arguments: resolved_arguments,
+        }
+        .into())
     }
 
     pub fn program(
@@ -658,51 +665,54 @@ impl ANFResolver {
         self
     }
 
-    pub fn expression(&mut self, anf: ANF<Unresolved>) -> ANF<Resolved> {
+    pub fn expression(&mut self, anf: anf::Expression<Unresolved>) -> anf::Expression<Resolved> {
         match anf {
-            ANF::Let(letin) => ANF::Let(self.letin(letin)),
-            ANF::Application(application) => ANF::Application(self.application(application)),
-            ANF::Match(matchlet) => ANF::Match(self.matchlet(matchlet)),
-            ANF::Join(join) => ANF::Join(self.join(join)),
-            ANF::Jump(jump) => ANF::Jump(self.jump(jump)),
-            ANF::Atom(atom) => ANF::Atom(self.atom(atom)),
+            anf::Expression::Let(letin) => anf::Expression::Let(self.letin(letin)),
+            anf::Expression::Application(application) => {
+                anf::Expression::Application(self.application(application))
+            }
+            anf::Expression::Match(matchlet) => anf::Expression::Match(self.matchlet(matchlet)),
+            anf::Expression::Join(join) => anf::Expression::Join(self.join(join)),
+            anf::Expression::Jump(jump) => anf::Expression::Jump(self.jump(jump)),
+            anf::Expression::Atom(atom) => anf::Expression::Atom(self.atom(atom)),
         }
     }
 
-    fn atom(&mut self, atom: Atom<Unresolved>) -> Atom<Resolved> {
+    fn atom(&mut self, atom: anf::Atom<Unresolved>) -> anf::Atom<Resolved> {
         match atom {
-            Atom::String(id) => Atom::String(id),
-            Atom::Path(path) => Atom::Path(self.path(path)),
-            Atom::Lambda(lambda) => Atom::Lambda(self.lambda(lambda)),
+            anf::Atom::String(id) => anf::Atom::String(id),
+            anf::Atom::Path(path) => anf::Atom::Path(self.path(path)),
+            anf::Atom::Lambda(lambda) => anf::Atom::Lambda(self.lambda(lambda)),
         }
     }
 
-    fn path(&mut self, path: anf::PathExpression<Unresolved>) -> anf::PathExpression<Resolved> {
-        if let Some(bound) = path.bound() {
-            let bound = bound.clone();
-            path.resolve(bound)
+    fn path(&mut self, path: anf::atom::Path<Unresolved>) -> anf::atom::Path<Resolved> {
+        let anf::atom::path::UnresolvedObservation { path, bound } = path.observe();
+
+        let bound = if let Some(bound) = bound {
+            bound
         } else {
-            let bound = match path.path() {
+            match &path {
                 anf::ANFPath::ANFLocal(id) => self.identifier(ANFLocal::ANF(*id)),
                 anf::ANFPath::Normal(parts) => match parts.as_slice() {
                     [identifier] => self.identifier(ANFLocal::Normal(*identifier)),
                     _ => unreachable!(),
                 },
-            };
+            }
+        };
 
-            path.resolve(bound)
-        }
+        anf::atom::path::ResolvedObservation { path, bound }.into()
     }
 
     fn identifier(&mut self, identifier: ANFLocal) -> Bound {
         self.stack.locally_resolve(identifier).unwrap()
     }
 
-    fn lambda(
-        &mut self,
-        lambda: anf::LambdaExpression<Unresolved>,
-    ) -> anf::LambdaExpression<Resolved> {
-        let (variable, expression) = lambda.destruct();
+    fn lambda(&mut self, lambda: anf::atom::Lambda<Unresolved>) -> anf::atom::Lambda<Resolved> {
+        let anf::atom::lambda::UnresolvedObservation {
+            variable,
+            expression,
+        } = lambda.observe();
 
         self.stack.push_frame();
         self.stack.push_local(ANFLocal::Normal(variable));
@@ -710,25 +720,47 @@ impl ANFResolver {
         self.stack.pop_local();
         let captures = self.stack.pop_frame();
 
-        anf::LambdaExpression::new(variable, expression, captures)
+        anf::atom::lambda::ResolvedObservation {
+            variable,
+            expression,
+            captures,
+        }
+        .into()
     }
 
-    fn letin(&mut self, letin: anf::LetExpression<Unresolved>) -> anf::LetExpression<Resolved> {
-        let (variable, variable_expression, return_expression) = letin.destruct();
+    fn letin(
+        &mut self,
+        letin: anf::expression::LetIn<Unresolved>,
+    ) -> anf::expression::LetIn<Resolved> {
+        let anf::expression::letin::Observation {
+            variable,
+            variable_expression,
+            return_expression,
+        } = letin.observe();
 
         let variable_expression = self.atom(variable_expression);
         self.stack.push_local(ANFLocal::Normal(variable));
         let return_expression = self.expression(return_expression);
         self.stack.pop_local();
 
-        anf::LetExpression::new(variable, variable_expression, return_expression)
+        anf::expression::letin::Observation {
+            variable,
+            variable_expression,
+            return_expression,
+        }
+        .into()
     }
 
     fn application(
         &mut self,
-        application: anf::ApplicationExpression<Unresolved>,
-    ) -> anf::ApplicationExpression<Resolved> {
-        let (variable, function, argument, expression) = application.destruct();
+        application: anf::expression::Application<Unresolved>,
+    ) -> anf::expression::Application<Resolved> {
+        let anf::expression::application::Observation {
+            variable,
+            function,
+            argument,
+            expression,
+        } = application.observe();
 
         let function = self.atom(function);
         let argument = self.atom(argument);
@@ -736,30 +768,57 @@ impl ANFResolver {
         let expression = self.expression(expression);
         self.stack.pop_local();
 
-        anf::ApplicationExpression::new(variable, function, argument, expression)
+        anf::expression::application::Observation {
+            variable,
+            function,
+            argument,
+            expression,
+        }
+        .into()
     }
 
     fn matchlet(
         &mut self,
-        matchlet: anf::MatchExpression<Unresolved>,
-    ) -> anf::MatchExpression<Resolved> {
-        let (variable, variable_expression, branches) = matchlet.destruct();
+        matchas: anf::expression::MatchAs<Unresolved>,
+    ) -> anf::expression::MatchAs<Resolved> {
+        let anf::expression::matchas::Observation {
+            variable,
+            variable_expression,
+            branches,
+        } = matchas.observe();
 
         let variable_expression = self.atom(variable_expression);
         self.stack.push_local(variable);
         let mut resolved_branches = Vec::new();
         for branch in branches {
-            let (pattern, matched, expression) = branch.destruct();
+            let anf::expression::matchas::branch::Observation {
+                pattern,
+                matched,
+                expression,
+            } = branch.observe();
+
             let matched = self.atom(matched);
             let len = self.stack.len();
             self.define_pattern_locals(&pattern);
             let expression = self.expression(expression);
             self.stack.truncate(len);
-            resolved_branches.push(anf::MatchBranch::new(pattern, matched, expression));
+            resolved_branches.push(
+                anf::expression::matchas::branch::Observation {
+                    pattern,
+                    matched,
+                    expression,
+                }
+                .into(),
+            );
         }
         self.stack.pop_local();
 
-        anf::MatchExpression::new(variable, variable_expression, resolved_branches)
+        anf::expression::matchas::Observation {
+            variable,
+            variable_expression,
+            branches: resolved_branches,
+        }
+        .into()
     }
 
     fn define_pattern_locals(&mut self, pattern: &Pattern<Renamed>) {
@@ -776,29 +835,40 @@ impl ANFResolver {
         }
     }
 
-    fn join(&mut self, join: anf::Join<Unresolved>) -> anf::Join<Resolved> {
-        let (label, variable, join, expression) = join.destruct();
+    fn join(&mut self, join: anf::expression::Join<Unresolved>) -> anf::expression::Join<Resolved> {
+        let anf::expression::join::Observation {
+            label,
+            variable,
+            join,
+            expression,
+        } = join.observe();
 
         let join = self.expression(join);
         self.stack.push_local(variable);
         let expression = self.expression(expression);
         self.stack.pop_local();
 
-        anf::Join::new(label, variable, join, expression)
+        anf::expression::join::Observation {
+            label,
+            variable,
+            join,
+            expression,
+        }
+        .into()
     }
 
-    fn jump(&mut self, jump: anf::Jump<Unresolved>) -> anf::Jump<Resolved> {
-        let (to, expression) = jump.destruct();
+    fn jump(&mut self, jump: anf::expression::Jump<Unresolved>) -> anf::expression::Jump<Resolved> {
+        let anf::expression::jump::Observation { to, expression } = jump.observe();
 
         let expression = self.atom(expression);
 
-        anf::Jump::new(to, expression)
+        anf::expression::jump::Observation { to, expression }.into()
     }
 
     pub fn program(
         &mut self,
-        modules: Vec<Vec<anf::ANFDefinition<Unresolved>>>,
-    ) -> Vec<Vec<anf::ANFDefinition<Resolved>>> {
+        modules: Vec<Vec<anf::Definition<Unresolved>>>,
+    ) -> Vec<Vec<anf::Definition<Resolved>>> {
         let mut resolved_modules = Vec::new();
         for module in modules {
             resolved_modules.push(self.module(module));
@@ -809,8 +879,8 @@ impl ANFResolver {
 
     pub fn module(
         &mut self,
-        definitions: Vec<anf::ANFDefinition<Unresolved>>,
-    ) -> Vec<anf::ANFDefinition<Resolved>> {
+        definitions: Vec<anf::Definition<Unresolved>>,
+    ) -> Vec<anf::Definition<Resolved>> {
         let mut resolved_definitons = Vec::new();
         for definition in definitions {
             resolved_definitons.push(self.definition(definition));
@@ -821,23 +891,32 @@ impl ANFResolver {
 
     fn definition(
         &mut self,
-        definition: anf::ANFDefinition<Unresolved>,
-    ) -> anf::ANFDefinition<Resolved> {
+        definition: anf::definition::Definition<Unresolved>,
+    ) -> anf::Definition<Resolved> {
         match definition {
-            anf::ANFDefinition::Let(name) => anf::ANFDefinition::Let(self.let_definition(name)),
-            anf::ANFDefinition::Structure(structure) => anf::ANFDefinition::Structure(structure),
+            anf::Definition::Name(name) => anf::Definition::Name(self.name_definition(name)),
+            anf::Definition::Structure(structure) => anf::Definition::Structure(structure),
         }
     }
 
-    fn let_definition(
+    fn name_definition(
         &mut self,
-        let_definition: anf::LetDefinition<Unresolved>,
-    ) -> anf::LetDefinition<Resolved> {
-        let (identifier, expression, path) = let_definition.destruct();
+        name_definition: anf::definition::Name<Unresolved>,
+    ) -> anf::definition::Name<Resolved> {
+        let anf::definition::name::Observation {
+            identifier,
+            expression,
+            path,
+        } = name_definition.observe();
 
         let expression = self.expression(expression);
 
-        anf::LetDefinition::new(identifier, expression, path)
+        anf::definition::name::Observation {
+            identifier,
+            expression,
+            path,
+        }
+        .into()
     }
 }
 

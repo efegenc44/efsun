@@ -29,6 +29,9 @@ impl<State> Application<State> {
     }
 
     pub fn observe(self) -> Observation<State> {
-        Observation { function: *self.function, arguments: self.arguments }
+        Observation {
+            function: *self.function,
+            arguments: self.arguments,
+        }
     }
 }

@@ -1,13 +1,13 @@
-pub mod name;
-pub mod module_path;
 pub mod import;
+pub mod module_path;
+pub mod name;
 pub mod structure;
 
 use crate::interner::Interner;
 
-pub type ModulePath       = module_path::ModulePath;
-pub type Name<State>      = name::Name<State>;
-pub type Import           = import::Import;
+pub type ModulePath = module_path::ModulePath;
+pub type Name<State> = name::Name<State>;
+pub type Import = import::Import;
 pub type Structure<State> = structure::Structure<State>;
 
 pub enum Definition<State> {

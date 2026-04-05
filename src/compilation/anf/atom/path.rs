@@ -1,64 +1,58 @@
 use std::marker::PhantomData;
 
 use crate::{
-    interner::InternId,
-    location::Located,
-    resolution::{Renamed, Resolved, Unresolved, bound::Bound},
+    compilation::anf::ANFPath,
+    resolution::{Resolved, Unresolved, bound::Bound},
 };
 
 pub struct Path<State> {
-    parts: Located<Vec<InternId>>,
+    path: ANFPath,
     bound: Option<Bound>,
     state: PhantomData<State>,
 }
 
 pub struct UnresolvedObservation {
-    pub parts: Located<Vec<InternId>>,
+    pub path: ANFPath,
+    pub bound: Option<Bound>,
 }
 
 impl From<UnresolvedObservation> for Path<Unresolved> {
     fn from(value: UnresolvedObservation) -> Self {
         Self {
-            parts: value.parts,
-            bound: None,
+            path: value.path,
+            bound: value.bound,
             state: PhantomData,
         }
     }
 }
 
 pub struct ResolvedObservation {
-    pub parts: Located<Vec<InternId>>,
+    pub path: ANFPath,
     pub bound: Bound,
 }
 
 impl From<ResolvedObservation> for Path<Resolved> {
     fn from(value: ResolvedObservation) -> Self {
         Self {
-            parts: value.parts,
+            path: value.path,
             bound: Some(value.bound),
             state: PhantomData,
         }
     }
 }
 
-pub struct RenamedObservation {
-    pub parts: Located<Vec<InternId>>,
-    pub bound: Bound,
-}
-
-impl From<RenamedObservation> for Path<Renamed> {
-    fn from(value: RenamedObservation) -> Self {
-        Self {
-            parts: value.parts,
-            bound: Some(value.bound),
-            state: PhantomData,
-        }
+impl<State> Path<State> {
+    pub fn path(&self) -> &ANFPath {
+        &self.path
     }
 }
 
 impl Path<Unresolved> {
     pub fn observe(self) -> UnresolvedObservation {
-        UnresolvedObservation { parts: self.parts }
+        UnresolvedObservation {
+            path: self.path,
+            bound: self.bound,
+        }
     }
 }
 

@@ -396,7 +396,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             }
             let end = self.expect(Token::RightBracket)?.span().end();
 
-            let application = type_expression::application::Observation { function: type_expression, arguments }.into();
+            let application = type_expression::application::Observation {
+                function: type_expression,
+                arguments,
+            }
+            .into();
             type_expression = Located::new(
                 TypeExpression::Application(application),
                 Span::new(span.start(), end),
