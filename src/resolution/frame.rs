@@ -54,7 +54,7 @@ impl<T> ResolutionStack<T> {
 
 impl<T: Eq + Clone> ResolutionStack<T> {
     pub fn locally_resolve(&mut self, value: T) -> Option<Bound> {
-        let current_frame = self.0.last().unwrap();
+        let current_frame = self.0.last()?;
 
         match current_frame.resolve(value.clone()) {
             Some(id) => Some(Bound::Local(id)),

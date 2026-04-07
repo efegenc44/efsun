@@ -14,7 +14,7 @@ use crate::{
     error::Result,
     interner::{Interner, WithInterner},
     parse::Parser,
-    resolution::{ANFResolver, ExpressionResolver, renamer::Renamer},
+    resolution::{ANFResolver, Resolver, renamer::Renamer},
     vm::{VM, value::Value},
 };
 
@@ -25,7 +25,7 @@ fn expression(
 ) -> Result<(Value, MonoType, ConstantPool)> {
     let expression =
         Parser::from_source("<interactive>".to_string(), source, interner).expression_repl()?;
-    let resolved = ExpressionResolver::new()
+    let resolved = Resolver::new()
         .interactive_environment(interner)
         .expression(expression)?;
     let t = TypeChecker::new()
@@ -56,7 +56,7 @@ fn program(
             Parser::from_source(source_name.clone(), source, interner).module()
         })
         .collect::<Result<_>>()?;
-    let resolved = ExpressionResolver::new().program(modules)?;
+    let resolved = Resolver::new().program(modules)?;
     let t = TypeChecker::new().program(&resolved, interner)?;
     let renamed = Renamer::new().program(resolved);
     let anf = anf::Transformer::new().program(renamed);

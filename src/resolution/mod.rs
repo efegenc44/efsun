@@ -13,14 +13,14 @@ use crate::{
     interner::{InternId, Interner},
     location::{Located, Span},
     parse::{
-        definition::{self, Definition},
+        definition::{self, Definition, Module},
         expression::{self, Expression},
         pattern::{self, Pattern},
         type_expression::{self, TypeExpression},
     },
 };
 
-use bound::{Bound, BoundId, Module, Path};
+use bound::{Bound, BoundId, Module as ModuleBound, Path};
 use frame::ResolutionStack;
 
 #[derive(Clone, Copy)]
@@ -30,22 +30,26 @@ pub struct Unresolved;
 #[derive(Clone, Copy)]
 pub struct Renamed;
 
-pub struct ExpressionResolver {
+/// AST Name Resolver
+pub struct Resolver {
+    /// Stack for local variables
     stack: ResolutionStack<InternId>,
+    /// Stack for type parameters in structure definitions
     type_variables: Vec<InternId>,
+    /// All of the names defined across the program
     names: HashSet<Path>,
+    /// All of the types defined across the program
     types: HashSet<Path>,
-    modules: HashMap<Path, Module>,
+    /// Modules of the program and their bound information
+    modules: HashMap<Path, ModuleBound>,
+    /// Path of the current module
     current_module_path: Path,
 }
 
-impl ExpressionResolver {
+impl Resolver {
     pub fn new() -> Self {
-        let mut stack = ResolutionStack::new();
-        stack.push_frame();
-
-        ExpressionResolver {
-            stack,
+        Resolver {
+            stack: ResolutionStack::new(),
             type_variables: Vec::new(),
             names: HashSet::new(),
             types: HashSet::new(),
@@ -56,20 +60,21 @@ impl ExpressionResolver {
 
     pub fn interactive_environment(mut self, interner: &mut Interner) -> Self {
         let interactive_id = interner.intern(String::from("interactive"));
-        let path = Path::from_parts(vec![interactive_id]);
-        let module = Module::empty("<interactive>".to_string());
+        let path = Path::from_parts([interactive_id]);
+        let module = ModuleBound::empty("<interactive>".to_string());
 
         self.modules.insert(path.clone(), module);
         self.current_module_path = path;
 
+        self.stack.push_frame();
         self
     }
 
-    fn current_module(&self) -> &Module {
+    fn current_module(&self) -> &ModuleBound {
         &self.modules[&self.current_module_path]
     }
 
-    fn current_module_mut(&mut self) -> &mut Module {
+    fn current_module_mut(&mut self) -> &mut ModuleBound {
         self.modules.get_mut(&self.current_module_path).unwrap()
     }
 
@@ -77,27 +82,31 @@ impl ExpressionResolver {
         &mut self,
         expression: Located<Expression<Unresolved>>,
     ) -> Result<Located<Expression<Resolved>>> {
-        let (expression, span) = expression.destruct();
+        let span = expression.span();
 
-        let expression = match expression {
-            Expression::String(string) => Expression::String(string),
-            Expression::Path(path) => Expression::Path(self.path(path, span)?),
-            Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
-            Expression::Application(application) => {
-                Expression::Application(self.application(application)?)
-            }
-            Expression::LetIn(letin) => Expression::LetIn(self.letin(letin)?),
-            Expression::MatchAs(matchlet) => Expression::MatchAs(self.matchlet(matchlet)?),
-        };
+        expression
+            .map(|expression| {
+                let expression = match expression {
+                    Expression::String(string) => Expression::String(string),
+                    Expression::Path(path) => Expression::Path(self.path(path, span)?),
+                    Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)?),
+                    Expression::Application(application) => {
+                        Expression::Application(self.application(application)?)
+                    }
+                    Expression::LetIn(letin) => Expression::LetIn(self.letin(letin)?),
+                    Expression::MatchAs(matchlet) => Expression::MatchAs(self.matchlet(matchlet)?),
+                };
 
-        Ok(Located::new(expression, span))
+                Ok(expression)
+            })
+            .transpose()
     }
 
-    fn base_path(&self, base: &InternId) -> Path {
+    fn absolute_path(&self, base: &InternId) -> Path {
         if let Some(import_path) = self.current_module().imports().get(base) {
             import_path.clone()
         } else {
-            self.current_module_path.append(*base)
+            self.current_module_path.append([*base])
         }
     }
 
@@ -105,7 +114,7 @@ impl ExpressionResolver {
         match self.stack.locally_resolve(identifier) {
             Some(bound) => Ok(bound),
             None => {
-                let path = self.base_path(&identifier);
+                let path = self.absolute_path(&identifier);
                 if !self.names.contains(&path) {
                     let error = ResolutionError::UnboundPath(Path::from_parts(vec![identifier]));
                     Err(located_error(
@@ -131,7 +140,8 @@ impl ExpressionResolver {
             [] => unreachable!(),
             [identifier] => self.identifier(*identifier, span)?,
             [base, rest @ ..] => {
-                let path = self.base_path(base).append_parts(rest.to_vec());
+                let mut path = self.absolute_path(base);
+                path.push(rest);
 
                 let true = self.names.contains(&path) else {
                     let error = ResolutionError::UnboundPath(path);
@@ -146,7 +156,9 @@ impl ExpressionResolver {
             }
         };
 
-        Ok(expression::path::ResolvedObservation { parts, bound }.into())
+        let path = expression::path::ResolvedObservation { parts, bound };
+
+        Ok(path.into())
     }
 
     fn lambda(
@@ -159,17 +171,18 @@ impl ExpressionResolver {
         } = lambda.observe();
 
         self.stack.push_frame();
-        self.stack.push_local(*variable.data());
+        self.stack.push_local(variable.into_data());
         let expression = self.expression(expression)?;
         self.stack.pop_local();
         let captures = self.stack.pop_frame();
 
-        Ok(expression::lambda::ResolvedObservation {
+        let lambda = expression::lambda::ResolvedObservation {
             variable,
             expression,
             captures,
-        }
-        .into())
+        };
+
+        Ok(lambda.into())
     }
 
     fn application(
@@ -181,7 +194,9 @@ impl ExpressionResolver {
         let function = self.expression(function)?;
         let argument = self.expression(argument)?;
 
-        Ok(expression::application::Observation { function, argument }.into())
+        let application = expression::application::Observation { function, argument };
+
+        Ok(application.into())
     }
 
     fn letin(
@@ -195,16 +210,17 @@ impl ExpressionResolver {
         } = letin.observe();
 
         let variable_expression = self.expression(variable_expression)?;
-        self.stack.push_local(*variable.data());
+        self.stack.push_local(variable.into_data());
         let return_expression = self.expression(return_expression)?;
         self.stack.pop_local();
 
-        Ok(expression::letin::Observation {
+        let letin = expression::letin::Observation {
             variable,
             variable_expression,
             return_expression,
-        }
-        .into())
+        };
+
+        Ok(letin.into())
     }
 
     fn matchlet(
@@ -218,18 +234,17 @@ impl ExpressionResolver {
 
         let expression = self.expression(expression)?;
 
-        let mut resolved_branches = Vec::new();
-        for branch in branches {
-            let (branch, span) = branch.destruct();
-            let branch = Located::new(self.match_branch(branch)?, span);
-            resolved_branches.push(branch);
-        }
+        let branches = branches
+            .into_iter()
+            .map(|branch| branch.map(|branch| self.match_branch(branch)))
+            .collect::<Result<_>>()?;
 
-        Ok(expression::matchas::Observation {
+        let matchas = expression::matchas::Observation {
             expression,
-            branches: resolved_branches,
-        }
-        .into())
+            branches,
+        };
+
+        Ok(matchas.into())
     }
 
     fn match_branch(
@@ -240,96 +255,113 @@ impl ExpressionResolver {
             pattern,
             expression,
         } = branch.observe();
-        let (pattern, span) = pattern.destruct();
+
+        let span = pattern.span();
 
         let len = self.stack.len();
-        let pattern = self.define_pattern_locals(pattern, span)?;
+        let pattern = pattern
+            .map(|pattern| self.pattern_and_define_locals(pattern, span))
+            .transpose()?;
         let expression = self.expression(expression)?;
         self.stack.truncate(len);
 
-        Ok(expression::matchas::branch::Observation {
-            pattern: Located::new(pattern, span),
+        let branch = expression::matchas::branch::Observation {
+            pattern,
             expression,
-        }
-        .into())
+        };
+
+        Ok(branch.into())
     }
 
-    fn define_pattern_locals(
+    fn pattern_and_define_locals(
         &mut self,
         pattern: Pattern<Unresolved>,
         span: Span,
     ) -> Result<Pattern<Resolved>> {
-        match pattern {
+        let pattern = match pattern {
             Pattern::Any(id) => {
                 self.stack.push_local(id);
-                Ok(Pattern::Any(id))
+                Pattern::Any(id)
             }
-            Pattern::String(id) => Ok(Pattern::String(id)),
+            Pattern::String(id) => Pattern::String(id),
             Pattern::Structure(structure) => {
-                let pattern::structure::UnresolvedObservation { parts, arguments } =
-                    structure.observe();
+                Pattern::Structure(self.structure_pattern(structure, span)?)
+            }
+        };
 
-                let mut resolved_arguments = Vec::new();
-                for argument in arguments {
-                    let (argument, span) = argument.destruct();
-                    resolved_arguments.push(Located::new(
-                        self.define_pattern_locals(argument, span)?,
+        Ok(pattern)
+    }
+
+    fn structure_pattern(
+        &mut self,
+        structure: pattern::Structure<Unresolved>,
+        span: Span,
+    ) -> Result<pattern::Structure<Resolved>> {
+        let pattern::structure::UnresolvedObservation { parts, arguments } = structure.observe();
+
+        let arguments = arguments
+            .into_iter()
+            .map(|argument| argument.map(|argument| self.pattern_and_define_locals(argument, span)))
+            .collect::<Result<_>>()?;
+
+        let (type_path, constructor_name, order) = match parts.data().as_slice() {
+            [] => unreachable!(),
+            [base, rest @ ..] => {
+                let mut path = self.absolute_path(base);
+                path.push(rest);
+
+                let true = self.names.contains(&path) else {
+                    let error = ResolutionError::UnboundPath(path);
+                    return Err(located_error(
+                        error,
                         span,
+                        self.current_module().source_name().to_string(),
                     ));
-                }
-
-                let (type_path, constructor_name, order) = match parts.data().as_slice() {
-                    [] => unreachable!(),
-                    [base, rest @ ..] => {
-                        let mut path = self.base_path(base).append_parts(rest.to_vec());
-
-                        let true = self.names.contains(&path) else {
-                            let error = ResolutionError::UnboundPath(path);
-                            return Err(located_error(
-                                error,
-                                span,
-                                self.current_module().source_name().to_string(),
-                            ));
-                        };
-
-                        let c = path.pop();
-                        let t = path.pop();
-
-                        let constructors = &self.modules[&path].types()[&t];
-                        let order = constructors.iter().position(|cs| cs == &c).unwrap();
-
-                        (path.append(t), c, order)
-                    }
                 };
 
-                let structure = pattern::structure::ResolvedObservation {
-                    parts,
-                    arguments: resolved_arguments,
-                    type_path,
-                    constructor_name,
-                    order,
-                }
-                .into();
+                let constructor_name = path.pop();
+                let type_name = path.pop();
 
-                Ok(Pattern::Structure(structure))
+                let constructors = &self.modules[&path].types()[&type_name];
+                let order = constructors
+                    .iter()
+                    .position(|cs| cs == &constructor_name)
+                    .unwrap();
+
+                path.push([type_name]);
+                (path, constructor_name, order)
             }
-        }
+        };
+
+        let structure = pattern::structure::ResolvedObservation {
+            parts,
+            arguments,
+            type_path,
+            constructor_name,
+            order,
+        };
+
+        Ok(structure.into())
     }
 
     fn type_expression(
         &mut self,
         expression: Located<TypeExpression<Unresolved>>,
     ) -> Result<Located<TypeExpression<Resolved>>> {
-        let (expression, span) = expression.destruct();
+        let span = expression.span();
 
-        let expression = match expression {
-            TypeExpression::Path(path) => TypeExpression::Path(self.type_path(path, span)?),
-            TypeExpression::Application(application) => {
-                TypeExpression::Application(self.type_application(application)?)
-            }
-        };
+        expression
+            .map(|expression| {
+                let expression = match expression {
+                    TypeExpression::Path(path) => TypeExpression::Path(self.type_path(path, span)?),
+                    TypeExpression::Application(application) => {
+                        TypeExpression::Application(self.type_application(application)?)
+                    }
+                };
 
-        Ok(Located::new(expression, span))
+                Ok(expression)
+            })
+            .transpose()
     }
 
     fn type_identifier(&self, identifier: &InternId, span: Span) -> Result<Bound> {
@@ -344,7 +376,7 @@ impl ExpressionResolver {
         match id {
             Some(id) => Ok(Bound::Local(id)),
             None => {
-                let path = self.base_path(identifier);
+                let path = self.absolute_path(identifier);
                 if !self.types.contains(&path) {
                     let error = ResolutionError::UnboundPath(Path::from_parts(vec![*identifier]));
                     Err(located_error(
@@ -370,7 +402,8 @@ impl ExpressionResolver {
             [] => unreachable!(),
             [identifier] => self.type_identifier(identifier, span)?,
             [base, rest @ ..] => {
-                let path = self.base_path(base).append_parts(rest.to_vec());
+                let mut path = self.absolute_path(base);
+                path.push(rest);
 
                 let true = self.types.contains(&path) else {
                     let error = ResolutionError::UnboundPath(path);
@@ -398,24 +431,25 @@ impl ExpressionResolver {
         } = application.observe();
 
         let function = self.type_expression(function)?;
-        let mut resolved_arguments = Vec::new();
-        for argument in arguments {
-            resolved_arguments.push(self.type_expression(argument)?);
-        }
+        let arguments = arguments
+            .into_iter()
+            .map(|argument| self.type_expression(argument))
+            .collect::<Result<_>>()?;
 
-        Ok(type_expression::application::Observation {
+        let application = type_expression::application::Observation {
             function,
-            arguments: resolved_arguments,
-        }
-        .into())
+            arguments,
+        };
+
+        Ok(application.into())
     }
 
     pub fn program(
         &mut self,
-        modules: Vec<(Vec<Definition<Unresolved>>, String)>,
+        program: Vec<(Vec<Definition<Unresolved>>, String)>,
     ) -> Result<Vec<(Vec<Definition<Resolved>>, String)>> {
         let mut module_paths = vec![];
-        for (module, source_name) in &modules {
+        for (module, source_name) in &program {
             module_paths.push(self.find_module_name((module, source_name))?);
             self.collect_names(module)?;
         }
@@ -423,7 +457,7 @@ impl ExpressionResolver {
         self.check_if_imports_exist()?;
 
         let mut resolved_modules = Vec::new();
-        for ((module, source_name), module_path) in modules.into_iter().zip(module_paths) {
+        for ((module, source_name), module_path) in program.into_iter().zip(module_paths) {
             self.current_module_path = module_path;
             resolved_modules.push((self.module(module)?, source_name));
         }
@@ -431,27 +465,19 @@ impl ExpressionResolver {
         Ok(resolved_modules)
     }
 
-    pub fn module(
-        &mut self,
-        definitions: Vec<Definition<Unresolved>>,
-    ) -> Result<Vec<Definition<Resolved>>> {
-        let mut resolved_definitons = Vec::new();
-        for definition in definitions {
-            resolved_definitons.push(self.definition(definition)?);
-        }
-
-        Ok(resolved_definitons)
+    pub fn module(&mut self, module: Module<Unresolved>) -> Result<Module<Resolved>> {
+        module
+            .into_iter()
+            .map(|definition| self.definition(definition))
+            .collect::<Result<_>>()
     }
 
-    fn find_module_name(
-        &mut self,
-        definitions: (&[Definition<Unresolved>], &String),
-    ) -> Result<Path> {
-        for definition in definitions.0 {
-            if let Definition::ModulePath(module) = definition {
-                let module_path = Path::from_parts(module.parts().data().to_vec());
+    fn find_module_name(&mut self, module: (&[Definition<Unresolved>], &String)) -> Result<Path> {
+        for definition in module.0 {
+            if let Definition::ModulePath(module_path) = definition {
+                let module_path = Path::from_parts(module_path.parts().data().to_vec());
                 self.modules
-                    .insert(module_path.clone(), Module::empty(definitions.1.clone()));
+                    .insert(module_path.clone(), ModuleBound::empty(module.1.clone()));
                 self.current_module_path = module_path.clone();
 
                 return Ok(module_path);
@@ -461,28 +487,32 @@ impl ExpressionResolver {
         // TODO: Check for duplicate module definition
         Err(eof_error(
             ResolutionError::MissingModuleDefinition,
-            definitions.1.clone(),
+            module.1.clone(),
         ))
     }
 
-    fn collect_names(&mut self, definitions: &[Definition<Unresolved>]) -> Result<()> {
-        for definition in definitions {
+    fn collect_names(&mut self, module: &Module<Unresolved>) -> Result<()> {
+        for definition in module {
             if let Definition::Name(name) = definition {
                 // TODO: Check for duplicate definitions
                 self.current_module_mut()
                     .names_mut()
-                    .insert(*name.identifier().data());
+                    .insert(name.identifier().into_data());
 
-                self.names
-                    .insert(self.current_module_path.append(*name.identifier().data()));
+                self.names.insert(
+                    self.current_module_path
+                        .append([name.identifier().into_data()]),
+                );
             }
 
             if let Definition::Structure(structure) = definition {
-                let structure_path = self.current_module_path.append(*structure.name().data());
+                let structure_path = self
+                    .current_module_path
+                    .append([structure.name().into_data()]);
 
                 for constructor in structure.constructors() {
                     self.names
-                        .insert(structure_path.append(*constructor.data().name().data()));
+                        .insert(structure_path.append([constructor.data().name().into_data()]));
                 }
 
                 self.types.insert(structure_path);
@@ -491,12 +521,12 @@ impl ExpressionResolver {
                 let constructors = structure
                     .constructors()
                     .iter()
-                    .map(|constructor| *constructor.data().name().data())
+                    .map(|constructor| constructor.data().name().into_data())
                     .collect();
 
                 self.current_module_mut()
                     .types_mut()
-                    .insert(*structure.name().data(), constructors);
+                    .insert(structure.name().into_data(), constructors);
             }
 
             if let Definition::Import(import) = definition {
@@ -504,7 +534,7 @@ impl ExpressionResolver {
 
                 match import.subimport() {
                     Some(import_name) => {
-                        self.collect_import_name(import_name, &base)?;
+                        self.collect_subimport(import_name, &base)?;
                     }
                     None => {
                         self.current_module_mut()
@@ -518,7 +548,7 @@ impl ExpressionResolver {
         Ok(())
     }
 
-    fn collect_import_name(
+    fn collect_subimport(
         &mut self,
         import_name: &definition::import::Subimport,
         base: &Path,
@@ -531,11 +561,11 @@ impl ExpressionResolver {
             }
             definition::import::Subimport::Import(imports) => {
                 for import in imports {
-                    let base = base.append_parts(import.module_path().data().to_vec());
+                    let base = base.append(import.module_path().data());
 
                     match import.subimport() {
                         Some(subimport) => {
-                            self.collect_import_name(subimport, &base)?;
+                            self.collect_subimport(subimport, &base)?;
                         }
                         None => {
                             self.current_module_mut()
@@ -591,14 +621,15 @@ impl ExpressionResolver {
         } = name_definition.observe();
 
         let expression = self.expression(expression)?;
-        let path = self.current_module_path.append(*identifier.data());
+        let path = self.current_module_path.append([identifier.into_data()]);
 
-        Ok(definition::name::ResolvedObservation {
+        let name = definition::name::ResolvedObservation {
             identifier,
             expression,
             path,
-        }
-        .into())
+        };
+
+        Ok(name.into())
     }
 
     fn structure_definition(
@@ -611,45 +642,57 @@ impl ExpressionResolver {
             constructors,
         } = structure_definition.observe();
 
-        let structure_path = self.current_module_path.append(*name.data());
+        let path = self.current_module_path.append([name.into_data()]);
 
         self.type_variables
-            .extend(variables.iter().map(|v| *v.data()));
-        let mut resolved_constructors = Vec::new();
-        for constructor in constructors {
-            let (constructor, span) = constructor.destruct();
-            let definition::structure::constructor::UnresolvedObservation { name, arguments } =
-                constructor.observe();
+            .extend(variables.iter().map(|v| v.into_data()));
 
-            let mut resolved_arguments = Vec::new();
-            for argument in arguments {
-                resolved_arguments.push(self.type_expression(argument)?);
-            }
+        let constructors = constructors
+            .into_iter()
+            .map(|constructor| constructor.map(|constructor| self.constructor(constructor, &path)))
+            .collect::<Result<_>>()?;
 
-            let path = structure_path.append(*name.data());
-            resolved_constructors.push(Located::new(
-                definition::structure::constructor::ResolvedObservation {
-                    name,
-                    arguments: resolved_arguments,
-                    path,
-                }
-                .into(),
-                span,
-            ));
-        }
         self.type_variables.clear();
 
-        Ok(definition::structure::ResolvedObservation {
+        let structure = definition::structure::ResolvedObservation {
             name,
             variables,
-            constructors: resolved_constructors,
-            path: structure_path,
-        }
-        .into())
+            constructors,
+            path,
+        };
+
+        Ok(structure.into())
+    }
+
+    fn constructor(
+        &mut self,
+        constructor: definition::structure::Constructor<Unresolved>,
+        type_path: &Path,
+    ) -> Result<definition::structure::Constructor<Resolved>> {
+        let definition::structure::constructor::UnresolvedObservation { name, arguments } =
+            constructor.observe();
+
+        let arguments = arguments
+            .into_iter()
+            .map(|argument| self.type_expression(argument))
+            .collect::<Result<_>>()?;
+
+        let path = type_path.append([name.into_data()]);
+        let constructor = definition::structure::constructor::ResolvedObservation {
+            name,
+            arguments,
+            path,
+        };
+
+        Ok(constructor.into())
     }
 }
 
+/// ANF Name Resolver
+/// ANF only affects local variables so ANFResolver only
+/// re-resolves local variables
 pub struct ANFResolver {
+    /// Stack for local variables
     stack: ResolutionStack<anf::Local>,
 }
 
@@ -671,7 +714,7 @@ impl ANFResolver {
             anf::Expression::Application(application) => {
                 anf::Expression::Application(self.application(application))
             }
-            anf::Expression::Match(matchlet) => anf::Expression::Match(self.matchlet(matchlet)),
+            anf::Expression::Match(matchlet) => anf::Expression::Match(self.matchas(matchlet)),
             anf::Expression::Join(join) => anf::Expression::Join(self.join(join)),
             anf::Expression::Jump(jump) => anf::Expression::Jump(self.jump(jump)),
             anf::Expression::Atom(atom) => anf::Expression::Atom(self.atom(atom)),
@@ -777,7 +820,7 @@ impl ANFResolver {
         .into()
     }
 
-    fn matchlet(
+    fn matchas(
         &mut self,
         matchas: anf::expression::MatchAs<Unresolved>,
     ) -> anf::expression::MatchAs<Resolved> {
@@ -787,29 +830,35 @@ impl ANFResolver {
         } = matchas.observe();
 
         let expression = self.atom(expression);
-        let mut resolved_branches = Vec::new();
-        for branch in branches {
-            let anf::expression::matchas::branch::Observation {
-                pattern,
-                expression,
-            } = branch.observe();
-
-            let len = self.stack.len();
-            self.define_pattern_locals(&pattern);
-            let expression = self.expression(expression);
-            self.stack.truncate(len);
-            resolved_branches.push(
-                anf::expression::matchas::branch::Observation {
-                    pattern,
-                    expression,
-                }
-                .into(),
-            );
-        }
+        let branches = branches
+            .into_iter()
+            .map(|branch| self.branch(branch))
+            .collect();
 
         anf::expression::matchas::Observation {
             expression,
-            branches: resolved_branches,
+            branches,
+        }
+        .into()
+    }
+
+    fn branch(
+        &mut self,
+        branch: anf::expression::matchas::Branch<Unresolved>,
+    ) -> anf::expression::matchas::Branch<Resolved> {
+        let anf::expression::matchas::branch::Observation {
+            pattern,
+            expression,
+        } = branch.observe();
+
+        let len = self.stack.len();
+        self.define_pattern_locals(&pattern);
+        let expression = self.expression(expression);
+        self.stack.truncate(len);
+
+        anf::expression::matchas::branch::Observation {
+            pattern,
+            expression,
         }
         .into()
     }
@@ -858,34 +907,21 @@ impl ANFResolver {
         anf::expression::jump::Observation { to, expression }.into()
     }
 
-    pub fn program(
-        &mut self,
-        modules: Vec<Vec<anf::Definition<Unresolved>>>,
-    ) -> Vec<Vec<anf::Definition<Resolved>>> {
-        let mut resolved_modules = Vec::new();
-        for module in modules {
-            resolved_modules.push(self.module(module));
-        }
-
-        resolved_modules
+    pub fn program(&mut self, program: anf::Program<Unresolved>) -> anf::Program<Resolved> {
+        program
+            .into_iter()
+            .map(|module| self.module(module))
+            .collect()
     }
 
-    pub fn module(
-        &mut self,
-        definitions: Vec<anf::Definition<Unresolved>>,
-    ) -> Vec<anf::Definition<Resolved>> {
-        let mut resolved_definitons = Vec::new();
-        for definition in definitions {
-            resolved_definitons.push(self.definition(definition));
-        }
-
-        resolved_definitons
+    pub fn module(&mut self, module: anf::Module<Unresolved>) -> anf::Module<Resolved> {
+        module
+            .into_iter()
+            .map(|definition| self.definition(definition))
+            .collect()
     }
 
-    fn definition(
-        &mut self,
-        definition: anf::definition::Definition<Unresolved>,
-    ) -> anf::Definition<Resolved> {
+    fn definition(&mut self, definition: anf::Definition<Unresolved>) -> anf::Definition<Resolved> {
         match definition {
             anf::Definition::Name(name) => anf::Definition::Name(self.name_definition(name)),
             anf::Definition::Structure(structure) => anf::Definition::Structure(structure),

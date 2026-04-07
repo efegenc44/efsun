@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use crate::error::Result;
+
 #[derive(Clone, Copy, Debug)]
 pub struct SourceLocation {
     row: usize,
@@ -98,6 +100,29 @@ impl<T> Located<T> {
 
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn map<F, Y>(self, mut f: F) -> Located<Y>
+    where
+        F: FnMut(T) -> Y,
+    {
+        Located::new(f(self.data), self.span)
+    }
+}
+
+// NOTE: Implementing `<T> From<Located<Result<T>>> for Result<Located<T>>`
+//   is not enough for type inference to work for some reason
+impl<T> Located<Result<T>> {
+    pub fn transpose(self) -> Result<Located<T>> {
+        Ok(Located::new(self.data?, self.span))
+    }
+}
+
+impl<D> FromIterator<Located<Result<D>>> for Result<Vec<Located<D>>> {
+    fn from_iter<T: IntoIterator<Item = Located<Result<D>>>>(iter: T) -> Self {
+        iter.into_iter()
+            .map(|e| e.transpose())
+            .collect::<Result<Vec<_>>>()
     }
 }
 

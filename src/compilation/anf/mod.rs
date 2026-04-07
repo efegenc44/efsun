@@ -4,7 +4,7 @@ pub mod expression;
 
 use std::{cell::RefCell, fmt::Display};
 
-use definition::{self as anf_definition, Module, Program};
+use definition::{self as anf_definition};
 use expression::{self as anf_expression};
 
 use crate::{
@@ -22,6 +22,9 @@ use crate::{
 pub type Definition<State> = definition::Definition<State>;
 pub type Atom<State> = atom::Atom<State>;
 pub type Expression<State> = expression::Expression<State>;
+
+pub type Module<State> = definition::Module<State>;
+pub type Program<State> = definition::Program<State>;
 
 // TODO: Maybe don't seperate ANF and standard as in enum Local
 // and enum Path, but keep generating unique InternId's (or something)

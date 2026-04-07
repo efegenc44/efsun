@@ -17,6 +17,12 @@ impl InternId {
     }
 }
 
+impl AsRef<InternId> for InternId {
+    fn as_ref(&self) -> &InternId {
+        self
+    }
+}
+
 impl Interner {
     pub fn new() -> Self {
         Interner {

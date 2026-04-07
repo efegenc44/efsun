@@ -58,21 +58,29 @@ impl Path {
         Path(Vec::new())
     }
 
-    pub fn from_parts(parts: Vec<InternId>) -> Self {
-        Self(parts)
+    pub fn from_parts(parts: impl Into<Vec<InternId>>) -> Self {
+        Self(parts.into())
     }
 
     pub fn pop(&mut self) -> InternId {
         self.0.pop().unwrap()
     }
 
-    pub fn append(&self, identifier: InternId) -> Self {
-        let mut clone = self.clone();
-        clone.0.push(identifier);
-        clone
+    pub fn push<I>(&mut self, identifiers: I)
+    where
+        I: IntoIterator,
+        I::Item: AsRef<InternId>,
+        Vec<InternId>: Extend<<I as IntoIterator>::Item>,
+    {
+        self.0.extend(identifiers);
     }
 
-    pub fn append_parts(&self, identifiers: Vec<InternId>) -> Self {
+    pub fn append<I>(&self, identifiers: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: AsRef<InternId>,
+        Vec<InternId>: Extend<<I as IntoIterator>::Item>,
+    {
         let mut clone = self.clone();
         clone.0.extend(identifiers);
         clone

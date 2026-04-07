@@ -374,7 +374,7 @@ impl<'ast> TypeChecker<'ast> {
                     ));
                 };
 
-                let constructor_path = structure.type_path().append(structure.constructor_name());
+                let constructor_path = structure.type_path().append([structure.constructor_name()]);
                 let constructor_type = self.names[&constructor_path].clone();
 
                 let variables = structure_type.variables();
