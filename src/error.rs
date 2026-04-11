@@ -22,11 +22,21 @@ fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
             unexpected,
             expected,
         } => {
+            format!(
+                "Encountered unexpected token `{}`, expected {}.",
+                WithInterner::new(unexpected, interner),
+                WithInterner::new(expected, interner),
+            )
+        }
+        ParseError::UnexpectedTokenStart {
+            unexpected,
+            expected,
+        } => {
             let mut message = format!(
                 "Encountered unexpected token `{}`, expected ",
                 WithInterner::new(unexpected, interner)
             );
-            match expected.as_slice() {
+            match expected {
                 [] => unreachable!(),
                 [token] => {
                     message.push_str(token.kind_string());

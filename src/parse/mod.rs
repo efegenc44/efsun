@@ -10,6 +10,7 @@ use crate::{
     error::{Result, eof_error, located_error},
     interner::{InternId, Interner},
     location::{Located, Span},
+    parse::definition::Module,
     resolution::Unresolved,
 };
 
@@ -45,17 +46,17 @@ const PATTERN_START: &[Token] = &[
 
 pub struct Parser<'source, 'interner> {
     tokens: Peekable<Lexer<'source, 'interner>>,
-    source_name: String,
+    source_name: &'source str,
 }
 
 impl<'source, 'interner> Parser<'source, 'interner> {
     pub fn from_source(
-        source_name: String,
+        source_name: &'source str,
         source: &'source str,
         interner: &'interner mut Interner,
     ) -> Self {
         Self {
-            tokens: Lexer::new(source_name.clone(), source, interner).peekable(),
+            tokens: Lexer::new(source_name, source, interner).peekable(),
             source_name,
         }
     }
@@ -72,7 +73,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         self.peek().unwrap_or_else(|| {
             Err(eof_error(
                 ParseError::UnexpectedEOF,
-                self.source_name.clone(),
+                self.source_name.to_string(),
             ))
         })
     }
@@ -112,12 +113,13 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         if std::mem::discriminant(&expected) == std::mem::discriminant(token.data()) {
             Ok(token)
         } else {
-            let span = token.span();
-            let error = ParseError::UnexpectedToken {
-                unexpected: token.into_data(),
-                expected: vec![expected],
-            };
-            Err(located_error(error, span, self.source_name.clone()))
+            self.error(
+                ParseError::UnexpectedToken {
+                    unexpected: token.into_data(),
+                    expected,
+                },
+                token.span(),
+            )
         }
     }
 
@@ -134,8 +136,10 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
         // NOTE: Maybe it is not needed
         if self.peek().is_some() {
-            let error = ParseError::IllFormedExpression;
-            return Err(eof_error(error, self.source_name.clone()));
+            return Err(eof_error(
+                ParseError::IllFormedExpression,
+                self.source_name.to_string(),
+            ));
         }
 
         Ok(expression)
@@ -236,13 +240,13 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Token::Tilde => self.pattern_any(),
             Token::Identifier(_) => self.pattern_structure(),
             Token::LeftParenthesis => self.pattern_grouping(),
-            unexpected => {
-                let error = ParseError::UnexpectedToken {
+            unexpected => self.error(
+                ParseError::UnexpectedTokenStart {
                     unexpected: *unexpected,
-                    expected: PATTERN_START.to_vec(),
-                };
-                Err(located_error(error, token.span(), self.source_name.clone()))
-            }
+                    expected: PATTERN_START,
+                },
+                token.span(),
+            ),
         }
     }
 
@@ -296,13 +300,13 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Token::String(string) => self.literal(Expression::String(*string)),
             Token::Identifier(_) => self.path(),
             Token::LeftParenthesis => self.grouping(),
-            unexpected => {
-                let error = ParseError::UnexpectedToken {
+            unexpected => self.error(
+                ParseError::UnexpectedTokenStart {
                     unexpected: *unexpected,
-                    expected: PRIMARY_EXPRESSION_START.to_vec(),
-                };
-                Err(located_error(error, token.span(), self.source_name.clone()))
-            }
+                    expected: PRIMARY_EXPRESSION_START,
+                },
+                token.span(),
+            ),
         }
     }
 
@@ -356,13 +360,13 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         match token.data() {
             Token::Identifier(_) => self.type_path(),
             Token::LeftParenthesis => self.type_grouping(),
-            unexpected => {
-                let error = ParseError::UnexpectedToken {
+            unexpected => self.error(
+                ParseError::UnexpectedTokenStart {
                     unexpected: *unexpected,
-                    expected: PRIMARY_TYPE_EXPRESSION_START.to_vec(),
-                };
-                Err(located_error(error, token.span(), self.source_name.clone()))
-            }
+                    expected: PRIMARY_TYPE_EXPRESSION_START,
+                },
+                token.span(),
+            ),
         }
     }
 
@@ -419,14 +423,19 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(type_expression)
     }
 
-    pub fn module(&mut self) -> Result<(Vec<Definition<Unresolved>>, String)> {
+    pub fn module(&mut self) -> Result<Module<Unresolved>> {
         let mut definitions = Vec::new();
 
         while self.peek().is_some() {
             definitions.push(self.definiton()?);
         }
 
-        Ok((definitions, self.source_name.clone()))
+        let module = definition::module::Observation {
+            definitions,
+            source_name: self.source_name.to_string(),
+        };
+
+        Ok(module.into())
     }
 
     fn definiton(&mut self) -> Result<Definition<Unresolved>> {
@@ -437,13 +446,13 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Token::ModuleKeyword => self.module_definition(),
             Token::ImportKeyword => self.import_definition(),
             Token::StructureKeyword => self.structure_definition(),
-            unexpected => {
-                let error = ParseError::UnexpectedToken {
+            unexpected => self.error(
+                ParseError::UnexpectedTokenStart {
                     unexpected: *unexpected,
-                    expected: DEFINITION_START.to_vec(),
-                };
-                Err(located_error(error, token.span(), self.source_name.clone()))
-            }
+                    expected: DEFINITION_START,
+                },
+                token.span(),
+            ),
         }
     }
 
@@ -486,9 +495,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
             Some(definition::import::Subimport::Import(imports))
         } else if self.next_if_peek(Token::AsKeyword)? {
-            Some(definition::import::Subimport::As(
-                self.expect_identifier()?.into_data(),
-            ))
+            Some(definition::import::Subimport::As(self.expect_identifier()?))
         } else {
             None
         };
@@ -543,6 +550,10 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
         Ok(constructor)
     }
+
+    fn error<T>(&self, error: ParseError, span: Span) -> Result<T> {
+        Err(located_error(error, span, self.source_name.to_string()))
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -550,7 +561,11 @@ pub enum ParseError {
     UnexpectedEOF,
     UnexpectedToken {
         unexpected: Token,
-        expected: Vec<Token>,
+        expected: Token,
+    },
+    UnexpectedTokenStart {
+        unexpected: Token,
+        expected: &'static [Token],
     },
     IllFormedExpression,
 }

@@ -13,7 +13,7 @@ use crate::{
     interner::{InternId, Interner},
     location::{Located, Span},
     parse::{
-        definition::{self, Definition, Module},
+        definition::{self, Definition, Module, Program},
         expression::{self, Expression},
         pattern::{self, Pattern},
         type_expression::{self, TypeExpression},
@@ -104,7 +104,7 @@ impl Resolver {
 
     fn absolute_path(&self, base: &InternId) -> Path {
         if let Some(import_path) = self.current_module().imports().get(base) {
-            import_path.clone()
+            import_path.data().clone()
         } else {
             self.current_module_path.append([*base])
         }
@@ -116,12 +116,10 @@ impl Resolver {
             None => {
                 let path = self.absolute_path(&identifier);
                 if !self.names.contains(&path) {
-                    let error = ResolutionError::UnboundPath(Path::from_parts(vec![identifier]));
-                    Err(located_error(
-                        error,
+                    self.error(
+                        ResolutionError::UnboundPath(Path::from_parts(vec![identifier])),
                         span,
-                        self.current_module().source_name().to_string(),
-                    ))
+                    )
                 } else {
                     Ok(Bound::Absolute(path))
                 }
@@ -144,12 +142,7 @@ impl Resolver {
                 path.push(rest);
 
                 let true = self.names.contains(&path) else {
-                    let error = ResolutionError::UnboundPath(path);
-                    return Err(located_error(
-                        error,
-                        span,
-                        self.current_module().source_name().to_string(),
-                    ));
+                    return self.error(ResolutionError::UnboundPath(path), span);
                 };
 
                 Bound::Absolute(path)
@@ -311,12 +304,7 @@ impl Resolver {
                 path.push(rest);
 
                 let true = self.names.contains(&path) else {
-                    let error = ResolutionError::UnboundPath(path);
-                    return Err(located_error(
-                        error,
-                        span,
-                        self.current_module().source_name().to_string(),
-                    ));
+                    return self.error(ResolutionError::UnboundPath(path), span);
                 };
 
                 let constructor_name = path.pop();
@@ -378,12 +366,10 @@ impl Resolver {
             None => {
                 let path = self.absolute_path(identifier);
                 if !self.types.contains(&path) {
-                    let error = ResolutionError::UnboundPath(Path::from_parts(vec![*identifier]));
-                    Err(located_error(
-                        error,
+                    self.error(
+                        ResolutionError::UnboundPath(Path::from_parts(vec![*identifier])),
                         span,
-                        self.current_module().source_name().to_string(),
-                    ))
+                    )
                 } else {
                     Ok(Bound::Absolute(path))
                 }
@@ -406,12 +392,7 @@ impl Resolver {
                 path.push(rest);
 
                 let true = self.types.contains(&path) else {
-                    let error = ResolutionError::UnboundPath(path);
-                    return Err(located_error(
-                        error,
-                        span,
-                        self.current_module().source_name().to_string(),
-                    ));
+                    return self.error(ResolutionError::UnboundPath(path), span);
                 };
 
                 Bound::Absolute(path)
@@ -444,40 +425,55 @@ impl Resolver {
         Ok(application.into())
     }
 
-    pub fn program(
-        &mut self,
-        program: Vec<(Vec<Definition<Unresolved>>, String)>,
-    ) -> Result<Vec<(Vec<Definition<Resolved>>, String)>> {
+    pub fn program(&mut self, program: Program<Unresolved>) -> Result<Program<Resolved>> {
+        let definition::program::Observation { modules } = program.observe();
+
         let mut module_paths = vec![];
-        for (module, source_name) in &program {
-            module_paths.push(self.find_module_name((module, source_name))?);
+        for module in &modules {
+            module_paths.push(self.find_module_name(module)?);
             self.collect_names(module)?;
         }
 
         self.check_if_imports_exist()?;
 
         let mut resolved_modules = Vec::new();
-        for ((module, source_name), module_path) in program.into_iter().zip(module_paths) {
+        for (module, module_path) in modules.into_iter().zip(module_paths) {
             self.current_module_path = module_path;
-            resolved_modules.push((self.module(module)?, source_name));
+            resolved_modules.push(self.module(module)?);
         }
 
-        Ok(resolved_modules)
+        Ok(definition::program::Observation {
+            modules: resolved_modules,
+        }
+        .into())
     }
 
     pub fn module(&mut self, module: Module<Unresolved>) -> Result<Module<Resolved>> {
-        module
+        let definition::module::Observation {
+            definitions,
+            source_name,
+        } = module.observe();
+
+        let definitions = definitions
             .into_iter()
             .map(|definition| self.definition(definition))
-            .collect::<Result<_>>()
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok(definition::module::Observation {
+            definitions,
+            source_name,
+        }
+        .into())
     }
 
-    fn find_module_name(&mut self, module: (&[Definition<Unresolved>], &String)) -> Result<Path> {
-        for definition in module.0 {
+    fn find_module_name(&mut self, module: &Module<Unresolved>) -> Result<Path> {
+        for definition in module.definitions() {
             if let Definition::ModulePath(module_path) = definition {
                 let module_path = Path::from_parts(module_path.parts().data().to_vec());
-                self.modules
-                    .insert(module_path.clone(), ModuleBound::empty(module.1.clone()));
+                self.modules.insert(
+                    module_path.clone(),
+                    ModuleBound::empty(module.source_name().to_string()),
+                );
                 self.current_module_path = module_path.clone();
 
                 return Ok(module_path);
@@ -487,12 +483,12 @@ impl Resolver {
         // TODO: Check for duplicate module definition
         Err(eof_error(
             ResolutionError::MissingModuleDefinition,
-            module.1.clone(),
+            module.source_name().to_string(),
         ))
     }
 
     fn collect_names(&mut self, module: &Module<Unresolved>) -> Result<()> {
-        for definition in module {
+        for definition in module.definitions() {
             if let Definition::Name(name) = definition {
                 // TODO: Check for duplicate definitions
                 self.current_module_mut()
@@ -537,9 +533,10 @@ impl Resolver {
                         self.collect_subimport(import_name, &base)?;
                     }
                     None => {
-                        self.current_module_mut()
-                            .imports_mut()
-                            .insert(*import.module_path().data().last().unwrap(), base);
+                        self.current_module_mut().imports_mut().insert(
+                            *import.module_path().data().last().unwrap(),
+                            Located::new(base, import.module_path().span()),
+                        );
                     }
                 }
             }
@@ -557,7 +554,7 @@ impl Resolver {
             definition::import::Subimport::As(as_name) => {
                 self.current_module_mut()
                     .imports_mut()
-                    .insert(*as_name, base.clone());
+                    .insert(*as_name.data(), Located::new(base.clone(), as_name.span()));
             }
             definition::import::Subimport::Import(imports) => {
                 for import in imports {
@@ -568,9 +565,10 @@ impl Resolver {
                             self.collect_subimport(subimport, &base)?;
                         }
                         None => {
-                            self.current_module_mut()
-                                .imports_mut()
-                                .insert(*import.module_path().data().last().unwrap(), base);
+                            self.current_module_mut().imports_mut().insert(
+                                *import.module_path().data().last().unwrap(),
+                                Located::new(base, import.module_path().span()),
+                            );
                         }
                     }
                 }
@@ -583,14 +581,14 @@ impl Resolver {
     fn check_if_imports_exist(&self) -> Result<()> {
         for module in self.modules.values() {
             for import in module.imports().values() {
-                if !(self.names.contains(import)
-                    || self.types.contains(import)
-                    || self.modules.contains_key(import))
+                if !(self.names.contains(import.data())
+                    || self.types.contains(import.data())
+                    || self.modules.contains_key(import.data()))
                 {
-                    return Err(eof_error(
-                        ResolutionError::UnresolvedImport(import.clone()),
-                        self.current_module().source_name().to_string(),
-                    ));
+                    return self.error(
+                        ResolutionError::UnresolvedImport(import.data().clone()),
+                        import.span(),
+                    );
                 }
             }
         }
@@ -685,6 +683,14 @@ impl Resolver {
         };
 
         Ok(constructor.into())
+    }
+
+    fn error<T>(&self, error: ResolutionError, span: Span) -> Result<T> {
+        Err(located_error(
+            error,
+            span,
+            self.current_module().source_name().to_string(),
+        ))
     }
 }
 
@@ -908,17 +914,25 @@ impl ANFResolver {
     }
 
     pub fn program(&mut self, program: anf::Program<Unresolved>) -> anf::Program<Resolved> {
-        program
+        let anf::definition::program::Observation { modules } = program.observe();
+
+        let modules = modules
             .into_iter()
             .map(|module| self.module(module))
-            .collect()
+            .collect();
+
+        anf::definition::program::Observation { modules }.into()
     }
 
     pub fn module(&mut self, module: anf::Module<Unresolved>) -> anf::Module<Resolved> {
-        module
+        let anf::definition::module::Observation { definitions } = module.observe();
+
+        let definitions = definitions
             .into_iter()
             .map(|definition| self.definition(definition))
-            .collect()
+            .collect();
+
+        anf::definition::module::Observation { definitions }.into()
     }
 
     fn definition(&mut self, definition: anf::Definition<Unresolved>) -> anf::Definition<Resolved> {

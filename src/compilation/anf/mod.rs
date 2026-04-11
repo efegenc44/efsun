@@ -23,8 +23,8 @@ pub type Definition<State> = definition::Definition<State>;
 pub type Atom<State> = atom::Atom<State>;
 pub type Expression<State> = expression::Expression<State>;
 
-pub type Module<State> = definition::Module<State>;
-pub type Program<State> = definition::Program<State>;
+pub type Module<State> = definition::module::Module<State>;
+pub type Program<State> = definition::program::Program<State>;
 
 // TODO: Maybe don't seperate ANF and standard as in enum Local
 // and enum Path, but keep generating unique InternId's (or something)
@@ -119,16 +119,22 @@ impl Transformer {
     }
 
     pub fn program(&self, program: ASTProgram<Renamed>) -> Program<Unresolved> {
-        program
+        let ast_definition::program::Observation { modules } = program.observe();
+
+        let modules = modules
             .into_iter()
             .map(|module| self.module(module))
-            .collect()
+            .collect::<Vec<_>>();
+
+        anf_definition::program::Observation { modules }.into()
     }
 
     pub fn module(&self, module: ASTModule<Renamed>) -> Module<Unresolved> {
+        let ast_definition::module::Observation { definitions, .. } = module.observe();
+
         let mut anf_module = Vec::new();
 
-        for definition in module {
+        for definition in definitions {
             match definition {
                 ASTDefinition::Name(let_definition) => {
                     anf_module.push(self.name_definition(let_definition));
@@ -140,7 +146,10 @@ impl Transformer {
             }
         }
 
-        anf_module
+        anf_definition::module::Observation {
+            definitions: anf_module,
+        }
+        .into()
     }
 
     fn name_definition(&self, name: ast_definition::Name<Renamed>) -> Definition<Unresolved> {

@@ -2,7 +2,7 @@ use crate::{
     interner::InternId,
     location::Located,
     parse::{
-        definition::{self, Definition},
+        definition::{self, Definition, Module, Program},
         expression::{self, Expression},
         pattern::{self, Pattern},
     },
@@ -224,20 +224,23 @@ impl Renamer {
         }
     }
 
-    pub fn program(
-        &mut self,
-        modules: Vec<(Vec<Definition<Resolved>>, String)>,
-    ) -> Vec<Vec<Definition<Renamed>>> {
-        let mut renamed_modules = vec![];
+    pub fn program(&mut self, program: Program<Resolved>) -> Program<Renamed> {
+        let definition::program::Observation { modules } = program.observe();
 
-        for (module, _) in modules {
-            renamed_modules.push(self.module(module));
-        }
+        let modules = modules
+            .into_iter()
+            .map(|module| self.module(module))
+            .collect::<Vec<_>>();
 
-        renamed_modules
+        definition::program::Observation { modules }.into()
     }
 
-    pub fn module(&mut self, definitions: Vec<Definition<Resolved>>) -> Vec<Definition<Renamed>> {
+    pub fn module(&mut self, module: Module<Resolved>) -> Module<Renamed> {
+        let definition::module::Observation {
+            definitions,
+            source_name,
+        } = module.observe();
+
         let mut renamed_definitions = vec![];
 
         for definition in definitions {
@@ -254,7 +257,11 @@ impl Renamer {
             }
         }
 
-        renamed_definitions
+        definition::module::Observation {
+            definitions: renamed_definitions,
+            source_name,
+        }
+        .into()
     }
 
     fn name_definition(

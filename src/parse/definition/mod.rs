@@ -10,6 +10,9 @@ pub type Name<State> = name::Name<State>;
 pub type Import = import::Import;
 pub type Structure<State> = structure::Structure<State>;
 
+pub type Module<State> = module::Module<State>;
+pub type Program<State> = program::Program<State>;
+
 pub enum Definition<State> {
     ModulePath(ModulePath),
     Name(Name<State>),
@@ -52,5 +55,74 @@ impl<T> Definition<T> {
     }
 }
 
-pub type Module<T> = Vec<Definition<T>>;
-pub type Program<T> = Vec<Module<T>>;
+pub mod module {
+    use crate::parse::definition::Definition;
+
+    pub struct Module<State> {
+        definitions: Vec<Definition<State>>,
+        source_name: String,
+    }
+
+    pub struct Observation<State> {
+        pub definitions: Vec<Definition<State>>,
+        pub source_name: String,
+    }
+
+    impl<State> From<Observation<State>> for Module<State> {
+        fn from(value: Observation<State>) -> Self {
+            Self {
+                definitions: value.definitions,
+                source_name: value.source_name,
+            }
+        }
+    }
+
+    impl<State> Module<State> {
+        pub fn definitions(&self) -> &[Definition<State>] {
+            &self.definitions
+        }
+
+        pub fn source_name(&self) -> &str {
+            &self.source_name
+        }
+
+        pub fn observe(self) -> Observation<State> {
+            Observation {
+                definitions: self.definitions,
+                source_name: self.source_name,
+            }
+        }
+    }
+}
+
+pub mod program {
+    use crate::parse::definition::module::Module;
+
+    pub struct Program<State> {
+        modules: Vec<Module<State>>,
+    }
+
+    pub struct Observation<State> {
+        pub modules: Vec<Module<State>>,
+    }
+
+    impl<State> From<Observation<State>> for Program<State> {
+        fn from(value: Observation<State>) -> Self {
+            Self {
+                modules: value.modules,
+            }
+        }
+    }
+
+    impl<State> Program<State> {
+        pub fn modules(&self) -> &[Module<State>] {
+            &self.modules
+        }
+
+        pub fn observe(self) -> Observation<State> {
+            Observation {
+                modules: self.modules,
+            }
+        }
+    }
+}

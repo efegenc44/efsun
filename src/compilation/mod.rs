@@ -39,13 +39,13 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
     pub fn program(
         mut self,
-        modules: &'anf [Vec<anf::Definition<Resolved>>],
+        program: &'anf anf::Program<Resolved>,
     ) -> (Vec<Instruction>, ConstantPool) {
-        for module in modules {
+        for module in program.modules() {
             self.collect_names(module);
         }
 
-        for module in modules {
+        for module in program.modules() {
             self.module(module);
         }
 
@@ -90,8 +90,8 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         (instructions, self.constant_pool)
     }
 
-    fn collect_names(&mut self, definitions: &'anf [anf::Definition<Resolved>]) {
-        for definition in definitions {
+    fn collect_names(&mut self, module: &'anf anf::Module<Resolved>) {
+        for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
                 // self.names.insert(name.path(), vec![]);
                 self.name_anfs.insert(name.path(), name.expression());
@@ -107,8 +107,8 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    pub fn module(&mut self, definitions: &'anf [anf::Definition<Resolved>]) {
-        for definition in definitions {
+    pub fn module(&mut self, module: &'anf anf::Module<Resolved>) {
+        for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition
                 && !self.names.contains_key(name.path())
             {

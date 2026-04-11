@@ -23,6 +23,6 @@ impl Import {
 }
 
 pub enum Subimport {
-    As(InternId),
+    As(Located<InternId>),
     Import(Vec<Import>),
 }

@@ -3,7 +3,10 @@ use std::{
     fmt::{Debug, Display},
 };
 
-use crate::interner::{InternId, WithInterner};
+use crate::{
+    interner::{InternId, WithInterner},
+    location::Located,
+};
 
 #[derive(Clone, Debug)]
 pub enum Bound {
@@ -109,7 +112,7 @@ impl<'interner> Display for WithInterner<'interner, &Path> {
 pub struct Module {
     names: HashSet<InternId>,
     types: HashMap<InternId, Vec<InternId>>,
-    imports: HashMap<InternId, Path>,
+    imports: HashMap<InternId, Located<Path>>,
     source_name: String,
 }
 
@@ -135,11 +138,11 @@ impl Module {
         &mut self.types
     }
 
-    pub fn imports(&self) -> &HashMap<InternId, Path> {
+    pub fn imports(&self) -> &HashMap<InternId, Located<Path>> {
         &self.imports
     }
 
-    pub fn imports_mut(&mut self) -> &mut HashMap<InternId, Path> {
+    pub fn imports_mut(&mut self) -> &mut HashMap<InternId, Located<Path>> {
         &mut self.imports
     }
 

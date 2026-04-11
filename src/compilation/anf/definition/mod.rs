@@ -36,5 +36,66 @@ impl<T> Definition<T> {
     }
 }
 
-pub type Module<T> = Vec<Definition<T>>;
-pub type Program<T> = Vec<Module<T>>;
+pub mod module {
+    use crate::compilation::anf::Definition;
+
+    pub struct Module<State> {
+        definitions: Vec<Definition<State>>,
+    }
+
+    pub struct Observation<State> {
+        pub definitions: Vec<Definition<State>>,
+    }
+
+    impl<State> From<Observation<State>> for Module<State> {
+        fn from(value: Observation<State>) -> Self {
+            Self {
+                definitions: value.definitions,
+            }
+        }
+    }
+
+    impl<State> Module<State> {
+        pub fn definitions(&self) -> &[Definition<State>] {
+            &self.definitions
+        }
+
+        pub fn observe(self) -> Observation<State> {
+            Observation {
+                definitions: self.definitions,
+            }
+        }
+    }
+}
+
+pub mod program {
+    use crate::compilation::anf::Module;
+
+    pub struct Program<State> {
+        modules: Vec<Module<State>>,
+    }
+
+    pub struct Observation<State> {
+        pub modules: Vec<Module<State>>,
+    }
+
+    impl<State> From<Observation<State>> for Program<State> {
+        fn from(value: Observation<State>) -> Self {
+            Self {
+                modules: value.modules,
+            }
+        }
+    }
+
+    impl<State> Program<State> {
+        pub fn modules(&self) -> &[Module<State>] {
+            &self.modules
+        }
+
+        pub fn observe(self) -> Observation<State> {
+            Observation {
+                modules: self.modules,
+            }
+        }
+    }
+}

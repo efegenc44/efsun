@@ -9,11 +9,10 @@ use crate::{
         TypeChecker,
         typ::{MonoType, Type},
     },
-    compilation::anf,
-    compilation::{Compiler, ConstantPool, instruction::display_instructions},
+    compilation::{Compiler, ConstantPool, anf, instruction::display_instructions},
     error::Result,
     interner::{Interner, WithInterner},
-    parse::Parser,
+    parse::{Parser, definition},
     resolution::{ANFResolver, Resolver, renamer::Renamer},
     vm::{VM, value::Value},
 };
@@ -23,8 +22,7 @@ fn expression(
     vm: &mut VM,
     interner: &mut Interner,
 ) -> Result<(Value, MonoType, ConstantPool)> {
-    let expression =
-        Parser::from_source("<interactive>".to_string(), source, interner).expression_repl()?;
+    let expression = Parser::from_source("<interactive>", source, interner).expression_repl()?;
     let resolved = Resolver::new()
         .interactive_environment(interner)
         .expression(expression)?;
@@ -52,11 +50,10 @@ fn program(
 ) -> Result<(Value, Type, ConstantPool)> {
     let modules = sources
         .iter()
-        .map(|(source_name, source)| {
-            Parser::from_source(source_name.clone(), source, interner).module()
-        })
-        .collect::<Result<_>>()?;
-    let resolved = Resolver::new().program(modules)?;
+        .map(|(source_name, source)| Parser::from_source(source_name, source, interner).module())
+        .collect::<Result<Vec<_>>>()?;
+    let program = definition::program::Observation { modules }.into();
+    let resolved = Resolver::new().program(program)?;
     let t = TypeChecker::new().program(&resolved, interner)?;
     let renamed = Renamer::new().program(resolved);
     let anf = anf::Transformer::new().program(renamed);

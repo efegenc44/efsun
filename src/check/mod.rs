@@ -7,7 +7,7 @@ use crate::{
     interner::Interner,
     location::{Located, Span},
     parse::{
-        definition::{self, Definition},
+        definition::{self, Definition, Module, Program},
         expression::{self, Expression},
         pattern::Pattern,
         type_expression::{self, TypeExpression},
@@ -40,7 +40,7 @@ pub struct TypeChecker<'ast> {
     /// Map from type variable id (usize) to its substitution (MonoType)
     unification_table: HashMap<usize, MonoType>,
     /// Source file name of the current module for error reporting
-    current_source_name: String,
+    current_source_name: Option<&'ast str>,
 }
 
 impl<'ast> TypeChecker<'ast> {
@@ -54,7 +54,7 @@ impl<'ast> TypeChecker<'ast> {
             types: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default(),
-            current_source_name: String::new(),
+            current_source_name: None,
         }
     }
 
@@ -130,15 +130,13 @@ impl<'ast> TypeChecker<'ast> {
     ) -> Result<MonoType> {
         let m = self.evaluate_type_expression(application.function())?;
         let MonoType::Structure(structure) = m else {
-            let error = TypeCheckError::ExpectedStructure(m);
-            return Err(located_error(error, span, self.current_source_name.clone()));
+            return self.error(TypeCheckError::ExpectedStructure(m), span);
         };
 
         let expected = structure.arguments().len();
         let found = application.arguments().len();
         let true = found == expected else {
-            let error = TypeCheckError::TypeArityMismatch { expected, found };
-            return Err(located_error(error, span, self.current_source_name.clone()));
+            return self.error(TypeCheckError::TypeArityMismatch { expected, found }, span);
         };
 
         let mut application_arguments = Vec::new();
@@ -228,12 +226,8 @@ impl<'ast> TypeChecker<'ast> {
                 if let Type::Mono(MonoType::Variable(variable)) = self.names[path].clone() {
                     if self.name_expressions.is_currently_visiting(path) {
                         if !self.in_lambda {
-                            let error = TypeCheckError::CyclicDefinition(path.clone());
-                            return Err(located_error(
-                                error,
-                                span,
-                                self.current_source_name.clone(),
-                            ));
+                            return self
+                                .error(TypeCheckError::CyclicDefinition(path.clone()), span);
                         }
 
                         return Ok(MonoType::Variable(variable));
@@ -247,9 +241,10 @@ impl<'ast> TypeChecker<'ast> {
 
                     let t = MonoType::Variable(variable);
                     if let Err((t1, t2)) = self.unify(&m, &t) {
-                        let error = TypeCheckError::TypeMismatch { t1, t2 };
-                        let span = self.name_expressions.get(path).span();
-                        return Err(located_error(error, span, self.current_source_name.clone()));
+                        return self.error(
+                            TypeCheckError::TypeMismatch { t1, t2 },
+                            self.name_expressions.get(path).span(),
+                        );
                     };
 
                     let t = m.generalize();
@@ -276,8 +271,7 @@ impl<'ast> TypeChecker<'ast> {
         let arrow = MonoType::Arrow(arrow);
 
         if let Err((t1, t2)) = self.unify(&function, &arrow) {
-            let error = TypeCheckError::TypeMismatch { t1, t2 };
-            Err(located_error(error, span, self.current_source_name.clone()))
+            self.error(TypeCheckError::TypeMismatch { t1, t2 }, span)
         } else {
             Ok(self.substitute(return_type))
         }
@@ -318,12 +312,7 @@ impl<'ast> TypeChecker<'ast> {
             let t = self.match_branch(&t, branch.data())?;
 
             if let Err((t1, t2)) = self.unify(&return_type, &t) {
-                let error = TypeCheckError::TypeMismatch { t1, t2 };
-                return Err(located_error(
-                    error,
-                    branch.span(),
-                    self.current_source_name.clone(),
-                ));
+                return self.error(TypeCheckError::TypeMismatch { t1, t2 }, branch.span());
             }
         }
 
@@ -354,24 +343,14 @@ impl<'ast> TypeChecker<'ast> {
             }
             Pattern::String(_) => {
                 if let Err((t1, t2)) = self.unify(t, &MonoType::String) {
-                    let error = TypeCheckError::TypeMismatch { t1, t2 };
-                    return Err(located_error(
-                        error,
-                        pattern.span(),
-                        self.current_source_name.clone(),
-                    ));
+                    return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span());
                 };
             }
             Pattern::Structure(structure) => {
                 let structure_type = self.instantiate(self.types[structure.type_path()].clone());
 
                 if let Err((t1, t2)) = self.unify(t, &structure_type) {
-                    let error = TypeCheckError::TypeMismatch { t1, t2 };
-                    return Err(located_error(
-                        error,
-                        pattern.span(),
-                        self.current_source_name.clone(),
-                    ));
+                    return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span());
                 };
 
                 let constructor_path = structure.type_path().append([structure.constructor_name()]);
@@ -408,15 +387,14 @@ impl<'ast> TypeChecker<'ast> {
 
     pub fn program(
         &mut self,
-        modules: &'ast [(Vec<Definition<Resolved>>, String)],
+        program: &'ast Program<Resolved>,
         interner: &Interner,
     ) -> Result<Type> {
-        for (module, _) in modules {
+        for module in program.modules() {
             self.collect_definitions(module)?;
         }
 
-        for (module, source_name) in modules {
-            self.current_source_name = source_name.clone();
+        for module in program.modules() {
             self.module(module)?;
         }
 
@@ -428,8 +406,10 @@ impl<'ast> TypeChecker<'ast> {
         Ok(self.names[&Path::from_parts(parts)].clone())
     }
 
-    pub fn module(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
-        for definition in definitions {
+    pub fn module(&mut self, module: &'ast Module<Resolved>) -> Result<()> {
+        self.current_source_name = Some(module.source_name());
+
+        for definition in module.definitions() {
             if let Definition::Name(name) = definition {
                 self.let_definition(name)?
             }
@@ -438,8 +418,8 @@ impl<'ast> TypeChecker<'ast> {
         Ok(())
     }
 
-    fn collect_definitions(&mut self, definitions: &'ast [Definition<Resolved>]) -> Result<()> {
-        for definition in definitions {
+    fn collect_definitions(&mut self, module: &'ast Module<Resolved>) -> Result<()> {
+        for definition in module.definitions() {
             match definition {
                 Definition::Name(name) => {
                     let newvar = self.newvar();
@@ -459,7 +439,7 @@ impl<'ast> TypeChecker<'ast> {
         }
 
         // Type constructors
-        for definition in definitions {
+        for definition in module.definitions() {
             if let Definition::Structure(structure) = definition {
                 let structure_type = self.instantiate(self.types[structure.path()].clone());
                 let variables = structure_type.variables();
@@ -491,12 +471,10 @@ impl<'ast> TypeChecker<'ast> {
 
         let t = self.instantiate(self.names[name_definition.path()].clone());
         if let Err((t1, t2)) = self.unify(&m, &t) {
-            let error = TypeCheckError::TypeMismatch { t1, t2 };
-            return Err(located_error(
-                error,
+            return self.error(
+                TypeCheckError::TypeMismatch { t1, t2 },
                 name_definition.identifier().span(),
-                self.current_source_name.clone(),
-            ));
+            );
         };
 
         let t = m.generalize();
@@ -504,6 +482,14 @@ impl<'ast> TypeChecker<'ast> {
         self.name_expressions.leaving(name_definition.path());
 
         Ok(())
+    }
+
+    fn error<T>(&self, error: TypeCheckError, span: Span) -> Result<T> {
+        Err(located_error(
+            error,
+            span,
+            self.current_source_name.unwrap().to_string(),
+        ))
     }
 }
 
