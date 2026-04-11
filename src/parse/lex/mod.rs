@@ -3,7 +3,7 @@ pub mod token;
 use std::{iter::Peekable, str::Chars};
 
 use crate::{
-    error::{Result, located_error},
+    error::{ReportableError, Result},
     interner::Interner,
     location::{Located, SourceLocation, Span},
 };
@@ -123,7 +123,11 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
     }
 
     fn error<T>(&self, error: LexError, span: Span) -> Result<T> {
-        Err(located_error(error, span, self.source_name.to_string()))
+        Err(ReportableError::new(
+            error,
+            span,
+            self.source_name.to_string(),
+        ))
     }
 }
 

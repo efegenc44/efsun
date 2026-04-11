@@ -3,7 +3,7 @@ pub mod typ;
 use std::{collections::HashMap, result};
 
 use crate::{
-    error::{Result, located_error},
+    error::{ReportableError, Result},
     interner::Interner,
     location::{Located, Span},
     parse::{
@@ -485,7 +485,7 @@ impl<'ast> TypeChecker<'ast> {
     }
 
     fn error<T>(&self, error: TypeCheckError, span: Span) -> Result<T> {
-        Err(located_error(
+        Err(ReportableError::new(
             error,
             span,
             self.current_source_name.unwrap().to_string(),

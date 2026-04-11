@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     compilation::anf::{self, Local},
-    error::{Result, eof_error, located_error},
+    error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
     parse::{
@@ -481,7 +481,7 @@ impl Resolver {
         }
 
         // TODO: Check for duplicate module definition
-        Err(eof_error(
+        Err(ReportableError::eof(
             ResolutionError::MissingModuleDefinition,
             module.source_name().to_string(),
         ))
@@ -686,7 +686,7 @@ impl Resolver {
     }
 
     fn error<T>(&self, error: ResolutionError, span: Span) -> Result<T> {
-        Err(located_error(
+        Err(ReportableError::new(
             error,
             span,
             self.current_module().source_name().to_string(),

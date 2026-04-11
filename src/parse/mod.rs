@@ -7,7 +7,7 @@ pub mod type_expression;
 use std::iter::Peekable;
 
 use crate::{
-    error::{Result, eof_error, located_error},
+    error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
     parse::definition::Module,
@@ -71,7 +71,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
     fn peek_some(&mut self) -> Result<Located<Token>> {
         self.peek().unwrap_or_else(|| {
-            Err(eof_error(
+            Err(ReportableError::eof(
                 ParseError::UnexpectedEOF,
                 self.source_name.to_string(),
             ))
@@ -136,7 +136,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
         // NOTE: Maybe it is not needed
         if self.peek().is_some() {
-            return Err(eof_error(
+            return Err(ReportableError::eof(
                 ParseError::IllFormedExpression,
                 self.source_name.to_string(),
             ));
@@ -552,7 +552,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 
     fn error<T>(&self, error: ParseError, span: Span) -> Result<T> {
-        Err(located_error(error, span, self.source_name.to_string()))
+        Err(ReportableError::new(
+            error,
+            span,
+            self.source_name.to_string(),
+        ))
     }
 }
 

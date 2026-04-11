@@ -90,7 +90,7 @@ pub fn repl() {
                 result.display(pool.strings()),
                 WithInterner::new(&t, &interner)
             ),
-            Err(error) => error.0.report(&error.1, input, &interner),
+            Err(error) => error.report(input, &interner),
         }
 
         vm.reset_state();
@@ -114,6 +114,6 @@ pub fn from_file(file_paths: Vec<String>) {
             result.display(pool.strings()),
             WithInterner::new(&t, &interner)
         ),
-        Err(error) => error.0.report(&error.1, &sources[&error.1], &interner),
+        Err(error) => error.report(&sources[error.source_name()], &interner),
     }
 }

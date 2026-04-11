@@ -142,30 +142,41 @@ impl From<TypeCheckError> for Error {
     }
 }
 
-pub fn located_error<T: Into<Error>>(
-    error: T,
-    span: Span,
+#[derive(Clone)]
+pub struct ReportableError {
+    error: Box<Located<Error>>,
     source_name: String,
-) -> Box<(Located<Error>, String)> {
-    Box::new((Located::new(error.into(), span), source_name))
 }
 
-pub fn eof_error<T: Into<Error>>(error: T, source_name: String) -> Box<(Located<Error>, String)> {
-    Box::new((Located::new(error.into(), Span::eof()), source_name))
-}
+impl ReportableError {
+    pub fn new<E: Into<Error>>(error: E, span: Span, source_name: String) -> Self {
+        Self {
+            error: Box::new(Located::new(error.into(), span)),
+            source_name,
+        }
+    }
 
-impl Located<Error> {
-    pub fn report(&self, source_name: &str, source: &str, interner: &Interner) {
+    pub fn eof<E: Into<Error>>(error: E, source_name: String) -> Self {
+        Self::new(error, Span::eof(), source_name)
+    }
+
+    pub fn source_name(&self) -> &str {
+        &self.source_name
+    }
+
+    pub fn report(&self, source: &str, interner: &Interner) {
+        let Self { error, source_name } = self;
+
         let mut lines = source.lines();
 
-        let start = self.span().start();
-        let end = self.span().end();
+        let start = error.span().start();
+        let end = error.span().end();
 
-        if self.span().is_eof() {
+        if error.span().is_eof() {
             eprintln!();
             eprintln!("        | [{source_name}]");
             eprintln!("        |");
-            eprintln!("        | {}", self.data().description(interner));
+            eprintln!("        | {}", error.data().description(interner));
             return;
         }
 
@@ -188,7 +199,7 @@ impl Located<Error> {
                 spaces = (1..start.column()).len(),
                 carrots = (start.column()..end.column()).len()
             );
-            eprintln!("        | {}", self.data().description(interner))
+            eprintln!("        | {}", error.data().description(interner))
         } else {
             let first_line = lines.nth(first_line_number - 1).unwrap();
             eprintln!("  {first_line_number:>5} | {first_line}");
@@ -217,9 +228,9 @@ impl Located<Error> {
                 "",
                 carrots = (1..end.column()).len()
             );
-            eprintln!("        | {}", self.data().description(interner))
+            eprintln!("        | {}", error.data().description(interner))
         }
     }
 }
 
-pub type Result<T> = std::result::Result<T, Box<(Located<Error>, String)>>;
+pub type Result<T> = std::result::Result<T, ReportableError>;
