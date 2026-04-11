@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use crate::{
     interner::InternId,
     location::Located,
-    resolution::{Renamed, Resolved, Unresolved, bound::Path},
+    resolution::bound::Path,
+    state::{AfterUnresolved, Unresolved},
 };
 
 use super::Pattern;
@@ -36,37 +37,16 @@ impl From<UnresolvedObservation> for Structure<Unresolved> {
     }
 }
 
-pub struct ResolvedObservation {
+pub struct Observation<State: AfterUnresolved> {
     pub parts: Located<Vec<InternId>>,
-    pub arguments: Vec<Located<Pattern<Resolved>>>,
+    pub arguments: Vec<Located<Pattern<State>>>,
     pub type_path: Path,
     pub constructor_name: InternId,
     pub order: usize,
 }
 
-impl From<ResolvedObservation> for Structure<Resolved> {
-    fn from(val: ResolvedObservation) -> Self {
-        Structure {
-            parts: val.parts,
-            arguments: val.arguments,
-            type_path: Some(val.type_path),
-            constructor_name: Some(val.constructor_name),
-            order: Some(val.order),
-            state: PhantomData,
-        }
-    }
-}
-
-pub struct RenamedObservation {
-    pub parts: Located<Vec<InternId>>,
-    pub arguments: Vec<Located<Pattern<Renamed>>>,
-    pub type_path: Path,
-    pub constructor_name: InternId,
-    pub order: usize,
-}
-
-impl From<RenamedObservation> for Structure<Renamed> {
-    fn from(val: RenamedObservation) -> Self {
+impl<S: AfterUnresolved> From<Observation<S>> for Structure<S> {
+    fn from(val: Observation<S>) -> Self {
         Structure {
             parts: val.parts,
             arguments: val.arguments,
@@ -93,7 +73,7 @@ impl Structure<Unresolved> {
     }
 }
 
-impl Structure<Resolved> {
+impl<S: AfterUnresolved> Structure<S> {
     pub fn type_path(&self) -> &Path {
         self.type_path.as_ref().unwrap()
     }
@@ -102,25 +82,12 @@ impl Structure<Resolved> {
         *self.constructor_name.as_ref().unwrap()
     }
 
-    pub fn observe(self) -> ResolvedObservation {
-        ResolvedObservation {
-            parts: self.parts,
-            arguments: self.arguments,
-            type_path: self.type_path.unwrap(),
-            constructor_name: self.constructor_name.unwrap(),
-            order: self.order.unwrap(),
-        }
-    }
-}
-
-impl Structure<Renamed> {
     pub fn order(&self) -> usize {
         self.order.unwrap()
     }
 
-    #[allow(unused)]
-    pub fn observe(self) -> RenamedObservation {
-        RenamedObservation {
+    pub fn observe(self) -> Observation<S> {
+        Observation {
             parts: self.parts,
             arguments: self.arguments,
             type_path: self.type_path.unwrap(),

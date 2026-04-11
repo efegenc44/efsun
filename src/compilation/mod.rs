@@ -6,10 +6,8 @@ use std::collections::HashMap;
 use crate::{
     interner::{InternId, Interner},
     parse::pattern,
-    resolution::{
-        Resolved,
-        bound::{Bound, Path},
-    },
+    resolution::bound::{Bound, Path},
+    state::Resolved,
 };
 
 use instruction::Instruction;

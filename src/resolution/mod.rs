@@ -18,42 +18,11 @@ use crate::{
         pattern::{self, Pattern},
         type_expression::{self, TypeExpression},
     },
+    state::{Renamed, Resolved, Unresolved},
 };
 
 use bound::{Bound, BoundId, Module as ModuleBound, Path};
 use frame::ResolutionStack;
-
-#[derive(Clone, Copy)]
-pub struct Unresolved;
-#[derive(Clone, Copy)]
-pub struct Resolved;
-#[derive(Clone, Copy)]
-pub struct Renamed;
-
-pub trait RenamedState {}
-pub trait ResolvedState : RenamedState {}
-#[allow(unused)]
-pub trait UnresolvedState : ResolvedState {}
-
-impl UnresolvedState for Unresolved {}
-impl ResolvedState for Unresolved {}
-impl RenamedState for Unresolved {}
-
-impl ResolvedState for Resolved {}
-impl RenamedState for Resolved {}
-
-impl RenamedState for Renamed {}
-
-// impl UnresolvedState for Unresolved {}
-// impl ResolvedState for Unresolved {}
-// impl RenamedState for Unresolved {}
-
-// impl UnresolvedState for Resolved {}
-// impl ResolvedState for Resolved {}
-
-// impl UnresolvedState for Renamed {}
-// impl ResolvedState for Renamed {}
-// impl RenamedState for Renamed {}
 
 /// AST Name Resolver
 pub struct Resolver {
@@ -297,9 +266,7 @@ impl Resolver {
         span: Span,
     ) -> Result<Pattern<Resolved>> {
         let pattern = match pattern {
-            Pattern::Any(any) => {
-                Pattern::Any(self.any_pattern(any)?)
-            }
+            Pattern::Any(any) => Pattern::Any(self.any_pattern(any)?),
             Pattern::String(id) => Pattern::String(id),
             Pattern::Structure(structure) => {
                 Pattern::Structure(self.structure_pattern(structure, span)?)
@@ -353,7 +320,7 @@ impl Resolver {
             }
         };
 
-        let structure = pattern::structure::ResolvedObservation {
+        let structure = pattern::structure::Observation {
             parts,
             arguments,
             type_path,
@@ -653,7 +620,7 @@ impl Resolver {
         let expression = self.expression(expression)?;
         let path = self.current_module_path.append([identifier.into_data()]);
 
-        let name = definition::name::ResolvedObservation {
+        let name = definition::name::Observation {
             identifier,
             expression,
             path,
@@ -684,7 +651,7 @@ impl Resolver {
 
         self.type_variables.clear();
 
-        let structure = definition::structure::ResolvedObservation {
+        let structure = definition::structure::Observation {
             name,
             variables,
             constructors,
@@ -708,7 +675,7 @@ impl Resolver {
             .collect::<Result<_>>()?;
 
         let path = type_path.append([name.into_data()]);
-        let constructor = definition::structure::constructor::ResolvedObservation {
+        let constructor = definition::structure::constructor::Observation {
             name,
             arguments,
             path,

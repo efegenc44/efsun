@@ -1,4 +1,10 @@
-use crate::{interner::InternId, location::Located, parse::expression::Expression, resolution::{Renamed, ResolvedState, renamer::UniqueName}};
+use crate::{
+    interner::InternId,
+    location::Located,
+    parse::expression::Expression,
+    resolution::renamer::UniqueName,
+    state::{BeforeRenamed, Renamed},
+};
 
 pub struct LetIn<State> {
     variable: Located<InternId>,
@@ -7,19 +13,19 @@ pub struct LetIn<State> {
     unique_variable: Option<UniqueName>,
 }
 
-pub struct Observation<State> {
+pub struct Observation<State: BeforeRenamed> {
     pub variable: Located<InternId>,
     pub variable_expression: Located<Expression<State>>,
     pub return_expression: Located<Expression<State>>,
 }
 
-impl<S: ResolvedState> From<Observation<S>> for LetIn<S> {
+impl<S: BeforeRenamed> From<Observation<S>> for LetIn<S> {
     fn from(val: Observation<S>) -> Self {
         LetIn {
             variable: val.variable,
             variable_expression: Box::new(val.variable_expression),
             return_expression: Box::new(val.return_expression),
-            unique_variable: None
+            unique_variable: None,
         }
     }
 }
@@ -28,7 +34,7 @@ pub struct RenamedObservation {
     pub variable: Located<InternId>,
     pub variable_expression: Located<Expression<Renamed>>,
     pub return_expression: Located<Expression<Renamed>>,
-    pub unique_variable: UniqueName
+    pub unique_variable: UniqueName,
 }
 
 impl From<RenamedObservation> for LetIn<Renamed> {
@@ -56,7 +62,7 @@ impl<State> LetIn<State> {
     }
 }
 
-impl<S: ResolvedState> LetIn<S> {
+impl<S: BeforeRenamed> LetIn<S> {
     pub fn observe(self) -> Observation<S> {
         Observation {
             variable: self.variable,

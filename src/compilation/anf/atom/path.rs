@@ -2,7 +2,8 @@ use std::marker::PhantomData;
 
 use crate::{
     compilation::anf,
-    resolution::{Resolved, Unresolved, bound::Bound},
+    resolution::bound::Bound,
+    state::{Resolved, Unresolved},
 };
 
 pub struct Path<State> {

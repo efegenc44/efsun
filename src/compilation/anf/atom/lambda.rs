@@ -1,6 +1,7 @@
 use crate::{
     compilation::anf,
-    resolution::{Resolved, Unresolved, bound::Capture, renamer::UniqueName},
+    resolution::{bound::Capture, renamer::UniqueName},
+    state::{Resolved, Unresolved},
 };
 
 pub struct Lambda<T> {

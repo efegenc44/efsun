@@ -6,7 +6,8 @@ use crate::{
     compilation::{ConstantPool, instruction::Instruction},
     interner::Interner,
     parse::pattern::Pattern,
-    resolution::{Renamed, bound::Capture},
+    resolution::bound::Capture,
+    state::Renamed,
 };
 
 use value::{ConstructorValue, LambdaValue, StructureValue, Value};

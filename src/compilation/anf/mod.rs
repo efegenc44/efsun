@@ -16,7 +16,8 @@ use crate::{
         },
         expression::{self as ast_expression, Expression as ASTExpression},
     },
-    resolution::{Renamed, Unresolved, bound::Bound, renamer::UniqueName},
+    resolution::{bound::Bound, renamer::UniqueName},
+    state::{Renamed, Unresolved},
 };
 
 pub type Definition<State> = definition::Definition<State>;
@@ -57,7 +58,7 @@ pub enum Path {
     // bool field indicates if the bound is local or not
     //   for purely debug purposes
     Absolute(Vec<InternId>),
-    Local(UniqueName)
+    Local(UniqueName),
 }
 
 impl<'interner> Display for WithInterner<'interner, &Path> {
@@ -73,7 +74,7 @@ impl<'interner> Display for WithInterner<'interner, &Path> {
                     // if *is_local {
                     //     write!(f, "{identifier}")
                     // } else {
-                        write!(f, "{}", self.interner().lookup(identifier))
+                    write!(f, "{}", self.interner().lookup(identifier))
                     // }
                 }
                 [x, xs @ ..] => {
@@ -157,7 +158,7 @@ impl Transformer {
     }
 
     fn name_definition(&self, name: ast_definition::Name<Renamed>) -> Definition<Unresolved> {
-        let ast_definition::name::RenamedObservation {
+        let ast_definition::name::Observation {
             identifier,
             expression,
             path,
@@ -176,16 +177,13 @@ impl Transformer {
         &self,
         structure: ast_definition::Structure<Renamed>,
     ) -> Definition<Unresolved> {
-        let ast_definition::structure::RenamedObservation { constructors, .. } =
-            structure.observe();
+        let ast_definition::structure::Observation { constructors, .. } = structure.observe();
 
         let constructors = constructors
             .into_iter()
             .map(|constructor| {
-                let ast_definition::structure::constructor::RenamedObservation {
-                    arguments,
-                    path,
-                    ..
+                let ast_definition::structure::constructor::Observation {
+                    arguments, path, ..
                 } = constructor.into_data().observe();
 
                 anf_definition::structure::Constructor::new(path, arguments.len())
@@ -211,7 +209,11 @@ impl Transformer {
     }
 
     fn path(&self, path: ast_expression::Path<Renamed>, k: Continuation) -> Expression<Unresolved> {
-        let ast_expression::path::RenamedObservation { parts, bound, unique_name } = path.observe();
+        let ast_expression::path::RenamedObservation {
+            parts,
+            bound,
+            unique_name,
+        } = path.observe();
 
         let bound = match &bound {
             Bound::Absolute(_) => Some(bound),

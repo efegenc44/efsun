@@ -2,7 +2,8 @@ use crate::{
     interner::InternId,
     location::Located,
     parse::expression::Expression,
-    resolution::{Renamed, Resolved, Unresolved, bound::Path},
+    resolution::bound::Path,
+    state::{AfterUnresolved, Unresolved},
 };
 
 pub struct Name<T> {
@@ -26,30 +27,14 @@ impl From<UnresolvedObservation> for Name<Unresolved> {
     }
 }
 
-pub struct ResolvedObservation {
+pub struct Observation<State: AfterUnresolved> {
     pub identifier: Located<InternId>,
-    pub expression: Located<Expression<Resolved>>,
+    pub expression: Located<Expression<State>>,
     pub path: Path,
 }
 
-impl From<ResolvedObservation> for Name<Resolved> {
-    fn from(value: ResolvedObservation) -> Self {
-        Self {
-            identifier: value.identifier,
-            expression: value.expression,
-            path: Some(value.path),
-        }
-    }
-}
-
-pub struct RenamedObservation {
-    pub identifier: Located<InternId>,
-    pub expression: Located<Expression<Renamed>>,
-    pub path: Path,
-}
-
-impl From<RenamedObservation> for Name<Renamed> {
-    fn from(value: RenamedObservation) -> Self {
+impl<S: AfterUnresolved> From<Observation<S>> for Name<S> {
+    fn from(value: Observation<S>) -> Self {
         Self {
             identifier: value.identifier,
             expression: value.expression,
@@ -77,23 +62,13 @@ impl Name<Unresolved> {
     }
 }
 
-impl Name<Resolved> {
+impl<S: AfterUnresolved> Name<S> {
     pub fn path(&self) -> &Path {
         self.path.as_ref().unwrap()
     }
 
-    pub fn observe(self) -> ResolvedObservation {
-        ResolvedObservation {
-            identifier: self.identifier,
-            expression: self.expression,
-            path: self.path.unwrap(),
-        }
-    }
-}
-
-impl Name<Renamed> {
-    pub fn observe(self) -> RenamedObservation {
-        RenamedObservation {
+    pub fn observe(self) -> Observation<S> {
+        Observation {
             identifier: self.identifier,
             expression: self.expression,
             path: self.path.unwrap(),

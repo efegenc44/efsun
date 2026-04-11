@@ -2,7 +2,8 @@ use crate::{
     interner::InternId,
     location::Located,
     parse::expression::Expression,
-    resolution::{Renamed, Resolved, Unresolved, bound::Capture, renamer::UniqueName},
+    resolution::{bound::Capture, renamer::UniqueName},
+    state::{Renamed, Resolved, Unresolved},
 };
 
 pub struct Lambda<State> {
@@ -40,7 +41,7 @@ impl From<ResolvedObservation> for Lambda<Resolved> {
             variable: val.variable,
             expression: Box::new(val.expression),
             captures: Some(val.captures),
-            unique_variable: None
+            unique_variable: None,
         }
     }
 }
@@ -49,7 +50,7 @@ pub struct RenamedObservation {
     pub variable: Located<InternId>,
     pub expression: Located<Expression<Renamed>>,
     pub captures: Vec<Capture>,
-    pub unique_variable: UniqueName
+    pub unique_variable: UniqueName,
 }
 
 impl From<RenamedObservation> for Lambda<Renamed> {
@@ -58,7 +59,7 @@ impl From<RenamedObservation> for Lambda<Renamed> {
             variable: val.variable,
             expression: Box::new(val.expression),
             captures: Some(val.captures),
-            unique_variable: Some(val.unique_variable)
+            unique_variable: Some(val.unique_variable),
         }
     }
 }

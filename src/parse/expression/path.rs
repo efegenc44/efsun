@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use crate::{
     interner::InternId,
     location::Located,
-    resolution::{Renamed, Resolved, Unresolved, bound::Bound, renamer::UniqueName},
+    resolution::{bound::Bound, renamer::UniqueName},
+    state::{Renamed, Resolved, Unresolved},
 };
 
 pub struct Path<State> {
@@ -47,7 +48,7 @@ impl From<ResolvedObservation> for Path<Resolved> {
 pub struct RenamedObservation {
     pub parts: Located<Vec<InternId>>,
     pub bound: Bound,
-    pub unique_name: Option<UniqueName>
+    pub unique_name: Option<UniqueName>,
 }
 
 impl From<RenamedObservation> for Path<Renamed> {
@@ -95,7 +96,7 @@ impl Path<Renamed> {
         RenamedObservation {
             parts: self.parts,
             bound: self.bound.unwrap(),
-            unique_name: self.unique_name
+            unique_name: self.unique_name,
         }
     }
 }

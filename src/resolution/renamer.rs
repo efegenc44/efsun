@@ -71,12 +71,8 @@ impl Renamer {
         let expression::path::ResolvedObservation { parts, bound } = path.observe();
 
         let unique_name = match &bound {
-            Bound::Local(id) => {
-                Some(self.stack.get_local(*id))
-            }
-            Bound::Capture(id) => {
-                Some(self.stack.get_capture(*id))
-            }
+            Bound::Local(id) => Some(self.stack.get_local(*id)),
+            Bound::Capture(id) => Some(self.stack.get_capture(*id)),
             Bound::Absolute(_) => None,
         };
 
@@ -119,7 +115,7 @@ impl Renamer {
             variable,
             expression,
             captures,
-            unique_variable
+            unique_variable,
         }
         .into()
     }
@@ -143,7 +139,7 @@ impl Renamer {
             variable,
             variable_expression,
             return_expression,
-            unique_variable
+            unique_variable,
         }
         .into()
     }
@@ -190,13 +186,9 @@ impl Renamer {
 
     fn define_locals_and_pattern(&mut self, pattern: Pattern<Resolved>) -> Pattern<Renamed> {
         match pattern {
-            Pattern::Any(any) => {
-                Pattern::Any(self.any_pattern(any))
-            }
+            Pattern::Any(any) => Pattern::Any(self.any_pattern(any)),
             Pattern::String(id) => Pattern::String(id),
-            Pattern::Structure(structure) => {
-                Pattern::Structure(self.structure_pattern(structure))
-            }
+            Pattern::Structure(structure) => Pattern::Structure(self.structure_pattern(structure)),
         }
     }
 
@@ -206,11 +198,18 @@ impl Renamer {
         let unique_name = self.unique_name();
         self.stack.push_local(unique_name);
 
-        pattern::any::RenamedObservation { identifier, unique_name }.into()
+        pattern::any::RenamedObservation {
+            identifier,
+            unique_name,
+        }
+        .into()
     }
 
-    fn structure_pattern(&mut self, structure: pattern::Structure<Resolved>) -> pattern::Structure<Renamed> {
-        let pattern::structure::ResolvedObservation {
+    fn structure_pattern(
+        &mut self,
+        structure: pattern::Structure<Resolved>,
+    ) -> pattern::Structure<Renamed> {
+        let pattern::structure::Observation {
             parts,
             arguments,
             type_path,
@@ -223,7 +222,7 @@ impl Renamer {
             .map(|argument| argument.map(|pattern| self.define_locals_and_pattern(pattern)))
             .collect();
 
-        pattern::structure::RenamedObservation {
+        pattern::structure::Observation {
             parts,
             arguments,
             type_path,
@@ -277,7 +276,7 @@ impl Renamer {
         &mut self,
         name_definition: definition::Name<Resolved>,
     ) -> definition::Name<Renamed> {
-        let definition::name::ResolvedObservation {
+        let definition::name::Observation {
             identifier,
             expression,
             path,
@@ -285,7 +284,7 @@ impl Renamer {
 
         let expression = self.expression(expression);
 
-        definition::name::RenamedObservation {
+        definition::name::Observation {
             identifier,
             expression,
             path,

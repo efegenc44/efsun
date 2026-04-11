@@ -13,10 +13,10 @@ use crate::{
         type_expression::{self, TypeExpression},
     },
     resolution::{
-        Resolved,
         bound::{Bound, Path},
         frame::CheckStack,
     },
+    state::Resolved,
 };
 
 use typ::{ArrowType, MonoType, StructureType, Type};

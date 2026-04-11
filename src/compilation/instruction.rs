@@ -3,10 +3,8 @@ use std::fmt::Display;
 use crate::{
     compilation::ConstantPool,
     parse::pattern,
-    resolution::{
-        Renamed,
-        bound::{Capture, Path},
-    },
+    resolution::bound::{Capture, Path},
+    state::Renamed,
 };
 
 #[derive(Clone)]

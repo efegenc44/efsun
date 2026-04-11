@@ -4,7 +4,7 @@ pub mod structure;
 use crate::interner::{InternId, Interner};
 
 pub type Structure<State> = structure::Structure<State>;
-pub type Any<State>       = any::Any<State>;
+pub type Any<State> = any::Any<State>;
 
 #[derive(Clone)]
 pub enum Pattern<State> {

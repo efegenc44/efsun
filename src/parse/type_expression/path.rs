@@ -3,7 +3,8 @@ use std::marker::PhantomData;
 use crate::{
     interner::InternId,
     location::Located,
-    resolution::{Renamed, Resolved, Unresolved, bound::Bound},
+    resolution::bound::Bound,
+    state::{Renamed, Resolved, Unresolved},
 };
 
 pub struct Path<State> {

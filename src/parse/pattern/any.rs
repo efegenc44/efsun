@@ -1,6 +1,10 @@
 use std::marker::PhantomData;
 
-use crate::{interner::InternId, resolution::{Renamed, ResolvedState, renamer::UniqueName}};
+use crate::{
+    interner::InternId,
+    resolution::renamer::UniqueName,
+    state::{BeforeRenamed, Renamed},
+};
 
 #[derive(Clone)]
 pub struct Any<State> {
@@ -10,10 +14,10 @@ pub struct Any<State> {
 }
 
 pub struct Observation {
-    pub identifier: InternId
+    pub identifier: InternId,
 }
 
-impl<S: ResolvedState> From<Observation> for Any<S> {
+impl<S: BeforeRenamed> From<Observation> for Any<S> {
     fn from(value: Observation) -> Self {
         Self {
             identifier: value.identifier,
@@ -38,9 +42,11 @@ impl From<RenamedObservation> for Any<Renamed> {
     }
 }
 
-impl<S: ResolvedState> Any<S> {
+impl<S: BeforeRenamed> Any<S> {
     pub fn observe(self) -> Observation {
-        Observation { identifier: self.identifier }
+        Observation {
+            identifier: self.identifier,
+        }
     }
 }
 

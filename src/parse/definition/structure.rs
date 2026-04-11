@@ -1,7 +1,8 @@
 use crate::{
     interner::InternId,
     location::Located,
-    resolution::{Renamed, Resolved, Unresolved, bound::Path},
+    resolution::bound::Path,
+    state::{AfterUnresolved, Unresolved},
 };
 
 pub type Constructor<State> = constructor::Constructor<State>;
@@ -30,33 +31,15 @@ impl From<UnresolvedObservation> for Structure<Unresolved> {
     }
 }
 
-pub struct ResolvedObservation {
+pub struct Observation<State: AfterUnresolved> {
     pub name: Located<InternId>,
     pub variables: Vec<Located<InternId>>,
-    pub constructors: Vec<Located<Constructor<Resolved>>>,
+    pub constructors: Vec<Located<Constructor<State>>>,
     pub path: Path,
 }
 
-impl From<ResolvedObservation> for Structure<Resolved> {
-    fn from(value: ResolvedObservation) -> Self {
-        Self {
-            name: value.name,
-            variables: value.variables,
-            constructors: value.constructors,
-            path: Some(value.path),
-        }
-    }
-}
-
-pub struct RenamedObservation {
-    pub name: Located<InternId>,
-    pub variables: Vec<Located<InternId>>,
-    pub constructors: Vec<Located<Constructor<Renamed>>>,
-    pub path: Path,
-}
-
-impl From<RenamedObservation> for Structure<Renamed> {
-    fn from(value: RenamedObservation) -> Self {
+impl<S: AfterUnresolved> From<Observation<S>> for Structure<S> {
+    fn from(value: Observation<S>) -> Self {
         Self {
             name: value.name,
             variables: value.variables,
@@ -90,15 +73,13 @@ impl Structure<Unresolved> {
     }
 }
 
-impl Structure<Resolved> {
+impl<S: AfterUnresolved> Structure<S> {
     pub fn path(&self) -> &Path {
         self.path.as_ref().unwrap()
     }
-}
 
-impl Structure<Renamed> {
-    pub fn observe(self) -> RenamedObservation {
-        RenamedObservation {
+    pub fn observe(self) -> Observation<S> {
+        Observation {
             name: self.name,
             variables: self.variables,
             constructors: self.constructors,
@@ -112,7 +93,8 @@ pub mod constructor {
         interner::InternId,
         location::Located,
         parse::type_expression::TypeExpression,
-        resolution::{Renamed, Resolved, Unresolved, bound::Path},
+        resolution::bound::Path,
+        state::{AfterUnresolved, Unresolved},
     };
 
     pub struct Constructor<State> {
@@ -136,30 +118,14 @@ pub mod constructor {
         }
     }
 
-    pub struct ResolvedObservation {
+    pub struct Observation<State: AfterUnresolved> {
         pub name: Located<InternId>,
-        pub arguments: Vec<Located<TypeExpression<Resolved>>>,
+        pub arguments: Vec<Located<TypeExpression<State>>>,
         pub path: Path,
     }
 
-    impl From<ResolvedObservation> for Constructor<Resolved> {
-        fn from(value: ResolvedObservation) -> Self {
-            Self {
-                name: value.name,
-                arguments: value.arguments,
-                path: Some(value.path),
-            }
-        }
-    }
-
-    pub struct RenamedObservation {
-        pub name: Located<InternId>,
-        pub arguments: Vec<Located<TypeExpression<Renamed>>>,
-        pub path: Path,
-    }
-
-    impl From<RenamedObservation> for Constructor<Renamed> {
-        fn from(value: RenamedObservation) -> Self {
+    impl<S: AfterUnresolved> From<Observation<S>> for Constructor<S> {
+        fn from(value: Observation<S>) -> Self {
             Self {
                 name: value.name,
                 arguments: value.arguments,
@@ -187,15 +153,13 @@ pub mod constructor {
         }
     }
 
-    impl Constructor<Resolved> {
+    impl<S: AfterUnresolved> Constructor<S> {
         pub fn path(&self) -> &Path {
             self.path.as_ref().unwrap()
         }
-    }
 
-    impl Constructor<Renamed> {
-        pub fn observe(self) -> RenamedObservation {
-            RenamedObservation {
+        pub fn observe(self) -> Observation<S> {
+            Observation {
                 name: self.name,
                 arguments: self.arguments,
                 path: self.path.unwrap(),

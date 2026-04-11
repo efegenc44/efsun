@@ -39,7 +39,7 @@ impl<State> MatchAs<State> {
 }
 
 pub mod branch {
-    use crate::{compilation::anf::Expression, parse::pattern::Pattern, resolution::Renamed};
+    use crate::{compilation::anf::Expression, parse::pattern::Pattern, state::Renamed};
 
     pub struct Branch<T> {
         pattern: Pattern<Renamed>,
