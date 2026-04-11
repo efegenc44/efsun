@@ -2,13 +2,14 @@ use crate::{
     interner::InternId,
     location::Located,
     parse::expression::Expression,
-    resolution::{Renamed, Resolved, Unresolved, bound::Capture},
+    resolution::{Renamed, Resolved, Unresolved, bound::Capture, renamer::UniqueName},
 };
 
 pub struct Lambda<State> {
     variable: Located<InternId>,
     expression: Box<Located<Expression<State>>>,
     captures: Option<Vec<Capture>>,
+    unique_variable: Option<UniqueName>,
 }
 
 pub struct UnresolvedObservation {
@@ -22,6 +23,7 @@ impl From<UnresolvedObservation> for Lambda<Unresolved> {
             variable: val.variable,
             expression: Box::new(val.expression),
             captures: None,
+            unique_variable: None,
         }
     }
 }
@@ -38,6 +40,7 @@ impl From<ResolvedObservation> for Lambda<Resolved> {
             variable: val.variable,
             expression: Box::new(val.expression),
             captures: Some(val.captures),
+            unique_variable: None
         }
     }
 }
@@ -46,6 +49,7 @@ pub struct RenamedObservation {
     pub variable: Located<InternId>,
     pub expression: Located<Expression<Renamed>>,
     pub captures: Vec<Capture>,
+    pub unique_variable: UniqueName
 }
 
 impl From<RenamedObservation> for Lambda<Renamed> {
@@ -54,6 +58,7 @@ impl From<RenamedObservation> for Lambda<Renamed> {
             variable: val.variable,
             expression: Box::new(val.expression),
             captures: Some(val.captures),
+            unique_variable: Some(val.unique_variable)
         }
     }
 }
@@ -97,6 +102,7 @@ impl Lambda<Renamed> {
             variable: self.variable,
             expression: *self.expression,
             captures: self.captures.unwrap(),
+            unique_variable: self.unique_variable.unwrap(),
         }
     }
 }

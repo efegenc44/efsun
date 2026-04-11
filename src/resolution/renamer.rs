@@ -1,5 +1,6 @@
+use std::fmt::Display;
+
 use crate::{
-    interner::InternId,
     location::Located,
     parse::{
         definition::{self, Definition, Module, Program},
@@ -9,16 +10,29 @@ use crate::{
     resolution::{Renamed, Resolved, bound::Bound, frame::CheckStack},
 };
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct UniqueName(usize);
+
+impl Display for UniqueName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// AST Alpha Renamer
+/// Generates and assigned unique names for every local identifier
 pub struct Renamer {
-    stack: CheckStack<InternId>,
-    newname_counter: usize,
+    /// Stack to keep track of unique names
+    stack: CheckStack<UniqueName>,
+    /// State for unique name generation
+    unique_name_counter: usize,
 }
 
 impl Renamer {
     pub fn new() -> Self {
         Self {
             stack: CheckStack::new(),
-            newname_counter: 0,
+            unique_name_counter: 0,
         }
     }
 
@@ -27,10 +41,10 @@ impl Renamer {
         self
     }
 
-    fn new_name(&mut self) -> InternId {
-        let id = InternId::new(self.newname_counter);
-        self.newname_counter += 1;
-        id
+    fn unique_name(&mut self) -> UniqueName {
+        let name = UniqueName(self.unique_name_counter);
+        self.unique_name_counter += 1;
+        name
     }
 
     pub fn expression(
@@ -56,33 +70,22 @@ impl Renamer {
     fn path(&mut self, path: expression::Path<Resolved>) -> expression::Path<Renamed> {
         let expression::path::ResolvedObservation { parts, bound } = path.observe();
 
-        let observation = match &bound {
+        let unique_name = match &bound {
             Bound::Local(id) => {
-                let name = self.stack.get_local(*id);
-
-                let (mut parts, span) = parts.destruct();
-                *parts.last_mut().unwrap() = name;
-
-                expression::path::RenamedObservation {
-                    parts: Located::new(parts, span),
-                    bound,
-                }
+                Some(self.stack.get_local(*id))
             }
             Bound::Capture(id) => {
-                let name = self.stack.get_capture(*id);
-
-                let (mut parts, span) = parts.destruct();
-                *parts.last_mut().unwrap() = name;
-
-                expression::path::RenamedObservation {
-                    parts: Located::new(parts, span),
-                    bound,
-                }
+                Some(self.stack.get_capture(*id))
             }
-            Bound::Absolute(_) => expression::path::RenamedObservation { parts, bound },
+            Bound::Absolute(_) => None,
         };
 
-        observation.into()
+        expression::path::RenamedObservation {
+            parts,
+            bound,
+            unique_name,
+        }
+        .into()
     }
 
     fn application(
@@ -104,18 +107,19 @@ impl Renamer {
             captures,
         } = lambda.observe();
 
-        let newname = self.new_name();
+        let unique_variable = self.unique_name();
 
         self.stack.push_frame(captures.clone());
-        self.stack.push_local(newname);
+        self.stack.push_local(unique_variable);
         let expression = self.expression(expression);
         self.stack.pop_local();
         self.stack.pop_frame();
 
         expression::lambda::RenamedObservation {
-            variable: Located::new(newname, variable.span()),
+            variable,
             expression,
             captures,
+            unique_variable
         }
         .into()
     }
@@ -129,16 +133,17 @@ impl Renamer {
 
         let variable_expression = self.expression(variable_expression);
 
-        let new_name = self.new_name();
+        let unique_variable = self.unique_name();
 
-        self.stack.push_local(new_name);
+        self.stack.push_local(unique_variable);
         let return_expression = self.expression(return_expression);
         self.stack.pop_local();
 
-        expression::letin::Observation {
-            variable: Located::new(new_name, variable.span()),
+        expression::letin::RenamedObservation {
+            variable,
             variable_expression,
             return_expression,
+            unique_variable
         }
         .into()
     }
@@ -151,16 +156,14 @@ impl Renamer {
 
         let expression = self.expression(expression);
 
-        let mut renamed_branches = Vec::new();
-        for branch in branches {
-            let (branch, span) = branch.destruct();
-            let branch = Located::new(self.match_branch(branch), span);
-            renamed_branches.push(branch);
-        }
+        let branches = branches
+            .into_iter()
+            .map(|branch| branch.map(|branch| self.match_branch(branch)))
+            .collect();
 
         expression::matchas::Observation {
             expression,
-            branches: renamed_branches,
+            branches,
         }
         .into()
     }
@@ -173,55 +176,61 @@ impl Renamer {
             pattern,
             expression,
         } = branch.observe();
-        let (pattern, span) = pattern.destruct();
-
         let len = self.stack.len();
-        let pattern = self.pattern(pattern);
+        let pattern = pattern.map(|pattern| self.define_locals_and_pattern(pattern));
         let expression = self.expression(expression);
         self.stack.truncate(len);
 
         expression::matchas::branch::Observation {
-            pattern: Located::new(pattern, span),
+            pattern,
             expression,
         }
         .into()
     }
 
-    fn pattern(&mut self, pattern: Pattern<Resolved>) -> Pattern<Renamed> {
+    fn define_locals_and_pattern(&mut self, pattern: Pattern<Resolved>) -> Pattern<Renamed> {
         match pattern {
-            Pattern::Any(_) => {
-                let new_name = self.new_name();
-                self.stack.push_local(new_name);
-                Pattern::Any(new_name)
+            Pattern::Any(any) => {
+                Pattern::Any(self.any_pattern(any))
             }
             Pattern::String(id) => Pattern::String(id),
             Pattern::Structure(structure) => {
-                let pattern::structure::ResolvedObservation {
-                    parts,
-                    arguments,
-                    type_path,
-                    constructor_name,
-                    order,
-                } = structure.observe();
-
-                let mut renamed_arguments = Vec::new();
-                for argument in arguments {
-                    let (argument, span) = argument.destruct();
-                    renamed_arguments.push(Located::new(self.pattern(argument), span));
-                }
-
-                let structure = pattern::structure::RenamedObservation {
-                    parts,
-                    arguments: renamed_arguments,
-                    type_path,
-                    constructor_name,
-                    order,
-                }
-                .into();
-
-                Pattern::Structure(structure)
+                Pattern::Structure(self.structure_pattern(structure))
             }
         }
+    }
+
+    fn any_pattern(&mut self, any: pattern::Any<Resolved>) -> pattern::Any<Renamed> {
+        let pattern::any::Observation { identifier } = any.observe();
+
+        let unique_name = self.unique_name();
+        self.stack.push_local(unique_name);
+
+        pattern::any::RenamedObservation { identifier, unique_name }.into()
+    }
+
+    fn structure_pattern(&mut self, structure: pattern::Structure<Resolved>) -> pattern::Structure<Renamed> {
+        let pattern::structure::ResolvedObservation {
+            parts,
+            arguments,
+            type_path,
+            constructor_name,
+            order,
+        } = structure.observe();
+
+        let arguments = arguments
+            .into_iter()
+            .map(|argument| argument.map(|pattern| self.define_locals_and_pattern(pattern)))
+            .collect();
+
+        pattern::structure::RenamedObservation {
+            parts,
+            arguments,
+            type_path,
+            constructor_name,
+            order,
+        }
+        .into()
     }
 
     pub fn program(&mut self, program: Program<Resolved>) -> Program<Renamed> {

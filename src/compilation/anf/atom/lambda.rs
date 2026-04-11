@@ -1,17 +1,16 @@
 use crate::{
     compilation::anf,
-    interner::InternId,
-    resolution::{Resolved, Unresolved, bound::Capture},
+    resolution::{Resolved, Unresolved, bound::Capture, renamer::UniqueName},
 };
 
 pub struct Lambda<T> {
-    variable: InternId,
+    variable: UniqueName,
     expression: Box<anf::Expression<T>>,
     captures: Option<Vec<Capture>>,
 }
 
 pub struct UnresolvedObservation {
-    pub variable: InternId,
+    pub variable: UniqueName,
     pub expression: anf::Expression<Unresolved>,
 }
 
@@ -26,7 +25,7 @@ impl From<UnresolvedObservation> for Lambda<Unresolved> {
 }
 
 pub struct ResolvedObservation {
-    pub variable: InternId,
+    pub variable: UniqueName,
     pub expression: anf::Expression<Resolved>,
     pub captures: Vec<Capture>,
 }
@@ -42,7 +41,7 @@ impl From<ResolvedObservation> for Lambda<Resolved> {
 }
 
 impl<State> Lambda<State> {
-    pub fn variable(&self) -> InternId {
+    pub fn variable(&self) -> UniqueName {
         self.variable
     }
 

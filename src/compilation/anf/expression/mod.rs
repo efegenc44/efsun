@@ -38,7 +38,7 @@ impl<State> Expression<State> {
         match self {
             Expression::LetIn(letin) => {
                 indent(
-                    format!("let {} =", interner.lookup(&letin.variable())),
+                    format!("let {} =", letin.variable()),
                     depth,
                 );
                 letin.variable_expression().print(depth + 1, interner);

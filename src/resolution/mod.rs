@@ -24,11 +24,36 @@ use bound::{Bound, BoundId, Module as ModuleBound, Path};
 use frame::ResolutionStack;
 
 #[derive(Clone, Copy)]
-pub struct Resolved;
-#[derive(Clone, Copy)]
 pub struct Unresolved;
 #[derive(Clone, Copy)]
+pub struct Resolved;
+#[derive(Clone, Copy)]
 pub struct Renamed;
+
+pub trait RenamedState {}
+pub trait ResolvedState : RenamedState {}
+#[allow(unused)]
+pub trait UnresolvedState : ResolvedState {}
+
+impl UnresolvedState for Unresolved {}
+impl ResolvedState for Unresolved {}
+impl RenamedState for Unresolved {}
+
+impl ResolvedState for Resolved {}
+impl RenamedState for Resolved {}
+
+impl RenamedState for Renamed {}
+
+// impl UnresolvedState for Unresolved {}
+// impl ResolvedState for Unresolved {}
+// impl RenamedState for Unresolved {}
+
+// impl UnresolvedState for Resolved {}
+// impl ResolvedState for Resolved {}
+
+// impl UnresolvedState for Renamed {}
+// impl ResolvedState for Renamed {}
+// impl RenamedState for Renamed {}
 
 /// AST Name Resolver
 pub struct Resolver {
@@ -272,9 +297,8 @@ impl Resolver {
         span: Span,
     ) -> Result<Pattern<Resolved>> {
         let pattern = match pattern {
-            Pattern::Any(id) => {
-                self.stack.push_local(id);
-                Pattern::Any(id)
+            Pattern::Any(any) => {
+                Pattern::Any(self.any_pattern(any)?)
             }
             Pattern::String(id) => Pattern::String(id),
             Pattern::Structure(structure) => {
@@ -283,6 +307,14 @@ impl Resolver {
         };
 
         Ok(pattern)
+    }
+
+    fn any_pattern(&mut self, any: pattern::Any<Unresolved>) -> Result<pattern::Any<Resolved>> {
+        let pattern::any::Observation { identifier } = any.observe();
+
+        self.stack.push_local(identifier);
+
+        Ok(pattern::any::Observation { identifier }.into())
     }
 
     fn structure_pattern(
@@ -743,10 +775,8 @@ impl ANFResolver {
         } else {
             match &path {
                 anf::Path::ANFLocal(id) => self.identifier(Local::ANFLocal(*id)),
-                anf::Path::Standard(parts, _) => match parts.as_slice() {
-                    [identifier] => self.identifier(Local::Standard(*identifier)),
-                    _ => unreachable!(),
-                },
+                anf::Path::Local(local) => self.identifier(Local::Standard(*local)),
+                anf::Path::Absolute(_) => unreachable!(),
             }
         };
 
@@ -871,8 +901,8 @@ impl ANFResolver {
 
     fn define_pattern_locals(&mut self, pattern: &Pattern<Renamed>) {
         match pattern {
-            Pattern::Any(id) => {
-                self.stack.push_local(Local::Standard(*id));
+            Pattern::Any(any) => {
+                self.stack.push_local(Local::Standard(any.unique_name()));
             }
             pattern::Pattern::String(_) => (),
             pattern::Pattern::Structure(structure) => {

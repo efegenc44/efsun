@@ -262,9 +262,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let start = self.expect(Token::Tilde)?.span().start();
         let identifier = self.expect_identifier()?;
         let end = identifier.span().end();
-        let any = Pattern::Any(identifier.into_data());
+        let any = pattern::any::Observation { identifier: identifier.into_data() };
 
-        Ok(Located::new(any, Span::new(start, end)))
+        Ok(Located::new(Pattern::Any(any.into()), Span::new(start, end)))
     }
 
     fn pattern_structure(&mut self) -> Result<Located<Pattern<Unresolved>>> {

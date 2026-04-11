@@ -1,13 +1,13 @@
-use crate::{compilation::anf, interner::InternId};
+use crate::{compilation::anf, resolution::renamer::UniqueName};
 
 pub struct LetIn<T> {
-    variable: InternId,
+    variable: UniqueName,
     variable_expression: anf::Atom<T>,
     return_expression: Box<anf::Expression<T>>,
 }
 
 pub struct Observation<T> {
-    pub variable: InternId,
+    pub variable: UniqueName,
     pub variable_expression: anf::Atom<T>,
     pub return_expression: anf::Expression<T>,
 }
@@ -23,7 +23,7 @@ impl<State> From<Observation<State>> for LetIn<State> {
 }
 
 impl<State> LetIn<State> {
-    pub fn variable(&self) -> InternId {
+    pub fn variable(&self) -> UniqueName {
         self.variable
     }
 

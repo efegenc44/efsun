@@ -1,12 +1,14 @@
+pub mod any;
 pub mod structure;
 
 use crate::interner::{InternId, Interner};
 
 pub type Structure<State> = structure::Structure<State>;
+pub type Any<State>       = any::Any<State>;
 
 #[derive(Clone)]
 pub enum Pattern<State> {
-    Any(InternId),
+    Any(Any<State>),
     Structure(Structure<State>),
     String(InternId),
 }
@@ -17,7 +19,7 @@ impl<State> Pattern<State> {
         let indent = depth * 2;
 
         match self {
-            Pattern::Any(id) => println!("{:indent$}{}", "", interner.lookup(id)),
+            Pattern::Any(id) => todo!(), // println!("{:indent$}{}", "", interner.lookup(id)),
             Pattern::Structure(structure) => {
                 println!("{:indent$}Structure Pattern:", "");
                 for argument in structure.arguments() {

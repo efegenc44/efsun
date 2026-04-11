@@ -16,7 +16,7 @@ use crate::{
         },
         expression::{self as ast_expression, Expression as ASTExpression},
     },
-    resolution::{Renamed, Unresolved, bound::Bound},
+    resolution::{Renamed, Unresolved, bound::Bound, renamer::UniqueName},
 };
 
 pub type Definition<State> = definition::Definition<State>;
@@ -36,7 +36,7 @@ pub type Program<State> = definition::program::Program<State>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Local {
     ANFLocal(usize),
-    Standard(InternId),
+    Standard(UniqueName),
 }
 
 impl<'interner> Display for WithInterner<'interner, &Local> {
@@ -56,21 +56,25 @@ pub enum Path {
     ANFLocal(usize),
     // bool field indicates if the bound is local or not
     //   for purely debug purposes
-    Standard(Vec<InternId>, bool),
+    Absolute(Vec<InternId>),
+    Local(UniqueName)
 }
 
 impl<'interner> Display for WithInterner<'interner, &Path> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.data() {
             Path::ANFLocal(id) => write!(f, "<ANF{id}>"),
-            Path::Standard(parts, is_local) => match parts.as_slice() {
+            Path::Local(unique_name) => {
+                write!(f, "{unique_name}")
+            }
+            Path::Absolute(parts) => match parts.as_slice() {
                 [] => unreachable!(),
                 [identifier] => {
-                    if *is_local {
-                        write!(f, "{identifier}")
-                    } else {
+                    // if *is_local {
+                    //     write!(f, "{identifier}")
+                    // } else {
                         write!(f, "{}", self.interner().lookup(identifier))
-                    }
+                    // }
                 }
                 [x, xs @ ..] => {
                     write!(f, "{}", self.interner().lookup(x))?;
@@ -207,17 +211,19 @@ impl Transformer {
     }
 
     fn path(&self, path: ast_expression::Path<Renamed>, k: Continuation) -> Expression<Unresolved> {
-        let ast_expression::path::RenamedObservation { parts, bound } = path.observe();
+        let ast_expression::path::RenamedObservation { parts, bound, unique_name } = path.observe();
 
         let bound = match &bound {
             Bound::Absolute(_) => Some(bound),
             Bound::Local(_) | Bound::Capture(_) => None,
         };
 
-        let path = atom::path::UnresolvedObservation {
-            path: Path::Standard(parts.into_data(), bound.is_none()),
-            bound,
+        let path = match unique_name {
+            Some(unique_name) => Path::Local(unique_name),
+            None => Path::Absolute(parts.into_data()),
         };
+
+        let path = atom::path::UnresolvedObservation { path, bound };
 
         k(Atom::Path(path.into()))
     }
@@ -254,13 +260,13 @@ impl Transformer {
         k: Continuation,
     ) -> Expression<Unresolved> {
         let ast_expression::lambda::RenamedObservation {
-            variable,
             expression,
+            unique_variable,
             ..
         } = lambda.observe();
 
         let lambda = atom::lambda::UnresolvedObservation {
-            variable: variable.into_data(),
+            variable: unique_variable,
             expression: self.transform(expression.into_data()),
         };
 
@@ -272,16 +278,17 @@ impl Transformer {
         letin: ast_expression::LetIn<Renamed>,
         k: Continuation,
     ) -> Expression<Unresolved> {
-        let ast_expression::letin::Observation {
-            variable,
+        let ast_expression::letin::RenamedObservation {
             variable_expression,
             return_expression,
+            unique_variable,
+            ..
         } = letin.observe();
 
         #[rustfmt::skip]
         let result = self.expression(variable_expression.into_data(), Box::new(|variable_expression| {
             let letin = anf_expression::letin::Observation {
-                variable: variable.into_data(),
+                variable: unique_variable,
                 variable_expression,
                 return_expression: self.expression(return_expression.into_data(), k),
             };
