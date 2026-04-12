@@ -21,38 +21,36 @@ impl<State> Atom<State> {
         }
 
         match self {
-            Atom::String(id) => indent(format!("\"{}\"", interner.lookup(id)), depth),
-            Atom::Path(path) => {
-                let bound_string = if let Some(bound) = path.try_bound() {
-                    format!("#{}", WithInterner::new(bound, interner))
-                } else {
-                    "".to_string()
-                };
+            Self::String(id) => indent(format!("\"{}\"", interner.lookup(id)), depth),
+            Self::Path(path) => {
+                let bound = path
+                    .try_bound()
+                    .map(|bound| format!("#{}", WithInterner::new(bound, interner)));
 
                 indent(
                     format!(
                         "{}{}",
                         WithInterner::new(path.path(), interner),
-                        bound_string
+                        bound.unwrap_or(String::new())
                     ),
                     depth,
                 );
             }
-            Atom::Lambda(lambda) => {
-                let mut captures_string = String::new();
-                if let Some(captures) = lambda.try_captures()
-                    && !captures.is_empty()
-                {
-                    captures_string.push_str("Captures: [");
-                    for capture in captures {
-                        captures_string.push_str(&capture.to_string());
-                    }
-                    captures_string.push(']');
-                }
+            Self::Lambda(lambda) => {
+                let captures = lambda.try_captures().and_then(|captures| {
+                    (!captures.is_empty()).then(|| {
+                        let mut string = String::from("Captures: [");
+                        for capture in captures {
+                            string.push_str(&capture.to_string());
+                        }
+                        string.push(']');
+                        string
+                    })
+                });
 
                 indent("Lambda:", depth);
-                if !captures_string.is_empty() {
-                    indent(captures_string, depth + 1);
+                if let Some(captures) = captures {
+                    indent(captures, depth + 1);
                 }
                 indent(lambda.variable(), depth + 1);
                 lambda.expression().print(depth + 1, interner);

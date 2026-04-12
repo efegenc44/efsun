@@ -1,6 +1,8 @@
 pub mod any;
 pub mod structure;
 
+use std::fmt::Display;
+
 use crate::interner::{InternId, Interner};
 
 pub type Structure<State> = structure::Structure<State>;
@@ -16,17 +18,22 @@ pub enum Pattern<State> {
 impl<State> Pattern<State> {
     #[allow(unused)]
     pub fn print(&self, depth: usize, interner: &Interner) {
-        let indent = depth * 2;
+        fn indent(display: impl Display, depth: usize) {
+            println!("{:level$}{display}", "", level = depth * 2);
+        }
 
         match self {
-            Pattern::Any(id) => todo!(), // println!("{:indent$}{}", "", interner.lookup(id)),
-            Pattern::Structure(structure) => {
-                println!("{:indent$}Structure Pattern:", "");
+            Self::Any(any) => indent(
+                format!("Any: {}", interner.lookup(&any.identifier())),
+                depth,
+            ),
+            Self::Structure(structure) => {
+                indent("Structure Pattern", depth);
                 for argument in structure.arguments() {
                     argument.data().print(depth + 1, interner);
                 }
             }
-            Pattern::String(string) => println!("{:indent$}\"{}\"", "", interner.lookup(string)),
+            Self::String(string) => indent(format!("\"{}\"", interner.lookup(string)), depth),
         }
     }
 }

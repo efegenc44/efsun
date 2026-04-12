@@ -42,6 +42,12 @@ impl From<RenamedObservation> for Any<Renamed> {
     }
 }
 
+impl<State> Any<State> {
+    pub fn identifier(&self) -> InternId {
+        self.identifier
+    }
+}
+
 impl<S: BeforeRenamed> Any<S> {
     pub fn observe(self) -> Observation {
         Observation {

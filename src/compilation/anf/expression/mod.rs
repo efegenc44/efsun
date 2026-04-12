@@ -29,20 +29,18 @@ pub enum Expression<State> {
 impl<State> Expression<State> {
     #[allow(unused)]
     pub fn print(&self, depth: usize, interner: &Interner) {
-        let level = 2 * depth;
-
         fn indent(display: impl Display, depth: usize) {
             println!("{:level$}{display}", "", level = depth * 2);
         }
 
         match self {
-            Expression::LetIn(letin) => {
+            Self::LetIn(letin) => {
                 indent(format!("let {} =", letin.variable()), depth);
                 letin.variable_expression().print(depth + 1, interner);
                 indent("in", depth);
                 letin.return_expression().print(depth, interner);
             }
-            Expression::Application(application) => {
+            Self::Application(application) => {
                 indent(
                     format!(
                         "let application {} =",
@@ -55,7 +53,7 @@ impl<State> Expression<State> {
                 indent("in", depth);
                 application.expression().print(depth, interner);
             }
-            Expression::Match(matchlet) => {
+            Self::Match(matchlet) => {
                 indent("match", depth);
                 matchlet.expression().print(depth + 1, interner);
                 for branch in matchlet.branches() {
@@ -63,7 +61,7 @@ impl<State> Expression<State> {
                     branch.expression().print(depth + 2, interner);
                 }
             }
-            Expression::Join(join) => {
+            Self::Join(join) => {
                 indent(
                     format!(
                         "let join({}) {} =",
@@ -76,11 +74,11 @@ impl<State> Expression<State> {
                 indent("in", depth);
                 join.join().print(depth, interner);
             }
-            Expression::Jump(jump) => {
+            Self::Jump(jump) => {
                 indent(format!("jump({})", jump.to()), depth);
                 jump.expression().print(depth + 1, interner);
             }
-            Expression::Atom(atom) => {
+            Self::Atom(atom) => {
                 atom.print(depth, interner);
             }
         }

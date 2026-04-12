@@ -21,12 +21,12 @@ impl<T> Definition<T> {
         }
 
         match self {
-            Definition::Name(name) => {
+            Self::Name(name) => {
                 indent("Name Definition:", depth);
                 indent(interner.lookup(&name.identifier()), depth + 1);
                 name.expression().print(depth + 1, interner);
             }
-            Definition::Structure(structure) => {
+            Self::Structure(structure) => {
                 indent("Structure Definition:", depth);
                 for constructor in structure.constructors() {
                     indent(WithInterner::new(constructor.path(), interner), depth + 1);

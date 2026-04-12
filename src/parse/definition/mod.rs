@@ -3,6 +3,8 @@ pub mod module_path;
 pub mod name;
 pub mod structure;
 
+use std::fmt::Display;
+
 use crate::interner::Interner;
 
 pub type ModulePath = module_path::ModulePath;
@@ -23,10 +25,12 @@ pub enum Definition<State> {
 impl<T> Definition<T> {
     #[allow(unused)]
     pub fn print(&self, interner: &Interner, depth: usize) {
-        let indent = depth * 2;
+        fn indent(display: impl Display, depth: usize) {
+            println!("{:level$}{display}", "", level = depth * 2);
+        }
 
         match self {
-            Definition::ModulePath(module_path) => {
+            Self::ModulePath(module_path) => {
                 let path_string = module_path
                     .parts()
                     .data()
@@ -35,22 +39,35 @@ impl<T> Definition<T> {
                     .collect::<Vec<_>>()
                     .join(".");
 
-                println!("{:indent$}module {}", "", path_string);
+                indent(format!("Module Path: {}", path_string), depth);
             }
-            Definition::Name(name) => {
-                println!("{:indent$}Let:", "");
-                println!(
-                    "{:indent$}{}",
-                    "",
-                    interner.lookup(name.identifier().data()),
-                    indent = indent + 2
-                );
+            Self::Name(name) => {
+                indent("Let:", depth);
+                indent(interner.lookup(name.identifier().data()), depth + 1);
                 name.expression().data().print(depth + 1, interner);
             }
-            Definition::Import(import) => {
-                println!("{:indent$}Import:", "");
+            Self::Import(import) => {
+                let path_string = import
+                    .module_path()
+                    .data()
+                    .iter()
+                    .map(|id| interner.lookup(id))
+                    .collect::<Vec<_>>()
+                    .join(".");
+
+                indent(format!("Import: {}", path_string), depth);
             }
-            Definition::Structure(_) => todo!(),
+            Self::Structure(structure) => {
+                indent("Structure:", depth);
+                indent(interner.lookup(structure.name().data()), depth + 1);
+                indent("Constructors:", depth + 1);
+                for constructor in structure.constructors() {
+                    indent(interner.lookup(constructor.data().name().data()), depth + 2);
+                    for argument in constructor.data().arguments() {
+                        argument.data().print(interner, depth + 3);
+                    }
+                }
+            }
         }
     }
 }

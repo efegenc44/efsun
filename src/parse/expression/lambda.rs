@@ -72,6 +72,10 @@ impl<State> Lambda<State> {
     pub fn expression(&self) -> &Located<Expression<State>> {
         &self.expression
     }
+
+    pub fn try_captures(&self) -> Option<&Vec<Capture>> {
+        self.captures.as_ref()
+    }
 }
 
 impl Lambda<Unresolved> {

@@ -57,6 +57,16 @@ impl From<RenamedObservation> for Path<Renamed> {
     }
 }
 
+impl<State> Path<State> {
+    pub fn parts(&self) -> &Located<Vec<InternId>> {
+        &self.parts
+    }
+
+    pub fn try_bound(&self) -> Option<&Bound> {
+        self.bound.as_ref()
+    }
+}
+
 impl Path<Unresolved> {
     pub fn observe(self) -> UnresolvedObservation {
         UnresolvedObservation { parts: self.parts }
