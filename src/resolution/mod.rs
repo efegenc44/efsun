@@ -60,7 +60,6 @@ impl Resolver {
         self.modules.insert(path.clone(), module);
         self.current_module_path = path;
 
-        self.stack.push_frame();
         self
     }
 
@@ -706,11 +705,6 @@ impl ANFResolver {
         ANFResolver {
             stack: ResolutionStack::new(),
         }
-    }
-
-    pub fn interactive_environment(mut self) -> Self {
-        self.stack.push_frame();
-        self
     }
 
     pub fn expression(&mut self, anf: anf::Expression<Unresolved>) -> anf::Expression<Resolved> {

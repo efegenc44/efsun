@@ -21,7 +21,9 @@ pub struct ResolutionStack<T>(Vec<Frame<T>>);
 
 impl<T> ResolutionStack<T> {
     pub fn new() -> Self {
-        Self(Vec::new())
+        let mut stack = Self(Vec::new());
+        stack.push_frame();
+        stack
     }
 
     pub fn push_frame(&mut self) {
@@ -113,7 +115,9 @@ pub struct CheckStack<T>(Vec<Frame<T>>);
 
 impl<T> CheckStack<T> {
     pub fn new() -> Self {
-        Self(Vec::new())
+        let mut stack = Self(Vec::new());
+        stack.push_frame(Vec::with_capacity(0));
+        stack
     }
 
     pub fn push_frame(&mut self, captures: Vec<Capture>) {

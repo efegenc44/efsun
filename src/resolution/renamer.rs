@@ -36,11 +36,6 @@ impl Renamer {
         }
     }
 
-    pub fn interactive_environment(mut self) -> Self {
-        self.stack.push_frame(Vec::new());
-        self
-    }
-
     fn unique_name(&mut self) -> UniqueName {
         let name = UniqueName(self.unique_name_counter);
         self.unique_name_counter += 1;

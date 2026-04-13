@@ -58,11 +58,6 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    pub fn interactive_environment(mut self) -> Self {
-        self.stack.push_frame(Vec::with_capacity(0));
-        self
-    }
-
     fn newvar(&mut self) -> MonoType {
         let variable = MonoType::Variable(self.newvar_counter);
         self.newvar_counter += 1;

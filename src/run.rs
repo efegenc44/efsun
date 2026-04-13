@@ -26,14 +26,10 @@ fn expression(
     let resolved = Resolver::new()
         .interactive_environment(interner)
         .expression(expression)?;
-    let t = TypeChecker::new()
-        .interactive_environment()
-        .infer(&resolved)?;
-    let renamed = Renamer::new()
-        .interactive_environment()
-        .expression(resolved);
+    let t = TypeChecker::new().infer(&resolved)?;
+    let renamed = Renamer::new().expression(resolved);
     let anf = anf::Transformer::new().transform(renamed.into_data());
-    let resolved_anf = ANFResolver::new().interactive_environment().expression(anf);
+    let resolved_anf = ANFResolver::new().expression(anf);
     let (code, pool) = Compiler::new(interner).compile(&resolved_anf);
 
     display_instructions(&code, &pool);
