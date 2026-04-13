@@ -57,10 +57,6 @@ impl Display for Capture {
 pub struct Path(Vec<InternId>);
 
 impl Path {
-    pub fn empty() -> Self {
-        Path(Vec::new())
-    }
-
     pub fn from_parts(parts: impl Into<Vec<InternId>>) -> Self {
         Self(parts.into())
     }

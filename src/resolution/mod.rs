@@ -37,7 +37,7 @@ pub struct Resolver {
     /// Modules of the program and their bound information
     modules: HashMap<Path, ModuleBound>,
     /// Path of the current module
-    current_module_path: Path,
+    current_module_path: Option<Path>,
 }
 
 impl Resolver {
@@ -48,7 +48,7 @@ impl Resolver {
             names: HashSet::new(),
             types: HashSet::new(),
             modules: HashMap::new(),
-            current_module_path: Path::empty(),
+            current_module_path: None,
         }
     }
 
@@ -58,17 +58,26 @@ impl Resolver {
         let module = ModuleBound::empty("<interactive>".to_string());
 
         self.modules.insert(path.clone(), module);
-        self.current_module_path = path;
+        self.current_module_path = Some(path);
 
         self
     }
 
     fn current_module(&self) -> &ModuleBound {
-        &self.modules[&self.current_module_path]
+        &self.modules[self.current_module_path.as_ref().unwrap()]
     }
 
     fn current_module_mut(&mut self) -> &mut ModuleBound {
-        self.modules.get_mut(&self.current_module_path).unwrap()
+        self.modules
+            .get_mut(self.current_module_path.as_ref().unwrap())
+            .unwrap()
+    }
+
+    fn append_current_path(&self, identifier: InternId) -> Path {
+        self.current_module_path
+            .as_ref()
+            .unwrap()
+            .append([identifier])
     }
 
     pub fn expression(
@@ -99,7 +108,7 @@ impl Resolver {
         if let Some(import_path) = self.current_module().imports().get(base) {
             import_path.data().clone()
         } else {
-            self.current_module_path.append([*base])
+            self.append_current_path(*base)
         }
     }
 
@@ -426,24 +435,29 @@ impl Resolver {
     pub fn program(&mut self, program: Program<Unresolved>) -> Result<Program<Resolved>> {
         let definition::program::Observation { modules } = program.observe();
 
-        let mut module_paths = vec![];
-        for module in &modules {
-            module_paths.push(self.find_module_name(module)?);
-            self.collect_names(module)?;
-        }
+        let module_paths = modules
+            .iter()
+            .map(|module| {
+                let path = self.find_module_name(module)?;
+                self.current_module_path = Some(path);
+                self.collect_names(module)?;
+                Ok(self.current_module_path.take().unwrap())
+            })
+            .collect::<Result<Vec<_>>>()?;
 
         self.check_if_imports_exist()?;
 
-        let mut resolved_modules = Vec::new();
-        for (module, module_path) in modules.into_iter().zip(module_paths) {
-            self.current_module_path = module_path;
-            resolved_modules.push(self.module(module)?);
-        }
+        let modules = modules
+            .into_iter()
+            .zip(module_paths)
+            .map(|(module, module_path)| {
+                self.current_module_path = Some(module_path);
+                self.module(module)
+            })
+            .collect::<Result<_>>()?;
 
-        Ok(definition::program::Observation {
-            modules: resolved_modules,
-        }
-        .into())
+        let program = definition::program::Observation { modules };
+        Ok(program.into())
     }
 
     pub fn module(&mut self, module: Module<Unresolved>) -> Result<Module<Resolved>> {
@@ -472,7 +486,6 @@ impl Resolver {
                     module_path.clone(),
                     ModuleBound::empty(module.source_name().to_string()),
                 );
-                self.current_module_path = module_path.clone();
 
                 return Ok(module_path);
             }
@@ -493,16 +506,12 @@ impl Resolver {
                     .names_mut()
                     .insert(name.identifier().into_data());
 
-                self.names.insert(
-                    self.current_module_path
-                        .append([name.identifier().into_data()]),
-                );
+                self.names
+                    .insert(self.append_current_path(name.identifier().into_data()));
             }
 
             if let Definition::Structure(structure) = definition {
-                let structure_path = self
-                    .current_module_path
-                    .append([structure.name().into_data()]);
+                let structure_path = self.append_current_path(structure.name().into_data());
 
                 for constructor in structure.constructors() {
                     self.names
@@ -617,7 +626,7 @@ impl Resolver {
         } = name_definition.observe();
 
         let expression = self.expression(expression)?;
-        let path = self.current_module_path.append([identifier.into_data()]);
+        let path = self.append_current_path(identifier.into_data());
 
         let name = definition::name::Observation {
             identifier,
@@ -638,7 +647,7 @@ impl Resolver {
             constructors,
         } = structure_definition.observe();
 
-        let path = self.current_module_path.append([name.into_data()]);
+        let path = self.append_current_path(name.into_data());
 
         self.type_variables
             .extend(variables.iter().map(|v| v.into_data()));
