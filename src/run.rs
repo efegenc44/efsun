@@ -38,7 +38,7 @@ fn expression(
 
     display_instructions(&code, &pool);
 
-    let result = vm.run(&code, &pool, true, interner);
+    let result = vm.run(&code, &pool, true);
 
     Ok((result, t, pool))
 }
@@ -59,7 +59,7 @@ fn program(
     let anf = anf::Transformer::new().program(renamed);
     let resolved_anf = ANFResolver::new().program(anf);
     let (code, pool) = Compiler::new(interner).program(&resolved_anf);
-    let result = vm.run(&code, &pool, true, interner);
+    let result = vm.run(&code, &pool, true);
 
     Ok((result, t, pool))
 }

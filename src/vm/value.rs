@@ -141,10 +141,6 @@ impl StructureValue {
         }
     }
 
-    pub fn destruct(self) -> (usize, Rc<Vec<Value>>) {
-        (self.order, self.values)
-    }
-
     pub fn order(&self) -> usize {
         self.order
     }

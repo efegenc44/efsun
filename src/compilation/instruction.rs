@@ -2,24 +2,24 @@ use std::fmt::Display;
 
 use crate::{
     compilation::ConstantPool,
-    parse::pattern,
     resolution::bound::{Capture, Path},
-    state::Renamed,
 };
 
 #[derive(Clone)]
 pub enum Instruction {
     String(usize),
+    Bool(bool),
     Constructor(usize, usize),
     MakeLambda(usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
     GetAbsolute(usize),
     GetAbsolutePath(Path),
+    GetArgument(usize),
     Jump(usize),
     StringEquals,
-    StructurePatternMatch(pattern::structure::Structure<Renamed>),
-    PatternLocals(pattern::Pattern<Renamed>),
+    TagEquals(usize),
+    LogicalAnd,
     SkipIfFalse(usize),
     Skip(usize),
     SetBase,
@@ -32,6 +32,7 @@ impl Display for Instruction {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::String(offset) => write!(f, "STRING {offset}"),
+            Self::Bool(bool) => write!(f, "BOOL {bool}"),
             Self::Constructor(order, arity) => write!(f, "CONSTRUCTOR {order} {arity}"),
             Self::MakeLambda(address, captures) => {
                 write!(f, "MAKE_LAMBDA {address}")?;
@@ -49,10 +50,11 @@ impl Display for Instruction {
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
             Self::GetAbsolute(id) => write!(f, "GET_ABSOLUTE {id}"),
             Self::GetAbsolutePath(_) => panic!(),
+            Self::GetArgument(nth) => write!(f, "GET_ARGUMENT {nth}"),
             Self::Jump(label) => write!(f, "JUMP {label}"),
             Self::StringEquals => write!(f, "STRING_EQUALS"),
-            Self::StructurePatternMatch(_) => write!(f, "STRUCTURE_EQUALS"),
-            Self::PatternLocals(_) => write!(f, "PATTERN_LOCALS"),
+            Self::TagEquals(tag) => write!(f, "TAG_EQUALS {tag}"),
+            Self::LogicalAnd => write!(f, "AND"),
             Self::SkipIfFalse(count) => write!(f, "SKIP_IF_FALSE {count}"),
             Self::Skip(count) => write!(f, "SKIP {count}"),
             Self::SetBase => write!(f, "SET_BASE"),

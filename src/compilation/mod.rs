@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use crate::{
     interner::{InternId, Interner},
-    parse::pattern,
+    parse::pattern::Pattern,
     resolution::bound::{Bound, Path},
-    state::Resolved,
+    state::{Renamed, Resolved},
 };
 
 use instruction::Instruction;
@@ -194,32 +194,68 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     fn matchlet(&mut self, matchlet: &'anf anf::expression::MatchAs<Resolved>) -> Vec<Instruction> {
         let mut instructions = vec![];
 
-        for branch in matchlet.branches() {
-            instructions.extend(self.atom(matchlet.expression()));
+        let matched = self.atom(matchlet.expression());
 
-            match branch.pattern() {
-                pattern::Pattern::Any(_) => {
-                    instructions.extend(self.expression(branch.expression()));
-                }
-                pattern::Pattern::String(string) => {
-                    instructions.extend(self.string(*string));
-                    instructions.push(Instruction::StringEquals);
-                    let expression = self.expression(branch.expression());
-                    instructions.push(Instruction::SkipIfFalse(expression.len()));
-                    instructions.extend(expression);
-                }
-                pattern::Pattern::Structure(structure) => {
-                    instructions.push(Instruction::StructurePatternMatch(structure.clone()));
-                    let mut ins = vec![];
-                    ins.extend(self.atom(matchlet.expression()));
-                    ins.push(Instruction::PatternLocals(pattern::Pattern::Structure(
-                        structure.clone(),
-                    )));
-                    ins.extend(self.expression(branch.expression()));
-                    instructions.push(Instruction::SkipIfFalse(ins.len()));
-                    instructions.extend(ins);
+        for branch in matchlet.branches() {
+            instructions.extend(self.pattern_equality(&matched, branch.pattern()));
+
+            let mut branch_code = self.pattern_locals(&matched, branch.pattern());
+            branch_code.extend(self.expression(branch.expression()));
+
+            instructions.push(Instruction::SkipIfFalse(branch_code.len()));
+            instructions.extend(branch_code);
+        }
+
+        instructions
+    }
+
+    fn pattern_equality(
+        &mut self,
+        matched: &[Instruction],
+        pattern: &Pattern<Renamed>,
+    ) -> Vec<Instruction> {
+        let mut instructions = vec![];
+
+        match pattern {
+            Pattern::Any(_) => instructions.push(Instruction::Bool(true)),
+            Pattern::Structure(structure) => {
+                instructions.extend(matched.iter().cloned());
+                instructions.push(Instruction::TagEquals(structure.order()));
+
+                for (index, argument) in structure.arguments().iter().enumerate() {
+                    let mut argumentc = matched.to_vec();
+                    argumentc.push(Instruction::GetArgument(index));
+                    instructions.extend(self.pattern_equality(&argumentc, argument.data()));
+                    instructions.push(Instruction::LogicalAnd);
                 }
             }
+            Pattern::String(string) => {
+                instructions.extend(matched.iter().cloned());
+                instructions.extend(self.string(*string));
+                instructions.push(Instruction::StringEquals);
+            }
+        }
+
+        instructions
+    }
+
+    fn pattern_locals(
+        &mut self,
+        matched: &[Instruction],
+        pattern: &Pattern<Renamed>,
+    ) -> Vec<Instruction> {
+        let mut instructions = vec![];
+
+        match pattern {
+            Pattern::Any(_) => instructions.extend(matched.iter().cloned()),
+            Pattern::Structure(structure) => {
+                for (index, argument) in structure.arguments().iter().enumerate() {
+                    let mut argumentc = matched.to_vec();
+                    argumentc.push(Instruction::GetArgument(index));
+                    instructions.extend(self.pattern_locals(&argumentc, argument.data()));
+                }
+            }
+            Pattern::String(_) => (),
         }
 
         instructions
