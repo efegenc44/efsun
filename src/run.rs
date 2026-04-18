@@ -9,7 +9,10 @@ use crate::{
         TypeChecker,
         typ::{MonoType, Type},
     },
-    compilation::{Compiler, ConstantPool, anf, instruction::display_instructions},
+    compilation::{
+        Compiler, ConstantPool, anf,
+        instruction::{Instruction, display_instructions},
+    },
     error::Result,
     interner::{Interner, WithInterner},
     parse::{Parser, definition},
@@ -21,7 +24,7 @@ fn expression(
     source: &str,
     vm: &mut VM,
     interner: &mut Interner,
-) -> Result<(Value, MonoType, ConstantPool)> {
+) -> Result<(Value, MonoType, ConstantPool<Instruction>)> {
     let expression = Parser::from_source("<interactive>", source, interner).expression_repl()?;
     let resolved = Resolver::new()
         .interactive_environment(interner)
@@ -43,7 +46,7 @@ fn program(
     sources: &HashMap<String, String>,
     vm: &mut VM,
     interner: &mut Interner,
-) -> Result<(Value, Type, ConstantPool)> {
+) -> Result<(Value, Type, ConstantPool<Instruction>)> {
     let modules = sources
         .iter()
         .map(|(source_name, source)| Parser::from_source(source_name, source, interner).module())
@@ -56,6 +59,8 @@ fn program(
     let resolved_anf = ANFResolver::new().program(anf);
     let (code, pool) = Compiler::new(interner).program(&resolved_anf);
     let result = vm.run(&code, &pool, true);
+
+    display_instructions(&code, &pool);
 
     Ok((result, t, pool))
 }

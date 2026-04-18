@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 #[derive(Clone)]
 pub enum Value {
+    Unit,
     Lambda(LambdaValue),
     Constructor(ConstructorValue),
     Structure(StructureValue),
@@ -12,6 +13,7 @@ pub enum Value {
 impl std::fmt::Debug for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Unit => write!(f, "Unit"),
             Self::Lambda(lambda) => write!(f, "<lambda@{}>", lambda.address),
             Self::Constructor(constructor) => write!(f, "<cons[{}]>", constructor.order),
             Self::Structure(structure) => {
@@ -32,6 +34,7 @@ impl std::fmt::Debug for Value {
 impl Value {
     pub fn display(&self, strings: &[String]) -> String {
         match self {
+            Self::Unit => "Unit".to_string(),
             Self::Lambda(lambda) => format!("<lambda@{}>", lambda.address),
             Self::Constructor(_) => "<constructor>".to_string(),
             Self::Structure(structure) => {

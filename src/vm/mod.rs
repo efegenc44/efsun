@@ -43,7 +43,7 @@ impl VM {
     pub fn run(
         &mut self,
         instructions: &[Instruction],
-        pool: &ConstantPool,
+        pool: &ConstantPool<Instruction>,
         is_main: bool,
     ) -> Value {
         let mut ip = 0;
@@ -53,6 +53,9 @@ impl VM {
             ip += 1;
 
             match instruction {
+                Instruction::Unit => {
+                    self.push(Value::Unit);
+                }
                 Instruction::String(offset) => {
                     self.push(Value::String(offset));
                 }
@@ -93,24 +96,18 @@ impl VM {
                     let value = self.stack.first().unwrap().stack[id].clone();
                     self.push(value);
                 }
-                Instruction::GetAbsolutePath(_) => {
-                    panic!()
-                }
-                Instruction::Jump(_label) => {
-                    panic!()
-                }
                 Instruction::StringEquals => {
                     let s1 = &pool.strings()[self.pop().into_string()];
                     let s2 = &pool.strings()[self.pop().into_string()];
 
                     self.push(Value::Bool(s1 == s2));
                 }
-                Instruction::Skip(count) => {
-                    ip += count;
+                Instruction::Jump(address) => {
+                    ip = address;
                 }
-                Instruction::SkipIfFalse(count) => {
+                Instruction::JumpIfFalse(address) => {
                     if !self.pop().into_bool() {
-                        ip += count;
+                        ip = address;
                     }
                 }
                 Instruction::SetBase => {
