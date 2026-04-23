@@ -9,10 +9,7 @@ use crate::{
         TypeChecker,
         typ::{MonoType, Type},
     },
-    compilation::{
-        Compiler, ConstantPool, anf,
-        instruction::display_instructions,
-    },
+    compilation::{Compiler, ConstantPool, anf, instruction::display_instructions},
     error::Result,
     interner::{Interner, WithInterner},
     parse::{Parser, definition},

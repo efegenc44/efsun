@@ -76,7 +76,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
     fn extend<E>(&mut self, pre_instructions: E)
     where
-        E: Iterator<Item = PreInstruction>
+        E: Iterator<Item = PreInstruction>,
     {
         self.out.as_mut().unwrap().extend(pre_instructions);
     }
@@ -205,7 +205,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
         (
             Self::patch_instructions(&self.globals, code),
-            ConstantPool::new(self.strings, lambdas)
+            ConstantPool::new(self.strings, lambdas),
         )
     }
 
@@ -261,26 +261,20 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         self.emit(instruction)
     }
 
-    fn application(
-        &mut self,
-        application: &'anf anf::expression::Application<Resolved>,
-    ) {
+    fn application(&mut self, application: &'anf anf::expression::Application<Resolved>) {
         self.atom(application.argument());
         self.atom(application.function());
         self.emit(Instruction::Call.into());
         self.expression(application.expression());
     }
 
-    fn matchas(
-        &mut self,
-        matchas: &'anf anf::expression::MatchAs<Resolved>,
-    ) {
-        let matched = seperate!(self, self.atom(matchas.expression()));
+    fn matchas(&mut self, matchas: &'anf anf::expression::MatchAs<Resolved>) {
+        let mut matched = seperate!(self, self.atom(matchas.expression()));
 
         for branch in matchas.branches() {
-            self.pattern_equality(&matched, branch.pattern());
+            self.pattern_equality(&mut matched, branch.pattern());
 
-            let local_code = seperate!(self, self.pattern_locals(&matched, branch.pattern()));
+            let local_code = seperate!(self, self.pattern_locals(&mut matched, branch.pattern()));
             let branch_code = seperate!(self, self.expression(branch.expression()));
 
             self.emit(Placeholder::SkipIfFalse(local_code.len() + branch_code.len()).into());
@@ -289,23 +283,18 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    fn pattern_equality(
-        &mut self,
-        matched: &[PreInstruction],
-        pattern: &Pattern<Renamed>,
-    ) {
+    fn pattern_equality(&mut self, matched: &mut Vec<PreInstruction>, pattern: &Pattern<Renamed>) {
         match pattern {
             Pattern::Any(_) => self.emit(Instruction::Bool(true).into()),
             Pattern::Structure(structure) => {
                 self.extend(matched.iter().cloned());
                 self.emit(Instruction::TagEquals(structure.order()).into());
 
-                let mut argument_code = matched.to_vec();
                 for (index, argument) in structure.arguments().iter().enumerate() {
-                    argument_code.push(Instruction::GetArgument(index).into());
-                    self.pattern_equality(&argument_code, argument.data());
+                    matched.push(Instruction::GetArgument(index).into());
+                    self.pattern_equality(matched, argument.data());
                     self.emit(Instruction::LogicalAnd.into());
-                    argument_code.pop();
+                    matched.pop();
                 }
             }
             Pattern::String(string) => {
@@ -316,19 +305,14 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    fn pattern_locals(
-        &mut self,
-        matched: &[PreInstruction],
-        pattern: &Pattern<Renamed>,
-    ) {
+    fn pattern_locals(&mut self, matched: &mut Vec<PreInstruction>, pattern: &Pattern<Renamed>) {
         match pattern {
             Pattern::Any(_) => self.extend(matched.iter().cloned()),
             Pattern::Structure(structure) => {
-                let mut argument_code = matched.to_vec();
                 for (index, argument) in structure.arguments().iter().enumerate() {
-                    argument_code.push(Instruction::GetArgument(index).into());
-                    self.pattern_locals(&argument_code, argument.data());
-                    argument_code.pop();
+                    matched.push(Instruction::GetArgument(index).into());
+                    self.pattern_locals(matched, argument.data());
+                    matched.pop();
                 }
             }
             Pattern::String(_) => (),
@@ -385,10 +369,7 @@ pub struct ConstantPool {
 
 impl ConstantPool {
     fn new(strings: Vec<String>, lambdas: Vec<Vec<Instruction>>) -> Self {
-        Self {
-            strings,
-            lambdas,
-        }
+        Self { strings, lambdas }
     }
 
     pub fn strings(&self) -> &[String] {
