@@ -36,7 +36,7 @@ pub enum Instruction {
     Unit,
     String(usize),
     Bool(bool),
-    Constructor(usize, usize),
+    Constructor(usize, usize, usize),
     MakeLambda(usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
@@ -59,7 +59,9 @@ impl Display for Instruction {
             Self::Unit => write!(f, "UNIT"),
             Self::String(offset) => write!(f, "STRING {offset}"),
             Self::Bool(bool) => write!(f, "BOOL {bool}"),
-            Self::Constructor(order, arity) => write!(f, "CONSTRUCTOR {order} {arity}"),
+            Self::Constructor(name_offset, order, arity) => {
+                write!(f, "CONSTRUCTOR {name_offset} {order} {arity}")
+            }
             Self::MakeLambda(address, captures) => {
                 write!(f, "MAKE_LAMBDA {address}")?;
                 for capture in captures {
@@ -99,7 +101,7 @@ pub fn display_instructions(instructions: &[Instruction], pool: &ConstantPool) {
     if !pool.strings.is_empty() {
         println!("  ====== STRINGS ======");
         for (index, string) in pool.strings.iter().enumerate() {
-            println!("    {index:#>05x} | {string}");
+            println!("    {index:#>05x} | \"{string}\"");
         }
     }
 

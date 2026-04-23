@@ -59,11 +59,16 @@ impl VM {
                 Instruction::String(offset) => {
                     self.push(Value::String(offset));
                 }
-                Instruction::Constructor(order, arity) => {
+                Instruction::Constructor(name_offset, order, arity) => {
                     if arity == 0 {
-                        self.push(Value::Structure(StructureValue::new(order, Vec::new())));
+                        self.push(Value::Structure(StructureValue::new(
+                            name_offset,
+                            order,
+                            Vec::new(),
+                        )));
                     } else {
                         self.push(Value::Constructor(ConstructorValue::new(
+                            name_offset,
                             order,
                             arity,
                             vec![],
@@ -134,17 +139,22 @@ impl VM {
                             self.push(value);
                         }
                         Value::Constructor(constructor) => {
-                            let (order, arity, captures) = constructor.destruct();
+                            let (name_offset, order, arity, captures) = constructor.destruct();
                             let argument = self.pop();
 
                             let value = if arity <= 1 {
                                 let mut values = (*captures).clone();
                                 values.push(argument);
-                                Value::Structure(StructureValue::new(order, values))
+                                Value::Structure(StructureValue::new(name_offset, order, values))
                             } else {
                                 let mut values = (*captures).clone();
                                 values.push(argument);
-                                Value::Constructor(ConstructorValue::new(order, arity - 1, values))
+                                Value::Constructor(ConstructorValue::new(
+                                    name_offset,
+                                    order,
+                                    arity - 1,
+                                    values,
+                                ))
                             };
 
                             self.push(value);
@@ -175,12 +185,10 @@ impl VM {
                     self.push(Value::Bool(bool));
                 }
             }
-
-            // println!("{:?}", self.stack);
         }
 
         if self.stack.len() != 1 && is_main {
-            println!("{:?}", self.current_frame().stack);
+            // println!("{:?}", self.current_frame().stack);
             panic!();
         }
 
@@ -205,11 +213,5 @@ impl Frame {
             closure: Rc::new(closure),
             base: 0,
         }
-    }
-}
-
-impl std::fmt::Debug for Frame {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.stack)
     }
 }

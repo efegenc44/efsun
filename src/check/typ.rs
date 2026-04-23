@@ -18,9 +18,6 @@ impl<'interner> Display for WithInterner<'interner, &Type> {
                     write!(f, "∀")?;
                     match variables.as_slice() {
                         [] => unreachable!(),
-                        [variable] => {
-                            write!(f, "a{variable}")?;
-                        }
                         [x, xs @ ..] => {
                             write!(f, "a{x}")?;
                             for x in xs {

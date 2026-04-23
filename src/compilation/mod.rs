@@ -171,8 +171,13 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
             if let anf::Definition::Structure(structure) = definition {
                 for (order, constructor) in structure.constructors().iter().enumerate() {
-                    let code = vec![Instruction::Constructor(order, constructor.arity()).into()];
-                    self.names.insert(constructor.path(), code);
+                    let name_offset = self.string_offset(constructor.name());
+
+                    let instruction =
+                        Instruction::Constructor(name_offset, order, constructor.arity());
+
+                    self.names
+                        .insert(constructor.path(), vec![instruction.into()]);
                     self.globals.push(constructor.path());
                 }
             }
@@ -228,8 +233,8 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    fn string(&mut self, intern_id: InternId) {
-        let offset = match self.interns.iter().position(|id| *id == intern_id) {
+    fn string_offset(&mut self, intern_id: InternId) -> usize {
+        match self.interns.iter().position(|id| *id == intern_id) {
             Some(offset) => offset,
             None => {
                 let string = self.interner.lookup(&intern_id).to_string();
@@ -238,8 +243,11 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                 self.interns.push(intern_id);
                 offset
             }
-        };
+        }
+    }
 
+    fn string(&mut self, intern_id: InternId) {
+        let offset = self.string_offset(intern_id);
         self.emit(Instruction::String(offset).into())
     }
 

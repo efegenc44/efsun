@@ -10,43 +10,34 @@ pub enum Value {
     Bool(bool),
 }
 
-impl std::fmt::Debug for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Unit => write!(f, "Unit"),
-            Self::Lambda(lambda) => write!(f, "<lambda@{}>", lambda.address),
-            Self::Constructor(constructor) => write!(f, "<cons[{}]>", constructor.order),
-            Self::Structure(structure) => {
-                let mut string = String::from("{ ");
-                for value in structure.values.iter() {
-                    string.push_str(&format!("{value:?}"));
-                    string.push(' ');
-                }
-                string.push('}');
-                write!(f, "{string}")
-            }
-            Self::String(string) => write!(f, "Str({string})"),
-            Self::Bool(bool) => write!(f, "{bool}"),
-        }
-    }
-}
-
 impl Value {
     pub fn display(&self, strings: &[String]) -> String {
         match self {
             Self::Unit => "Unit".to_string(),
-            Self::Lambda(lambda) => format!("<lambda@{}>", lambda.address),
-            Self::Constructor(_) => "<constructor>".to_string(),
+            Self::Lambda(lambda) => format!("<lambda {}>", lambda.address),
+            Self::Constructor(constructor) => {
+                format!("<constructor {}>", &strings[constructor.name_offset])
+            }
             Self::Structure(structure) => {
-                let mut string = String::from("{ ");
-                for value in structure.values.iter() {
-                    string.push_str(&value.display(strings));
-                    string.push(' ');
+                let mut string = format!("({}", &strings[structure.name_offset]);
+                match structure.values.as_ref().as_slice() {
+                    [] => (),
+                    [x, xs @ ..] => {
+                        string.push(' ');
+                        string.push_str(&x.display(strings));
+                        for x in xs {
+                            string.push(' ');
+                            string.push_str(&x.display(strings));
+                        }
+                    }
                 }
-                string.push('}');
+                string.push(')');
+
                 string
             }
-            Self::String(offset) => strings[*offset].to_string(),
+            Self::String(offset) => {
+                format!("\"{}\"", &strings[*offset])
+            }
             Self::Bool(bool) => bool.to_string(),
         }
     }
@@ -90,7 +81,7 @@ impl Value {
         bool
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct LambdaValue {
     address: usize,
     captures: Rc<Vec<Value>>,
@@ -109,36 +100,40 @@ impl LambdaValue {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ConstructorValue {
+    name_offset: usize,
     order: usize,
     arity: usize,
     captures: Rc<Vec<Value>>,
 }
 
 impl ConstructorValue {
-    pub fn new(order: usize, arity: usize, captures: Vec<Value>) -> Self {
+    pub fn new(name_offset: usize, order: usize, arity: usize, captures: Vec<Value>) -> Self {
         Self {
+            name_offset,
             order,
             arity,
             captures: Rc::new(captures),
         }
     }
 
-    pub fn destruct(self) -> (usize, usize, Rc<Vec<Value>>) {
-        (self.order, self.arity, self.captures)
+    pub fn destruct(self) -> (usize, usize, usize, Rc<Vec<Value>>) {
+        (self.name_offset, self.order, self.arity, self.captures)
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct StructureValue {
+    name_offset: usize,
     order: usize,
     values: Rc<Vec<Value>>,
 }
 
 impl StructureValue {
-    pub fn new(order: usize, values: Vec<Value>) -> Self {
+    pub fn new(name_offset: usize, order: usize, values: Vec<Value>) -> Self {
         Self {
+            name_offset,
             order,
             values: Rc::new(values),
         }

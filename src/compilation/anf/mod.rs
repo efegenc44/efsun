@@ -70,13 +70,6 @@ impl<'interner> Display for WithInterner<'interner, &Path> {
             }
             Path::Absolute(parts) => match parts.as_slice() {
                 [] => unreachable!(),
-                [identifier] => {
-                    // if *is_local {
-                    //     write!(f, "{identifier}")
-                    // } else {
-                    write!(f, "{}", self.interner().lookup(identifier))
-                    // }
-                }
                 [x, xs @ ..] => {
                     write!(f, "{}", self.interner().lookup(x))?;
                     for x in xs {
@@ -183,10 +176,13 @@ impl Transformer {
             .into_iter()
             .map(|constructor| {
                 let ast_definition::structure::constructor::Observation {
-                    arguments, path, ..
+                    name,
+                    arguments,
+                    path,
+                    ..
                 } = constructor.into_data().observe();
 
-                anf_definition::structure::Constructor::new(path, arguments.len())
+                anf_definition::structure::Constructor::new(name.into_data(), path, arguments.len())
             })
             .collect();
 

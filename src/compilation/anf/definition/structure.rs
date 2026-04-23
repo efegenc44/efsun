@@ -1,4 +1,4 @@
-use crate::resolution::bound::Path;
+use crate::{interner::InternId, resolution::bound::Path};
 
 pub struct Structure {
     constructors: Vec<Constructor>,
@@ -15,13 +15,18 @@ impl Structure {
 }
 
 pub struct Constructor {
+    name: InternId,
     path: Path,
     arity: usize,
 }
 
 impl Constructor {
-    pub fn new(path: Path, arity: usize) -> Self {
-        Self { path, arity }
+    pub fn new(name: InternId, path: Path, arity: usize) -> Self {
+        Self { name, path, arity }
+    }
+
+    pub fn name(&self) -> InternId {
+        self.name
     }
 
     pub fn path(&self) -> &Path {

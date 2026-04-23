@@ -90,9 +90,6 @@ impl<'interner> Display for WithInterner<'interner, &Path> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.data().0.as_slice() {
             [] => unreachable!(),
-            [identifier] => {
-                write!(f, "{}", self.interner().lookup(identifier))
-            }
             [x, xs @ ..] => {
                 write!(f, "{}", self.interner().lookup(x))?;
                 for x in xs {
