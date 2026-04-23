@@ -43,7 +43,7 @@ impl VM {
     pub fn run(
         &mut self,
         instructions: &[Instruction],
-        pool: &ConstantPool<Instruction>,
+        pool: &ConstantPool,
         is_main: bool,
     ) -> Value {
         let mut ip = 0;

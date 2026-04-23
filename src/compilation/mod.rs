@@ -14,14 +14,24 @@ use crate::{
 
 use instruction::Instruction;
 
+macro_rules! seperate {
+    ($self:expr, $e:expr) => {{
+        let old = $self.swap_out(Some(Vec::new()));
+        $e;
+        $self.swap_out(old).unwrap()
+    }};
+}
+
 /// Compiles ANF to high-level VM instructions
 pub struct Compiler<'interner, 'anf> {
     /// Local interned string ordering because in the global
     ///   ordering strings does not have to be sequantial
     ///   because of identifiers
     interns: Vec<InternId>,
-    /// Pool for constant values
-    constant_pool: ConstantPool<PreInstruction>,
+    /// Constant string values
+    strings: Vec<String>,
+    /// Lambdas with pre instructions
+    lambdas: Vec<Vec<PreInstruction>>,
     /// Map from global names to their ANF expression
     ///   Used for compiling cyclic references
     name_anfs: HashMap<&'anf Path, &'anf anf::Expression<Resolved>>,
@@ -33,6 +43,8 @@ pub struct Compiler<'interner, 'anf> {
     globals: Globals<'anf>,
     /// True if currently compiling a lambda
     in_lambda: bool,
+    /// Current output to emit into
+    out: Option<Vec<PreInstruction>>,
     /// Interner to retrieve strings
     interner: &'interner Interner,
 }
@@ -41,11 +53,13 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     pub fn new(interner: &'interner Interner) -> Self {
         Self {
             interns: Vec::new(),
-            constant_pool: ConstantPool::new(),
+            strings: Vec::new(),
+            lambdas: Vec::new(),
             name_anfs: HashMap::new(),
             names: HashMap::new(),
             globals: Globals::new(),
             in_lambda: false,
+            out: None,
             interner,
         }
     }
@@ -56,10 +70,25 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         old
     }
 
+    fn emit(&mut self, pre_instruction: PreInstruction) {
+        self.out.as_mut().unwrap().push(pre_instruction);
+    }
+
+    fn extend<E>(&mut self, pre_instructions: E)
+    where
+        E: Iterator<Item = PreInstruction>
+    {
+        self.out.as_mut().unwrap().extend(pre_instructions);
+    }
+
+    fn swap_out(&mut self, new_out: Option<Vec<PreInstruction>>) -> Option<Vec<PreInstruction>> {
+        std::mem::replace(&mut self.out, new_out)
+    }
+
     pub fn program(
         mut self,
         program: &'anf anf::Program<Resolved>,
-    ) -> (Vec<Instruction>, ConstantPool<Instruction>) {
+    ) -> (Vec<Instruction>, ConstantPool) {
         for module in program.modules() {
             self.collect_names(module);
         }
@@ -81,36 +110,30 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         let pre_instructions = self
             .globals
             .iter()
-            .flat_map(|path| self.names[path].clone())
+            .flat_map(|path| self.names.remove(path).unwrap())
             .collect::<Vec<_>>();
 
         let mut instructions = Self::patch_instructions(&self.globals, pre_instructions);
 
         let lambdas = self
-            .constant_pool
             .lambdas
             .into_iter()
             .map(|lambda| Self::patch_instructions(&self.globals, lambda))
             .collect::<Vec<_>>();
-
-        let pool = ConstantPool {
-            strings: self.constant_pool.strings,
-            lambdas,
-        };
 
         instructions.push(Instruction::Unit);
         instructions.push(Instruction::GetAbsolute(id));
         // TODO: Enforce main symbol to have an arrow type
         instructions.push(Instruction::Call);
 
-        (instructions, pool)
+        (instructions, ConstantPool::new(self.strings, lambdas))
     }
 
     fn patch_instructions(
         globals: &Globals<'anf>,
         pre_instructions: Vec<PreInstruction>,
     ) -> Vec<Instruction> {
-        let mut instructions = vec![];
+        let mut instructions = Vec::with_capacity(pre_instructions.capacity());
 
         for (index, pre_instruction) in pre_instructions.into_iter().enumerate() {
             let instruction = match pre_instruction {
@@ -161,7 +184,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             if let anf::Definition::Name(name) = definition
                 && !self.globals.pushed(name.path())
             {
-                let code = self.expression(name.expression());
+                let code = seperate!(self, self.expression(name.expression()));
                 self.names.insert(name.path(), code);
                 self.globals.push(name.path());
             }
@@ -171,28 +194,33 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     pub fn compile(
         mut self,
         expression: &'anf anf::Expression<Resolved>,
-    ) -> (Vec<Instruction>, ConstantPool<Instruction>) {
-        let code = self.expression(expression);
+    ) -> (Vec<Instruction>, ConstantPool) {
+        let code = seperate!(self, self.expression(expression));
+
+        let lambdas = self
+            .lambdas
+            .into_iter()
+            .map(|lambda| Self::patch_instructions(&self.globals, lambda))
+            .collect::<Vec<_>>();
+
         (
             Self::patch_instructions(&self.globals, code),
-            self.constant_pool.patch_lambdas(&self.globals),
+            ConstantPool::new(self.strings, lambdas)
         )
     }
 
-    #[must_use]
-    fn expression(&mut self, expression: &'anf anf::Expression<Resolved>) -> Vec<PreInstruction> {
+    fn expression(&mut self, expression: &'anf anf::Expression<Resolved>) {
         match expression {
             anf::Expression::LetIn(letin) => self.letin(letin),
             anf::Expression::Application(application) => self.application(application),
-            anf::Expression::Match(matchlet) => self.matchlet(matchlet),
+            anf::Expression::Match(matchlet) => self.matchas(matchlet),
             anf::Expression::Join(join) => self.join(join),
             anf::Expression::Jump(jump) => self.jump(jump),
             anf::Expression::Atom(atom) => self.atom(atom),
         }
     }
 
-    #[must_use]
-    fn atom(&mut self, atom: &'anf anf::Atom<Resolved>) -> Vec<PreInstruction> {
+    fn atom(&mut self, atom: &'anf anf::Atom<Resolved>) {
         match atom {
             anf::Atom::String(id) => self.string(*id),
             anf::Atom::Path(path) => self.path(path),
@@ -200,27 +228,28 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    fn string(&mut self, intern_id: InternId) -> Vec<PreInstruction> {
+    fn string(&mut self, intern_id: InternId) {
         let offset = match self.interns.iter().position(|id| *id == intern_id) {
             Some(offset) => offset,
             None => {
                 let string = self.interner.lookup(&intern_id).to_string();
-                let offset = self.constant_pool.add_string(string);
+                let offset = self.strings.len();
+                self.strings.push(string);
                 self.interns.push(intern_id);
                 offset
             }
         };
 
-        vec![Instruction::String(offset).into()]
+        self.emit(Instruction::String(offset).into())
     }
 
-    fn path(&mut self, identifier: &'anf anf::atom::Path<Resolved>) -> Vec<PreInstruction> {
+    fn path(&mut self, identifier: &'anf anf::atom::Path<Resolved>) {
         let instruction = match identifier.bound() {
             Bound::Local(id) => Instruction::GetLocal(id.value()).into(),
             Bound::Capture(id) => Instruction::GetCapture(id.value()).into(),
             Bound::Absolute(path) => {
                 if !self.in_lambda && !self.globals.pushed(path) {
-                    let code = self.expression(self.name_anfs[path]);
+                    let code = seperate!(self, self.expression(self.name_anfs[path]));
                     self.names.insert(path, code);
                     self.globals.push(path);
                 }
@@ -229,100 +258,85 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             }
         };
 
-        vec![instruction]
+        self.emit(instruction)
     }
 
     fn application(
         &mut self,
         application: &'anf anf::expression::Application<Resolved>,
-    ) -> Vec<PreInstruction> {
-        let mut instructions = vec![];
-
-        instructions.extend(self.atom(application.argument()));
-        instructions.extend(self.atom(application.function()));
-        instructions.push(Instruction::Call.into());
-        instructions.extend(self.expression(application.expression()));
-
-        instructions
+    ) {
+        self.atom(application.argument());
+        self.atom(application.function());
+        self.emit(Instruction::Call.into());
+        self.expression(application.expression());
     }
 
-    fn matchlet(
+    fn matchas(
         &mut self,
-        matchlet: &'anf anf::expression::MatchAs<Resolved>,
-    ) -> Vec<PreInstruction> {
-        let mut instructions = vec![];
+        matchas: &'anf anf::expression::MatchAs<Resolved>,
+    ) {
+        let matched = seperate!(self, self.atom(matchas.expression()));
 
-        let matched = self.atom(matchlet.expression());
+        for branch in matchas.branches() {
+            self.pattern_equality(&matched, branch.pattern());
 
-        for branch in matchlet.branches() {
-            instructions.extend(self.pattern_equality(&matched, branch.pattern()));
+            let local_code = seperate!(self, self.pattern_locals(&matched, branch.pattern()));
+            let branch_code = seperate!(self, self.expression(branch.expression()));
 
-            let mut branch_code = self.pattern_locals(&matched, branch.pattern());
-            branch_code.extend(self.expression(branch.expression()));
-
-            instructions.push(Placeholder::SkipIfFalse(branch_code.len()).into());
-            instructions.extend(branch_code);
+            self.emit(Placeholder::SkipIfFalse(local_code.len() + branch_code.len()).into());
+            self.extend(local_code.into_iter());
+            self.extend(branch_code.into_iter());
         }
-
-        instructions
     }
 
     fn pattern_equality(
         &mut self,
         matched: &[PreInstruction],
         pattern: &Pattern<Renamed>,
-    ) -> Vec<PreInstruction> {
-        let mut instructions = vec![];
-
+    ) {
         match pattern {
-            Pattern::Any(_) => instructions.push(Instruction::Bool(true).into()),
+            Pattern::Any(_) => self.emit(Instruction::Bool(true).into()),
             Pattern::Structure(structure) => {
-                instructions.extend(matched.iter().cloned());
-                instructions.push(Instruction::TagEquals(structure.order()).into());
+                self.extend(matched.iter().cloned());
+                self.emit(Instruction::TagEquals(structure.order()).into());
 
+                let mut argument_code = matched.to_vec();
                 for (index, argument) in structure.arguments().iter().enumerate() {
-                    let mut argument_code = matched.to_vec();
                     argument_code.push(Instruction::GetArgument(index).into());
-                    instructions.extend(self.pattern_equality(&argument_code, argument.data()));
-                    instructions.push(Instruction::LogicalAnd.into());
+                    self.pattern_equality(&argument_code, argument.data());
+                    self.emit(Instruction::LogicalAnd.into());
+                    argument_code.pop();
                 }
             }
             Pattern::String(string) => {
-                instructions.extend(matched.iter().cloned());
-                instructions.extend(self.string(*string));
-                instructions.push(Instruction::StringEquals.into());
+                self.extend(matched.iter().cloned());
+                self.string(*string);
+                self.emit(Instruction::StringEquals.into());
             }
         }
-
-        instructions
     }
 
     fn pattern_locals(
         &mut self,
         matched: &[PreInstruction],
         pattern: &Pattern<Renamed>,
-    ) -> Vec<PreInstruction> {
-        let mut instructions = vec![];
-
+    ) {
         match pattern {
-            Pattern::Any(_) => instructions.extend(matched.iter().cloned()),
+            Pattern::Any(_) => self.extend(matched.iter().cloned()),
             Pattern::Structure(structure) => {
+                let mut argument_code = matched.to_vec();
                 for (index, argument) in structure.arguments().iter().enumerate() {
-                    let mut argument_code = matched.to_vec();
                     argument_code.push(Instruction::GetArgument(index).into());
-                    instructions.extend(self.pattern_locals(&argument_code, argument.data()));
+                    self.pattern_locals(&argument_code, argument.data());
+                    argument_code.pop();
                 }
             }
             Pattern::String(_) => (),
         }
-
-        instructions
     }
 
-    fn join(&mut self, join: &'anf anf::expression::Join<Resolved>) -> Vec<PreInstruction> {
-        let mut instructions = vec![];
-
-        let mut join_instructions = self.expression(join.join());
+    fn join(&mut self, join: &'anf anf::expression::Join<Resolved>) {
+        let mut join_instructions = seperate!(self, self.expression(join.join()));
 
         let len = join_instructions.len();
         for (index, instruction) in join_instructions.iter_mut().enumerate() {
@@ -333,56 +347,47 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             }
         }
 
-        instructions.push(Instruction::SetBase.into());
-        instructions.extend(join_instructions);
-        instructions.push(Instruction::Truncate.into());
-        instructions.extend(self.expression(join.expression()));
-
-        instructions
+        self.emit(Instruction::SetBase.into());
+        self.extend(join_instructions.into_iter());
+        self.emit(Instruction::Truncate.into());
+        self.expression(join.expression());
     }
 
-    fn jump(&mut self, jump: &'anf anf::expression::Jump<Resolved>) -> Vec<PreInstruction> {
-        let mut instructions = vec![];
-
-        instructions.extend(self.atom(jump.expression()));
-        instructions.push(Placeholder::Jump(jump.to()).into());
-
-        instructions
+    fn jump(&mut self, jump: &'anf anf::expression::Jump<Resolved>) {
+        self.atom(jump.expression());
+        self.emit(Placeholder::Jump(jump.to()).into());
     }
 
-    fn lambda(&mut self, lambda: &'anf anf::atom::Lambda<Resolved>) -> Vec<PreInstruction> {
-        let mut instructions = vec![];
-
+    fn lambda(&mut self, lambda: &'anf anf::atom::Lambda<Resolved>) {
         let old = self.replace_in_lambda(true);
-        instructions.extend(self.expression(lambda.expression()));
-        instructions.push(Instruction::Return.into());
+        let lambda_code = seperate!(self, {
+            self.expression(lambda.expression());
+            self.emit(Instruction::Return.into());
+        });
         self.replace_in_lambda(old);
 
-        let id = self.constant_pool.add_lambda(instructions);
+        let id = self.lambdas.len();
+        self.lambdas.push(lambda_code);
 
-        vec![Instruction::MakeLambda(id, lambda.captures().to_vec()).into()]
+        self.emit(Instruction::MakeLambda(id, lambda.captures().to_vec()).into())
     }
 
-    fn letin(&mut self, letin: &'anf anf::expression::LetIn<Resolved>) -> Vec<PreInstruction> {
-        let mut instructions = vec![];
-
-        instructions.extend(self.atom(letin.variable_expression()));
-        instructions.extend(self.expression(letin.return_expression()));
-
-        instructions
+    fn letin(&mut self, letin: &'anf anf::expression::LetIn<Resolved>) {
+        self.atom(letin.variable_expression());
+        self.expression(letin.return_expression());
     }
 }
 
-pub struct ConstantPool<I> {
+pub struct ConstantPool {
     strings: Vec<String>,
-    lambdas: Vec<Vec<I>>,
+    lambdas: Vec<Vec<Instruction>>,
 }
 
-impl<I> ConstantPool<I> {
-    fn new() -> Self {
+impl ConstantPool {
+    fn new(strings: Vec<String>, lambdas: Vec<Vec<Instruction>>) -> Self {
         Self {
-            strings: Vec::new(),
-            lambdas: Vec::new(),
+            strings,
+            lambdas,
         }
     }
 
@@ -390,35 +395,8 @@ impl<I> ConstantPool<I> {
         &self.strings
     }
 
-    pub fn lambdas(&self) -> &[Vec<I>] {
+    pub fn lambdas(&self) -> &[Vec<Instruction>] {
         &self.lambdas
-    }
-
-    fn add_string(&mut self, string: String) -> usize {
-        let id = self.strings.len();
-        self.strings.push(string);
-        id
-    }
-
-    fn add_lambda(&mut self, lambda: Vec<I>) -> usize {
-        let id = self.lambdas.len();
-        self.lambdas.push(lambda);
-        id
-    }
-}
-
-impl ConstantPool<PreInstruction> {
-    fn patch_lambdas(self, globals: &Globals<'_>) -> ConstantPool<Instruction> {
-        let lambdas = self
-            .lambdas
-            .into_iter()
-            .map(|lambda| Compiler::patch_instructions(globals, lambda))
-            .collect();
-
-        ConstantPool {
-            strings: self.strings,
-            lambdas,
-        }
     }
 }
 

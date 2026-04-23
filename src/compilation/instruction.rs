@@ -90,7 +90,7 @@ impl Display for Instruction {
 }
 
 #[allow(unused)]
-pub fn display_instructions(instructions: &[Instruction], pool: &ConstantPool<Instruction>) {
+pub fn display_instructions(instructions: &[Instruction], pool: &ConstantPool) {
     println!("  ====== CODE ======");
     for (index, instruction) in instructions.iter().enumerate() {
         println!("    {index:#>05x} | {instruction}");

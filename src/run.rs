@@ -11,7 +11,7 @@ use crate::{
     },
     compilation::{
         Compiler, ConstantPool, anf,
-        instruction::{Instruction, display_instructions},
+        instruction::display_instructions,
     },
     error::Result,
     interner::{Interner, WithInterner},
@@ -24,7 +24,7 @@ fn expression(
     source: &str,
     vm: &mut VM,
     interner: &mut Interner,
-) -> Result<(Value, MonoType, ConstantPool<Instruction>)> {
+) -> Result<(Value, MonoType, ConstantPool)> {
     let expression = Parser::from_source("<interactive>", source, interner).expression_repl()?;
     let resolved = Resolver::new()
         .interactive_environment(interner)
@@ -46,7 +46,7 @@ fn program(
     sources: &HashMap<String, String>,
     vm: &mut VM,
     interner: &mut Interner,
-) -> Result<(Value, Type, ConstantPool<Instruction>)> {
+) -> Result<(Value, Type, ConstantPool)> {
     let modules = sources
         .iter()
         .map(|(source_name, source)| Parser::from_source(source_name, source, interner).module())
@@ -60,7 +60,7 @@ fn program(
     let (code, pool) = Compiler::new(interner).program(&resolved_anf);
     let result = vm.run(&code, &pool, true);
 
-    display_instructions(&code, &pool);
+    // display_instructions(&code, &pool);
 
     Ok((result, t, pool))
 }
