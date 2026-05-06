@@ -45,9 +45,10 @@ impl<State> Pattern<State> {
     pub fn local_count(&self) -> usize {
         match self {
             Self::Any(_) => 1,
-            Self::Structure(structure) => {
-                structure.arguments().iter().fold(0, |acc, x| acc + x.data().local_count())
-            },
+            Self::Structure(structure) => structure
+                .arguments()
+                .iter()
+                .fold(0, |acc, x| acc + x.data().local_count()),
             Self::String(_) => 0,
         }
     }

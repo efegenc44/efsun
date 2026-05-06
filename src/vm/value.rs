@@ -8,6 +8,9 @@ pub enum Value {
     Structure(StructureValue),
     String(usize),
     Bool(bool),
+
+    StackPointer(usize),
+    Closure(Rc<Vec<Value>>),
 }
 
 impl Value {
@@ -16,7 +19,11 @@ impl Value {
             Self::Unit => "Unit".to_string(),
             Self::Lambda(lambda) => format!("<lambda {}>", lambda.address),
             Self::Constructor(constructor) => {
-                format!("<{} {}>", &strings[constructor.name_offset], constructor.captures.len())
+                format!(
+                    "<{} {}>",
+                    &strings[constructor.name_offset],
+                    constructor.captures.len()
+                )
             }
             Self::Structure(structure) => {
                 let Some(values) = &structure.values else {
@@ -43,13 +50,16 @@ impl Value {
                 format!("\"{}\"", &strings[*offset])
             }
             Self::Bool(bool) => bool.to_string(),
+
+            Self::StackPointer(sp) => format!("<sp {sp}>"),
+            Self::Closure(_) => "<closure>".to_string(),
         }
     }
 
     #[allow(unused)]
     pub fn into_lambda(self) -> LambdaValue {
         let Self::Lambda(lambda) = self else {
-            panic!();
+            panic!("Expected lambda");
         };
 
         lambda
@@ -58,7 +68,7 @@ impl Value {
     #[allow(unused)]
     pub fn into_constructor(self) -> ConstructorValue {
         let Self::Constructor(constructor) = self else {
-            panic!();
+            panic!("Expected constructor");
         };
 
         constructor
@@ -67,22 +77,42 @@ impl Value {
     #[allow(unused)]
     pub fn into_structure(self) -> StructureValue {
         let Self::Structure(structure) = self else {
-            panic!();
+            panic!("Expected structure");
         };
 
         structure
     }
 
     pub fn into_string(self) -> usize {
-        let Self::String(string) = self else { panic!() };
+        let Self::String(string) = self else {
+            panic!("Expected string")
+        };
 
         string
     }
 
     pub fn into_bool(self) -> bool {
-        let Self::Bool(bool) = self else { panic!() };
+        let Self::Bool(bool) = self else {
+            panic!("Expected bool")
+        };
 
         bool
+    }
+
+    pub fn into_stack_pointer(self) -> usize {
+        let Self::StackPointer(sp) = self else {
+            panic!("Expected stack pointer")
+        };
+
+        sp
+    }
+
+    pub fn into_closure(self) -> Rc<Vec<Value>> {
+        let Self::Closure(closure) = self else {
+            panic!("Expected closure")
+        };
+
+        closure
     }
 }
 #[derive(Clone)]

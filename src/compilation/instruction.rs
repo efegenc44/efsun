@@ -47,6 +47,8 @@ pub enum Instruction {
     TagEquals(usize),
     LogicalAnd,
     PopScope(usize),
+    PushBase,
+    SetBase(usize),
     Call,
     Return,
     Jump(usize),
@@ -64,6 +66,12 @@ impl Display for Instruction {
             }
             Self::Structure(name_offset, tag) => {
                 write!(f, "MAKE_STRUCTURE {name_offset} {tag}")
+            }
+            Self::PushBase => {
+                write!(f, "PUSH_BASE")
+            }
+            Self::SetBase(n) => {
+                write!(f, "SET_BASE {n}")
             }
             Self::MakeLambda(address, captures) => {
                 write!(f, "MAKE_LAMBDA {address}")?;

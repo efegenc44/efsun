@@ -9,7 +9,7 @@ use crate::{
         TypeChecker,
         typ::{MonoType, Type},
     },
-    compilation::{Compiler, ConstantPool, anf, instruction::display_instructions},
+    compilation::{Compiler, ConstantPool, anf},
     error::Result,
     interner::{Interner, WithInterner},
     parse::{Parser, definition},
@@ -31,10 +31,7 @@ fn expression(
     let anf = anf::Transformer::new().transform(renamed.into_data());
     let resolved_anf = ANFResolver::new().expression(anf);
     let (code, pool) = Compiler::new(interner).compile(&resolved_anf);
-
-    display_instructions(&code, &pool);
-
-    let result = vm.run(&code, &pool);
+    let result = vm.run(&code, &pool, false);
 
     Ok((result, t, pool))
 }
@@ -55,7 +52,7 @@ fn program(
     let anf = anf::Transformer::new().program(renamed);
     let resolved_anf = ANFResolver::new().program(anf);
     let (code, pool) = Compiler::new(interner).program(&resolved_anf);
-    let result = vm.run(&code, &pool);
+    let result = vm.run(&code, &pool, false);
 
     Ok((result, t, pool))
 }
@@ -86,7 +83,7 @@ pub fn repl() {
                 result.display(pool.strings()),
                 WithInterner::new(&t, &interner)
             ),
-            Err(error) =>{
+            Err(error) => {
                 vm.reset_state();
                 error.report(input, &interner)
             }

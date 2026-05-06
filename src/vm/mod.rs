@@ -1,6 +1,6 @@
 pub mod value;
 
-use std::rc::Rc;
+use std::{io::Write, rc::Rc};
 
 use crate::{
     compilation::{ConstantPool, instruction::Instruction},
@@ -9,42 +9,38 @@ use crate::{
 
 use value::{ConstructorValue, LambdaValue, StructureValue, Value};
 
+/// Stack-Based Virtual Machine
 pub struct VM {
-    stack: Vec<Frame>,
+    /// Stack of values
+    stack: Vec<Value>,
+    /// Stack frame base register, points to a stack location
+    base: usize,
+    /// Stack frame closure register
+    closure: Rc<Vec<Value>>,
 }
 
 impl VM {
     pub fn new() -> Self {
         Self {
-            stack: vec![Frame::new()],
+            stack: Vec::new(),
+            base: 0,
+            closure: Rc::new(Vec::new()),
         }
     }
 
-    fn current_frame(&self) -> &Frame {
-        self.stack.last().unwrap()
-    }
-
-    fn current_frame_mut(&mut self) -> &mut Frame {
-        self.stack.last_mut().unwrap()
-    }
-
     fn push(&mut self, value: Value) {
-        self.current_frame_mut().stack.push(value);
+        self.stack.push(value);
     }
 
     fn pop(&mut self) -> Value {
-        self.current_frame_mut().stack.pop().unwrap()
+        self.stack.pop().unwrap()
     }
 
     pub fn reset_state(&mut self) {
         self.stack.clear();
     }
 
-    pub fn run(
-        &mut self,
-        instructions: &[Instruction],
-        pool: &ConstantPool,
-    ) -> Value {
+    pub fn run(&mut self, instructions: &[Instruction], pool: &ConstantPool, debug: bool) -> Value {
         let mut ip = 0;
 
         while ip < instructions.len() {
@@ -78,8 +74,8 @@ impl VM {
 
                     for capture in captures {
                         let value = match capture {
-                            Capture::Local(id) => self.current_frame().stack[id.value()].clone(),
-                            Capture::Outer(id) => self.current_frame().closure[id.value()].clone(),
+                            Capture::Local(id) => self.stack[self.base + id.value()].clone(),
+                            Capture::Outer(id) => self.closure.as_ref()[id.value()].clone(),
                         };
 
                         closure.push(value);
@@ -88,15 +84,15 @@ impl VM {
                     self.push(Value::Lambda(LambdaValue::new(address, closure)));
                 }
                 Instruction::GetCapture(id) => {
-                    let value = self.current_frame().closure[id].clone();
+                    let value = self.closure.as_ref()[id].clone();
                     self.push(value);
                 }
                 Instruction::GetLocal(id) => {
-                    let value = self.current_frame().stack[id].clone();
+                    let value = self.stack[self.base + id].clone();
                     self.push(value);
                 }
                 Instruction::GetAbsolute(id) => {
-                    let value = self.stack.first().unwrap().stack[id].clone();
+                    let value = self.stack[id].clone();
                     self.push(value);
                 }
                 Instruction::StringEquals => {
@@ -115,31 +111,41 @@ impl VM {
                 }
                 Instruction::PopScope(n) => {
                     let return_value = self.pop();
-                    let len = self.current_frame().stack.len() - n;
-                    self.current_frame_mut().stack.truncate(len);
+                    let len = self.stack.len() - n;
+                    self.stack.truncate(len);
                     self.push(return_value);
+                }
+                Instruction::SetBase(n) => {
+                    self.base = self.stack.len() - n;
+                }
+                Instruction::PushBase => {
+                    self.push(Value::StackPointer(self.base));
+                    self.push(Value::Closure(self.closure.clone()));
                 }
                 Instruction::Call => {
                     let operand = self.pop();
-                    let argument = self.pop();
 
                     match operand {
                         Value::Lambda(lambda) => {
                             let (address, captures) = lambda.destruct();
 
-                            self.stack.push(Frame::with_closure(captures));
-                            self.push(argument);
+                            self.closure = captures;
 
-                            let value = self.run(&pool.lambdas()[address], pool);
+                            let value = self.run(&pool.lambdas()[address], pool, debug);
                             self.push(value);
                         }
                         Value::Constructor(constructor) => {
                             let (name_offset, order, arity, captures) = constructor.destruct();
+                            let argument = self.pop();
 
                             let value = if arity <= 1 {
                                 let mut values = (*captures).clone();
                                 values.push(argument);
-                                Value::Structure(StructureValue::new(name_offset, order, Some(values)))
+                                Value::Structure(StructureValue::new(
+                                    name_offset,
+                                    order,
+                                    Some(values),
+                                ))
                             } else {
                                 let mut values = (*captures).clone();
                                 values.push(argument);
@@ -151,6 +157,12 @@ impl VM {
                                 ))
                             };
 
+                            // TODO: Infer constructor application and lambda application
+                            //   then handle them seperately
+                            self.stack.truncate(self.base);
+                            self.closure = self.pop().into_closure();
+                            self.base = self.pop().into_stack_pointer();
+
                             self.push(value);
                         }
                         _ => unreachable!(),
@@ -158,7 +170,9 @@ impl VM {
                 }
                 Instruction::Return => {
                     let return_value = self.pop();
-                    self.stack.pop().unwrap();
+                    self.stack.truncate(self.base);
+                    self.closure = self.pop().into_closure();
+                    self.base = self.pop().into_stack_pointer();
                     self.push(return_value);
                 }
                 Instruction::TagEquals(tag) => {
@@ -179,26 +193,19 @@ impl VM {
                     self.push(Value::Bool(bool));
                 }
             }
+
+            if debug {
+                print!("| ");
+                for v in &self.stack {
+                    print!("{} ", v.display(pool.strings()));
+                }
+                println!();
+                print!("base pointer: {}", self.base);
+                std::io::stdout().flush().unwrap();
+                std::io::stdin().read_line(&mut String::new()).unwrap();
+            }
         }
 
         self.pop()
-    }
-}
-
-struct Frame {
-    stack: Vec<Value>,
-    closure: Rc<Vec<Value>>,
-}
-
-impl Frame {
-    fn new() -> Self {
-        Self::with_closure(Rc::default())
-    }
-
-    fn with_closure(closure: Rc<Vec<Value>>) -> Self {
-        Self {
-            stack: Vec::new(),
-            closure,
-        }
     }
 }

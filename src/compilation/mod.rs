@@ -91,7 +91,10 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     }
 
     fn restore_local_counter(&mut self, local_count: usize) {
-        assert!(self.local_count == 0, "An expression should not have left-open scope");
+        assert!(
+            self.local_count == 0,
+            "An expression should not have left-open scope"
+        );
 
         self.local_count = local_count;
     }
@@ -147,8 +150,10 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             .map(|lambda| Self::patch_instructions(&self.globals, lambda))
             .collect::<Vec<_>>();
 
+        instructions.push(Instruction::PushBase);
         instructions.push(Instruction::Unit);
         instructions.push(Instruction::GetAbsolute(id));
+        instructions.push(Instruction::SetBase(2));
         // TODO: Enforce main symbol to have an arrow type
         instructions.push(Instruction::Call);
 
@@ -299,8 +304,10 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     }
 
     fn application(&mut self, application: &'anf anf::expression::Application<Resolved>) {
+        self.emit(Instruction::PushBase.into());
         self.atom(application.argument());
         self.atom(application.function());
+        self.emit(Instruction::SetBase(2).into());
         self.emit(Instruction::Call.into());
         scoped_expression!(1, self, application.expression());
     }
@@ -363,7 +370,6 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     }
 
     fn join(&mut self, join: &'anf anf::expression::Join<Resolved>) {
-
         let mut join_instructions = seperate!(self, self.expression(join.join()));
 
         let len = join_instructions.len();
