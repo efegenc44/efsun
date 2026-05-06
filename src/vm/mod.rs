@@ -37,14 +37,13 @@ impl VM {
     }
 
     pub fn reset_state(&mut self) {
-        self.stack = vec![Frame::new()];
+        self.stack.clear();
     }
 
     pub fn run(
         &mut self,
         instructions: &[Instruction],
         pool: &ConstantPool,
-        is_main: bool,
     ) -> Value {
         let mut ip = 0;
 
@@ -60,23 +59,22 @@ impl VM {
                     self.push(Value::String(offset));
                 }
                 Instruction::Constructor(name_offset, order, arity) => {
-                    if arity == 0 {
-                        self.push(Value::Structure(StructureValue::new(
-                            name_offset,
-                            order,
-                            Vec::new(),
-                        )));
-                    } else {
-                        self.push(Value::Constructor(ConstructorValue::new(
-                            name_offset,
-                            order,
-                            arity,
-                            vec![],
-                        )));
-                    }
+                    self.push(Value::Constructor(ConstructorValue::new(
+                        name_offset,
+                        order,
+                        arity,
+                        Vec::with_capacity(arity),
+                    )));
+                }
+                Instruction::Structure(name_offset, order) => {
+                    self.push(Value::Structure(StructureValue::new(
+                        name_offset,
+                        order,
+                        None,
+                    )));
                 }
                 Instruction::MakeLambda(address, captures) => {
-                    let mut closure = vec![];
+                    let mut closure = Vec::with_capacity(captures.len());
 
                     for capture in captures {
                         let value = match capture {
@@ -102,8 +100,8 @@ impl VM {
                     self.push(value);
                 }
                 Instruction::StringEquals => {
-                    let s1 = &pool.strings()[self.pop().into_string()];
-                    let s2 = &pool.strings()[self.pop().into_string()];
+                    let s1 = self.pop().into_string();
+                    let s2 = self.pop().into_string();
 
                     self.push(Value::Bool(s1 == s2));
                 }
@@ -115,37 +113,33 @@ impl VM {
                         ip = address;
                     }
                 }
-                Instruction::SetBase => {
-                    self.current_frame_mut().base = self.current_frame().stack.len();
-                }
-                Instruction::Truncate => {
+                Instruction::PopScope(n) => {
                     let return_value = self.pop();
-                    let base = self.current_frame().base;
-                    self.current_frame_mut().stack.truncate(base);
+                    let len = self.current_frame().stack.len() - n;
+                    self.current_frame_mut().stack.truncate(len);
                     self.push(return_value);
                 }
                 Instruction::Call => {
-                    match self.pop() {
+                    let operand = self.pop();
+                    let argument = self.pop();
+
+                    match operand {
                         Value::Lambda(lambda) => {
                             let (address, captures) = lambda.destruct();
-                            let argument = self.pop();
 
-                            self.stack.push(Frame::new());
+                            self.stack.push(Frame::with_closure(captures));
                             self.push(argument);
-                            self.current_frame_mut().closure = captures;
 
-                            // FIX THIS
-                            let value = self.run(&pool.lambdas()[address], pool, false);
+                            let value = self.run(&pool.lambdas()[address], pool);
                             self.push(value);
                         }
                         Value::Constructor(constructor) => {
                             let (name_offset, order, arity, captures) = constructor.destruct();
-                            let argument = self.pop();
 
                             let value = if arity <= 1 {
                                 let mut values = (*captures).clone();
                                 values.push(argument);
-                                Value::Structure(StructureValue::new(name_offset, order, values))
+                                Value::Structure(StructureValue::new(name_offset, order, Some(values)))
                             } else {
                                 let mut values = (*captures).clone();
                                 values.push(argument);
@@ -187,11 +181,6 @@ impl VM {
             }
         }
 
-        if self.stack.len() != 1 && is_main {
-            // println!("{:?}", self.current_frame().stack);
-            panic!();
-        }
-
         self.pop()
     }
 }
@@ -199,19 +188,17 @@ impl VM {
 struct Frame {
     stack: Vec<Value>,
     closure: Rc<Vec<Value>>,
-    base: usize,
 }
 
 impl Frame {
     fn new() -> Self {
-        Self::with_closure(vec![])
+        Self::with_closure(Rc::default())
     }
 
-    fn with_closure(closure: Vec<Value>) -> Self {
+    fn with_closure(closure: Rc<Vec<Value>>) -> Self {
         Self {
             stack: Vec::new(),
-            closure: Rc::new(closure),
-            base: 0,
+            closure,
         }
     }
 }

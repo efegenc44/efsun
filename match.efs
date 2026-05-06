@@ -1,0 +1,13 @@
+module Main
+
+structure A[x]
+    | A x
+    | B x
+
+import Main.A (A B)
+
+let main = \x
+    match A "merhaba"
+    | A ~x = match B "deneme"
+        | B ~x = x
+

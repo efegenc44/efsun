@@ -23,10 +23,15 @@ impl<State> Pattern<State> {
         }
 
         match self {
-            Self::Any(any) => indent(
-                format!("Any: {}", interner.lookup(&any.identifier())),
-                depth,
-            ),
+            Self::Any(any) => {
+                let name = if let Some(unique_name) = any.try_unique_name() {
+                    &unique_name.to_string()
+                } else {
+                    interner.lookup(&any.identifier())
+                };
+
+                indent(format!("Any: {}", name), depth)
+            }
             Self::Structure(structure) => {
                 indent("Structure Pattern", depth);
                 for argument in structure.arguments() {
@@ -34,6 +39,16 @@ impl<State> Pattern<State> {
                 }
             }
             Self::String(string) => indent(format!("\"{}\"", interner.lookup(string)), depth),
+        }
+    }
+
+    pub fn local_count(&self) -> usize {
+        match self {
+            Self::Any(_) => 1,
+            Self::Structure(structure) => {
+                structure.arguments().iter().fold(0, |acc, x| acc + x.data().local_count())
+            },
+            Self::String(_) => 0,
         }
     }
 }

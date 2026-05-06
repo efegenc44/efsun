@@ -46,6 +46,10 @@ impl<State> Any<State> {
     pub fn identifier(&self) -> InternId {
         self.identifier
     }
+
+    pub fn try_unique_name(&self) -> Option<UniqueName> {
+        self.unique_name
+    }
 }
 
 impl<S: BeforeRenamed> Any<S> {

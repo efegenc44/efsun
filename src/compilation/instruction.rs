@@ -37,6 +37,7 @@ pub enum Instruction {
     String(usize),
     Bool(bool),
     Constructor(usize, usize, usize),
+    Structure(usize, usize),
     MakeLambda(usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
@@ -45,8 +46,7 @@ pub enum Instruction {
     StringEquals,
     TagEquals(usize),
     LogicalAnd,
-    SetBase,
-    Truncate,
+    PopScope(usize),
     Call,
     Return,
     Jump(usize),
@@ -61,6 +61,9 @@ impl Display for Instruction {
             Self::Bool(bool) => write!(f, "BOOL {bool}"),
             Self::Constructor(name_offset, order, arity) => {
                 write!(f, "CONSTRUCTOR {name_offset} {order} {arity}")
+            }
+            Self::Structure(name_offset, tag) => {
+                write!(f, "MAKE_STRUCTURE {name_offset} {tag}")
             }
             Self::MakeLambda(address, captures) => {
                 write!(f, "MAKE_LAMBDA {address}")?;
@@ -83,8 +86,7 @@ impl Display for Instruction {
             Self::LogicalAnd => write!(f, "AND"),
             Self::Jump(address) => write!(f, "JUMP {address:X}"),
             Self::JumpIfFalse(address) => write!(f, "JUMP_IF_FALSE {address:X}"),
-            Self::SetBase => write!(f, "SET_BASE"),
-            Self::Truncate => write!(f, "TRUNCATE"),
+            Self::PopScope(n) => write!(f, "POP_SCOPE {n}"),
             Self::Call => write!(f, "CALL"),
             Self::Return => write!(f, "RETURN"),
         }

@@ -1,0 +1,5 @@
+module Main
+
+let main = \x
+    let a = (let b = "b" in b) in
+        a

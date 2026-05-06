@@ -22,6 +22,15 @@ macro_rules! seperate {
     }};
 }
 
+macro_rules! scoped_expression {
+    ($n:expr, $self:expr, $e:expr) => {
+        let local_count = $n;
+        $self.local_count += local_count;
+        $self.expression($e);
+        $self.local_count -= local_count;
+    };
+}
+
 /// Compiles ANF to high-level VM instructions
 pub struct Compiler<'interner, 'anf> {
     /// Local interned string ordering because in the global
@@ -47,6 +56,10 @@ pub struct Compiler<'interner, 'anf> {
     out: Option<Vec<PreInstruction>>,
     /// Interner to retrieve strings
     interner: &'interner Interner,
+    /// Number of local variables on the stack
+    ///   Used for popping the scope of the branching path when jumping
+    ///   to a join point
+    local_count: usize,
 }
 
 impl<'interner, 'anf> Compiler<'interner, 'anf> {
@@ -61,6 +74,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             in_lambda: false,
             out: None,
             interner,
+            local_count: 0,
         }
     }
 
@@ -68,6 +82,18 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         let old = self.in_lambda;
         self.in_lambda = value;
         old
+    }
+
+    fn reset_local_counter(&mut self) -> usize {
+        let old = self.local_count;
+        self.local_count = 0;
+        old
+    }
+
+    fn restore_local_counter(&mut self, local_count: usize) {
+        assert!(self.local_count == 0, "An expression should not have left-open scope");
+
+        self.local_count = local_count;
     }
 
     fn emit(&mut self, pre_instruction: PreInstruction) {
@@ -173,8 +199,11 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                 for (order, constructor) in structure.constructors().iter().enumerate() {
                     let name_offset = self.string_offset(constructor.name());
 
-                    let instruction =
-                        Instruction::Constructor(name_offset, order, constructor.arity());
+                    let instruction = if constructor.arity() == 0 {
+                        Instruction::Structure(name_offset, order)
+                    } else {
+                        Instruction::Constructor(name_offset, order, constructor.arity())
+                    };
 
                     self.names
                         .insert(constructor.path(), vec![instruction.into()]);
@@ -273,7 +302,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         self.atom(application.argument());
         self.atom(application.function());
         self.emit(Instruction::Call.into());
-        self.expression(application.expression());
+        scoped_expression!(1, self, application.expression());
     }
 
     fn matchas(&mut self, matchas: &'anf anf::expression::MatchAs<Resolved>) {
@@ -283,7 +312,13 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             self.pattern_equality(&mut matched, branch.pattern());
 
             let local_code = seperate!(self, self.pattern_locals(&mut matched, branch.pattern()));
-            let branch_code = seperate!(self, self.expression(branch.expression()));
+
+            let old = self.reset_local_counter();
+            let branch_code = seperate!(
+                self,
+                scoped_expression!(branch.pattern().local_count(), self, branch.expression())
+            );
+            self.restore_local_counter(old);
 
             self.emit(Placeholder::SkipIfFalse(local_code.len() + branch_code.len()).into());
             self.extend(local_code.into_iter());
@@ -328,6 +363,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
     }
 
     fn join(&mut self, join: &'anf anf::expression::Join<Resolved>) {
+
         let mut join_instructions = seperate!(self, self.expression(join.join()));
 
         let len = join_instructions.len();
@@ -339,14 +375,15 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             }
         }
 
-        self.emit(Instruction::SetBase.into());
         self.extend(join_instructions.into_iter());
-        self.emit(Instruction::Truncate.into());
-        self.expression(join.expression());
+        scoped_expression!(1, self, join.expression());
     }
 
     fn jump(&mut self, jump: &'anf anf::expression::Jump<Resolved>) {
         self.atom(jump.expression());
+        if self.local_count > 0 {
+            self.emit(Instruction::PopScope(self.local_count).into());
+        }
         self.emit(Placeholder::Jump(jump.to()).into());
     }
 
@@ -366,7 +403,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
 
     fn letin(&mut self, letin: &'anf anf::expression::LetIn<Resolved>) {
         self.atom(letin.variable_expression());
-        self.expression(letin.return_expression());
+        scoped_expression!(1, self, letin.return_expression());
     }
 }
 

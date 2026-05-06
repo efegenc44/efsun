@@ -58,6 +58,7 @@ impl<State> Expression<State> {
                 matchlet.expression().print(depth + 1, interner);
                 for branch in matchlet.branches() {
                     indent("branch:", depth + 1);
+                    branch.pattern().print(depth + 2, interner);
                     branch.expression().print(depth + 2, interner);
                 }
             }

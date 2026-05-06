@@ -34,7 +34,7 @@ fn expression(
 
     display_instructions(&code, &pool);
 
-    let result = vm.run(&code, &pool, true);
+    let result = vm.run(&code, &pool);
 
     Ok((result, t, pool))
 }
@@ -55,9 +55,7 @@ fn program(
     let anf = anf::Transformer::new().program(renamed);
     let resolved_anf = ANFResolver::new().program(anf);
     let (code, pool) = Compiler::new(interner).program(&resolved_anf);
-    let result = vm.run(&code, &pool, true);
-
-    // display_instructions(&code, &pool);
+    let result = vm.run(&code, &pool);
 
     Ok((result, t, pool))
 }
@@ -88,10 +86,11 @@ pub fn repl() {
                 result.display(pool.strings()),
                 WithInterner::new(&t, &interner)
             ),
-            Err(error) => error.report(input, &interner),
+            Err(error) =>{
+                vm.reset_state();
+                error.report(input, &interner)
+            }
         }
-
-        vm.reset_state();
     }
 }
 

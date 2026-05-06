@@ -16,11 +16,15 @@ impl Value {
             Self::Unit => "Unit".to_string(),
             Self::Lambda(lambda) => format!("<lambda {}>", lambda.address),
             Self::Constructor(constructor) => {
-                format!("<constructor {}>", &strings[constructor.name_offset])
+                format!("<{} {}>", &strings[constructor.name_offset], constructor.captures.len())
             }
             Self::Structure(structure) => {
+                let Some(values) = &structure.values else {
+                    return strings[structure.name_offset].to_string();
+                };
+
                 let mut string = format!("({}", &strings[structure.name_offset]);
-                match structure.values.as_ref().as_slice() {
+                match values.as_ref().as_slice() {
                     [] => (),
                     [x, xs @ ..] => {
                         string.push(' ');
@@ -127,15 +131,15 @@ impl ConstructorValue {
 pub struct StructureValue {
     name_offset: usize,
     order: usize,
-    values: Rc<Vec<Value>>,
+    values: Option<Rc<Vec<Value>>>,
 }
 
 impl StructureValue {
-    pub fn new(name_offset: usize, order: usize, values: Vec<Value>) -> Self {
+    pub fn new(name_offset: usize, order: usize, values: Option<Vec<Value>>) -> Self {
         Self {
             name_offset,
             order,
-            values: Rc::new(values),
+            values: values.map(Rc::new),
         }
     }
 
@@ -144,6 +148,6 @@ impl StructureValue {
     }
 
     pub fn values(&self) -> &Vec<Value> {
-        &self.values
+        self.values.as_ref().unwrap()
     }
 }
