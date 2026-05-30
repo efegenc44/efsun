@@ -10,8 +10,8 @@ use crate::{
     error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
+    metadata::IndexState,
     parse::definition::Module,
-    state::Unresolved,
 };
 
 use lex::{Lexer, token::Token};
@@ -47,18 +47,25 @@ const PATTERN_START: &[Token] = &[
 pub struct Parser<'source, 'interner> {
     tokens: Peekable<Lexer<'source, 'interner>>,
     source_name: &'source str,
+    indicies: IndexState,
 }
 
 impl<'source, 'interner> Parser<'source, 'interner> {
     pub fn from_source(
         source_name: &'source str,
         source: &'source str,
+        indicies: IndexState,
         interner: &'interner mut Interner,
     ) -> Self {
         Self {
             tokens: Lexer::new(source_name, source, interner).peekable(),
             source_name,
+            indicies,
         }
+    }
+
+    pub fn indicies(&self) -> IndexState {
+        self.indicies
     }
 
     fn peek(&mut self) -> Option<Result<Located<Token>>> {
@@ -131,7 +138,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(Located::new(*id, token.span()))
     }
 
-    pub fn expression_repl(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    pub fn expression_repl(&mut self) -> Result<Located<Expression>> {
         let expression = self.expression()?;
 
         // NOTE: Maybe it is not needed
@@ -145,35 +152,35 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(expression)
     }
 
-    pub fn expression(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    pub fn expression(&mut self) -> Result<Located<Expression>> {
         let token = self.peek_some()?;
 
         match token.data() {
             Token::Backslash => self.lambda(),
             Token::LetKeyword => self.letin(),
-            Token::MatchKeyword => self.matc(),
+            Token::MatchKeyword => self.matchas(),
             _ => self.application(),
         }
     }
 
-    fn lambda(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    fn lambda(&mut self) -> Result<Located<Expression>> {
         let start = self.expect(Token::Backslash)?.span().start();
         let variable = self.expect_identifier()?;
         let expression = self.expression()?;
         let end = expression.span().end();
 
-        let lambda = expression::lambda::UnresolvedObservation {
+        let lambda = expression::Lambda::new(
             variable,
             expression,
-        }
-        .into();
-
+            self.indicies.new_capture_id(),
+            self.indicies.new_unique_name_id(),
+        );
         let expression = Located::new(Expression::Lambda(lambda), Span::new(start, end));
 
         Ok(expression)
     }
 
-    fn letin(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    fn letin(&mut self) -> Result<Located<Expression>> {
         let start = self.expect(Token::LetKeyword)?.span().start();
         let variable = self.expect_identifier()?;
         self.expect(Token::Equals)?;
@@ -182,19 +189,18 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let return_expression = self.expression()?;
         let end = return_expression.span().end();
 
-        let letin = expression::letin::Observation {
+        let letin = expression::LetIn::new(
             variable,
             variable_expression,
             return_expression,
-        }
-        .into();
-
+            self.indicies.new_unique_name_id(),
+        );
         let expression = Located::new(Expression::LetIn(letin), Span::new(start, end));
 
         Ok(expression)
     }
 
-    fn matc(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    fn matchas(&mut self) -> Result<Located<Expression>> {
         let start = self.expect(Token::MatchKeyword)?.span().start();
         let expression = self.expression()?;
         let mut end = expression.span().end();
@@ -206,33 +212,26 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             branches.push(branch);
         }
 
-        let matchlet = expression::matchas::Observation {
-            expression,
-            branches,
-        }
-        .into();
-        let expression = Located::new(Expression::MatchAs(matchlet), Span::new(start, end));
+        let matchas = expression::MatchAs::new(expression, branches);
+        let expression = Located::new(Expression::MatchAs(matchas), Span::new(start, end));
 
         Ok(expression)
     }
 
-    fn match_branch(&mut self) -> Result<Located<expression::matchas::Branch<Unresolved>>> {
+    fn match_branch(&mut self) -> Result<Located<expression::matchas::Branch>> {
         let pattern = self.pattern()?;
         let start = pattern.span().start();
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
         let end = expression.span().end();
-        let branch = expression::matchas::branch::Observation {
-            pattern,
-            expression,
-        }
-        .into();
+
+        let branch = expression::matchas::Branch::new(pattern, expression);
         let branch = Located::new(branch, Span::new(start, end));
 
         Ok(branch)
     }
 
-    fn pattern(&mut self) -> Result<Located<Pattern<Unresolved>>> {
+    fn pattern(&mut self) -> Result<Located<Pattern>> {
         let token = self.peek_some()?;
 
         match token.data() {
@@ -250,29 +249,21 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
     }
 
-    fn pattern_literal(
-        &mut self,
-        literal: Pattern<Unresolved>,
-    ) -> Result<Located<Pattern<Unresolved>>> {
+    fn pattern_literal(&mut self, literal: Pattern) -> Result<Located<Pattern>> {
         let span = self.next().unwrap()?.span();
         Ok(Located::new(literal, span))
     }
 
-    fn pattern_any(&mut self) -> Result<Located<Pattern<Unresolved>>> {
+    fn pattern_any(&mut self) -> Result<Located<Pattern>> {
         let start = self.expect(Token::Tilde)?.span().start();
         let identifier = self.expect_identifier()?;
         let end = identifier.span().end();
-        let any = pattern::any::Observation {
-            identifier: identifier.into_data(),
-        };
+        let any = pattern::Any::new(identifier.into_data(), self.indicies.new_unique_name_id());
 
-        Ok(Located::new(
-            Pattern::Any(any.into()),
-            Span::new(start, end),
-        ))
+        Ok(Located::new(Pattern::Any(any), Span::new(start, end)))
     }
 
-    fn pattern_structure(&mut self) -> Result<Located<Pattern<Unresolved>>> {
+    fn pattern_structure(&mut self) -> Result<Located<Pattern>> {
         let parts = self.path_parts()?;
         let start = parts.span().start();
         let mut end = parts.span().end();
@@ -283,13 +274,14 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             arguments.push(pattern);
         }
 
-        let structure = pattern::structure::UnresolvedObservation { parts, arguments }.into();
+        let structure =
+            pattern::Structure::new(parts, arguments, self.indicies.new_structure_pattern_id());
         let pattern = Located::new(Pattern::Structure(structure), Span::new(start, end));
 
         Ok(pattern)
     }
 
-    fn pattern_grouping(&mut self) -> Result<Located<Pattern<Unresolved>>> {
+    fn pattern_grouping(&mut self) -> Result<Located<Pattern>> {
         let start = self.expect(Token::LeftParenthesis)?.span().start();
         let pattern = self.pattern()?;
         let end = self.expect(Token::RightParenthesis)?.span().end();
@@ -298,7 +290,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(pattern)
     }
 
-    fn primary(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    fn primary(&mut self) -> Result<Located<Expression>> {
         let token = self.peek_some()?;
 
         match token.data() {
@@ -315,24 +307,25 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
     }
 
-    fn literal(
-        &mut self,
-        literal: Expression<Unresolved>,
-    ) -> Result<Located<Expression<Unresolved>>> {
+    fn literal(&mut self, literal: Expression) -> Result<Located<Expression>> {
         let span = self.next().unwrap()?.span();
         Ok(Located::new(literal, span))
     }
 
-    fn path(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    fn path(&mut self) -> Result<Located<Expression>> {
         let parts = self.path_parts()?;
         let span = parts.span();
-        let path = expression::path::UnresolvedObservation { parts }.into();
+        let path = expression::Path::new(
+            parts,
+            self.indicies.new_bound_id(),
+            self.indicies.new_unique_name_id(),
+        );
         let expression = Located::new(Expression::Path(path), span);
 
         Ok(expression)
     }
 
-    fn grouping(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    fn grouping(&mut self) -> Result<Located<Expression>> {
         let start = self.expect(Token::LeftParenthesis)?.span().start();
         let expression = self.expression()?;
         let end = self.expect(Token::RightParenthesis)?.span().end();
@@ -341,25 +334,28 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(expression)
     }
 
-    fn application(&mut self) -> Result<Located<Expression<Unresolved>>> {
+    fn application(&mut self) -> Result<Located<Expression>> {
         let mut function = self.primary()?;
         let start = function.span().start();
 
         while self.peek_is_one_of(PRIMARY_EXPRESSION_START)? {
             let argument = self.primary()?;
             let end = argument.span().end();
-            let application = expression::application::Observation { function, argument }.into();
-            function = Located::new(Expression::Application(application), Span::new(start, end));
+
+            let application = expression::Application::new(function, argument);
+            let application = Expression::Application(application);
+
+            function = Located::new(application, Span::new(start, end));
         }
 
         Ok(function)
     }
 
-    fn type_expression(&mut self) -> Result<Located<TypeExpression<Unresolved>>> {
+    fn type_expression(&mut self) -> Result<Located<TypeExpression>> {
         self.type_primary()
     }
 
-    fn type_primary(&mut self) -> Result<Located<TypeExpression<Unresolved>>> {
+    fn type_primary(&mut self) -> Result<Located<TypeExpression>> {
         let token = self.peek_some()?;
 
         match token.data() {
@@ -390,11 +386,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(Located::new(parts, Span::new(start, end)))
     }
 
-    fn type_path(&mut self) -> Result<Located<TypeExpression<Unresolved>>> {
+    fn type_path(&mut self) -> Result<Located<TypeExpression>> {
         let parts = self.path_parts()?;
         let span = parts.span();
 
-        let path = type_expression::path::UnresolvedObservation { parts }.into();
+        let path = type_expression::Path::new(parts, self.indicies.new_bound_id());
         let mut type_expression = Located::new(TypeExpression::Path(path), span);
 
         if self.next_if_peek(Token::LeftBracket)? {
@@ -405,11 +401,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             }
             let end = self.expect(Token::RightBracket)?.span().end();
 
-            let application = type_expression::application::Observation {
-                function: type_expression,
-                arguments,
-            }
-            .into();
+            let application = type_expression::Application::new(type_expression, arguments);
+
             type_expression = Located::new(
                 TypeExpression::Application(application),
                 Span::new(span.start(), end),
@@ -419,7 +412,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(type_expression)
     }
 
-    fn type_grouping(&mut self) -> Result<Located<TypeExpression<Unresolved>>> {
+    fn type_grouping(&mut self) -> Result<Located<TypeExpression>> {
         let start = self.expect(Token::LeftParenthesis)?.span().start();
         let type_expression = self.type_expression()?;
         let end = self.expect(Token::RightParenthesis)?.span().end();
@@ -428,26 +421,23 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(type_expression)
     }
 
-    pub fn module(&mut self) -> Result<Module<Unresolved>> {
+    pub fn module(&mut self) -> Result<Module> {
         let mut definitions = Vec::new();
 
         while self.peek().is_some() {
             definitions.push(self.definiton()?);
         }
 
-        let module = definition::module::Observation {
-            definitions,
-            source_name: self.source_name.to_string(),
-        };
+        let module = definition::Module::new(definitions, self.source_name.to_string());
 
-        Ok(module.into())
+        Ok(module)
     }
 
-    fn definiton(&mut self) -> Result<Definition<Unresolved>> {
+    fn definiton(&mut self) -> Result<Definition> {
         let token = self.peek_some()?;
 
         match token.data() {
-            Token::LetKeyword => self.let_definiton(),
+            Token::LetKeyword => self.name_definition(),
             Token::ModuleKeyword => self.module_definition(),
             Token::ImportKeyword => self.import_definition(),
             Token::StructureKeyword => self.structure_definition(),
@@ -461,21 +451,18 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
     }
 
-    fn let_definiton(&mut self) -> Result<Definition<Unresolved>> {
+    fn name_definition(&mut self) -> Result<Definition> {
         self.expect(Token::LetKeyword)?;
         let identifier = self.expect_identifier()?;
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
-        let definiton = definition::name::UnresolvedObservation {
-            identifier,
-            expression,
-        }
-        .into();
+
+        let definiton = definition::Name::new(identifier, expression, self.indicies.new_path_id());
 
         Ok(Definition::Name(definiton))
     }
 
-    fn module_definition(&mut self) -> Result<Definition<Unresolved>> {
+    fn module_definition(&mut self) -> Result<Definition> {
         self.expect(Token::ModuleKeyword)?;
 
         let parts = self.path_parts()?;
@@ -484,7 +471,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(Definition::ModulePath(definition))
     }
 
-    fn import_definition(&mut self) -> Result<Definition<Unresolved>> {
+    fn import_definition(&mut self) -> Result<Definition> {
         self.expect(Token::ImportKeyword)?;
         Ok(Definition::Import(self.import()?))
     }
@@ -508,7 +495,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         Ok(definition::Import::new(parts, subimport))
     }
 
-    fn structure_definition(&mut self) -> Result<Definition<Unresolved>> {
+    fn structure_definition(&mut self) -> Result<Definition> {
         self.expect(Token::StructureKeyword)?;
         let name = self.expect_identifier()?;
 
@@ -528,16 +515,13 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             constructors.push(self.constructor()?);
         }
 
-        let structure = definition::structure::UnresolvedObservation {
-            name,
-            variables,
-            constructors,
-        }
-        .into();
+        let structure =
+            definition::Structure::new(name, variables, constructors, self.indicies.new_path_id());
+
         Ok(Definition::Structure(structure))
     }
 
-    fn constructor(&mut self) -> Result<Located<definition::structure::Constructor<Unresolved>>> {
+    fn constructor(&mut self) -> Result<Located<definition::structure::Constructor>> {
         let name = self.expect_identifier()?;
         let start = name.span().start();
         let mut end = name.span().end();
@@ -550,7 +534,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
 
         let constructor =
-            definition::structure::constructor::UnresolvedObservation { name, arguments }.into();
+            definition::structure::Constructor::new(name, arguments, self.indicies.new_path_id());
         let constructor = Located::new(constructor, Span::new(start, end));
 
         Ok(constructor)

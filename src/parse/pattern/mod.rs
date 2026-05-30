@@ -5,17 +5,17 @@ use std::fmt::Display;
 
 use crate::interner::{InternId, Interner};
 
-pub type Structure<State> = structure::Structure<State>;
-pub type Any<State> = any::Any<State>;
+pub type Structure = structure::Structure;
+pub type Any = any::Any;
 
 #[derive(Clone)]
-pub enum Pattern<State> {
-    Any(Any<State>),
-    Structure(Structure<State>),
+pub enum Pattern {
+    Any(Any),
+    Structure(Structure),
     String(InternId),
 }
 
-impl<State> Pattern<State> {
+impl Pattern {
     #[allow(unused)]
     pub fn print(&self, depth: usize, interner: &Interner) {
         fn indent(display: impl Display, depth: usize) {
@@ -24,13 +24,14 @@ impl<State> Pattern<State> {
 
         match self {
             Self::Any(any) => {
-                let name = if let Some(unique_name) = any.try_unique_name() {
-                    &unique_name.to_string()
-                } else {
-                    interner.lookup(&any.identifier())
-                };
+                todo!()
+                // let name = if let Some(unique_name) = any.try_unique_name() {
+                //     &unique_name.to_string()
+                // } else {
+                //     interner.lookup(&any.identifier())
+                // };
 
-                indent(format!("Any: {}", name), depth)
+                // indent(format!("Any: {}", name), depth)
             }
             Self::Structure(structure) => {
                 indent("Structure Pattern", depth);

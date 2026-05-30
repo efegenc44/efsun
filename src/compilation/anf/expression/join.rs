@@ -1,31 +1,27 @@
 use crate::compilation::anf::{self, Local};
 
-pub struct Join<State> {
+pub struct Join {
     label: usize,
     variable: Local,
-    join: Box<anf::Expression<State>>,
-    expression: Box<anf::Expression<State>>,
+    join: Box<anf::Expression>,
+    expression: Box<anf::Expression>,
 }
 
-pub struct Observation<State> {
-    pub label: usize,
-    pub variable: Local,
-    pub join: anf::Expression<State>,
-    pub expression: anf::Expression<State>,
-}
-
-impl<State> From<Observation<State>> for Join<State> {
-    fn from(value: Observation<State>) -> Self {
+impl Join {
+    pub fn new(
+        label: usize,
+        variable: Local,
+        join: anf::Expression,
+        expression: anf::Expression,
+    ) -> Self {
         Self {
-            label: value.label,
-            variable: value.variable,
-            join: Box::new(value.join),
-            expression: Box::new(value.expression),
+            label,
+            variable,
+            join: Box::new(join),
+            expression: Box::new(expression),
         }
     }
-}
 
-impl<State> Join<State> {
     pub fn label(&self) -> usize {
         self.label
     }
@@ -34,20 +30,11 @@ impl<State> Join<State> {
         self.variable
     }
 
-    pub fn join(&self) -> &anf::Expression<State> {
+    pub fn join(&self) -> &anf::Expression {
         &self.join
     }
 
-    pub fn expression(&self) -> &anf::Expression<State> {
+    pub fn expression(&self) -> &anf::Expression {
         &self.expression
-    }
-
-    pub fn observe(self) -> Observation<State> {
-        Observation {
-            label: self.label,
-            variable: self.variable,
-            join: *self.join,
-            expression: *self.expression,
-        }
     }
 }

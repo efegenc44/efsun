@@ -7,9 +7,9 @@ use std::collections::HashMap;
 use crate::{
     compilation::instruction::{Placeholder, PreInstruction},
     interner::{InternId, Interner},
+    metadata::Metadata,
     parse::pattern::Pattern,
     resolution::bound::{Bound, Path},
-    state::{Renamed, Resolved},
 };
 
 use instruction::Instruction;
@@ -32,7 +32,7 @@ macro_rules! scoped_expression {
 }
 
 /// Compiles ANF to high-level VM instructions
-pub struct Compiler<'interner, 'anf> {
+pub struct Compiler<'interner, 'anf, 'metadata> {
     /// Local interned string ordering because in the global
     ///   ordering strings does not have to be sequantial
     ///   because of identifiers
@@ -43,13 +43,13 @@ pub struct Compiler<'interner, 'anf> {
     lambdas: Vec<Vec<PreInstruction>>,
     /// Map from global names to their ANF expression
     ///   Used for compiling cyclic references
-    name_anfs: HashMap<&'anf Path, &'anf anf::Expression<Resolved>>,
+    name_anfs: HashMap<&'metadata Path, &'anf anf::Expression>,
     /// Global names and their instructions
-    names: HashMap<&'anf Path, Vec<PreInstruction>>,
+    names: HashMap<&'metadata Path, Vec<PreInstruction>>,
     /// Compilation order for global names
     ///   Order is determined at compile time because language
     ///   does not require strict lexical definition order
-    globals: Globals<'anf>,
+    globals: Globals<'metadata>,
     /// True if currently compiling a lambda
     in_lambda: bool,
     /// Current output to emit into
@@ -60,10 +60,15 @@ pub struct Compiler<'interner, 'anf> {
     ///   Used for popping the scope of the branching path when jumping
     ///   to a join point
     local_count: usize,
+    /// Metadata
+    metadata: &'metadata Metadata,
 }
 
-impl<'interner, 'anf> Compiler<'interner, 'anf> {
-    pub fn new(interner: &'interner Interner) -> Self {
+impl<'interner, 'anf, 'metadata> Compiler<'interner, 'anf, 'metadata>
+where
+    'metadata: 'anf,
+{
+    pub fn new(interner: &'interner Interner, metadata: &'metadata Metadata) -> Self {
         Self {
             interns: Vec::new(),
             strings: Vec::new(),
@@ -75,6 +80,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
             out: None,
             interner,
             local_count: 0,
+            metadata,
         }
     }
 
@@ -114,10 +120,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         std::mem::replace(&mut self.out, new_out)
     }
 
-    pub fn program(
-        mut self,
-        program: &'anf anf::Program<Resolved>,
-    ) -> (Vec<Instruction>, ConstantPool) {
+    pub fn program(mut self, program: &'anf anf::Program) -> (Vec<Instruction>, ConstantPool) {
         for module in program.modules() {
             self.collect_names(module);
         }
@@ -183,7 +186,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                     //   into Instruction::Jump. This unreachable state can
                     //   be removed with one more enum type, but it is a bit
                     //   unnecessary since right now there is only Jump
-                    panic!("This case should be handeld at join()");
+                    unreachable!("This case should be handeld at join()");
                 }
                 PreInstruction::Instruction(instruction) => instruction,
             };
@@ -194,10 +197,11 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         instructions
     }
 
-    fn collect_names(&mut self, module: &'anf anf::Module<Resolved>) {
+    fn collect_names(&mut self, module: &'anf anf::Module) {
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
-                self.name_anfs.insert(name.path(), name.expression());
+                let path = self.metadata.get_path(name.path_id());
+                self.name_anfs.insert(path, name.expression());
             }
 
             if let anf::Definition::Structure(structure) = definition {
@@ -210,29 +214,31 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
                         Instruction::Constructor(name_offset, order, constructor.arity())
                     };
 
-                    self.names
-                        .insert(constructor.path(), vec![instruction.into()]);
-                    self.globals.push(constructor.path());
+                    let path = self.metadata.get_path(constructor.path_id());
+
+                    self.names.insert(path, vec![instruction.into()]);
+                    self.globals.push(path);
                 }
             }
         }
     }
 
-    pub fn module(&mut self, module: &'anf anf::Module<Resolved>) {
+    pub fn module(&mut self, module: &'anf anf::Module) {
         for definition in module.definitions() {
-            if let anf::Definition::Name(name) = definition
-                && !self.globals.pushed(name.path())
-            {
-                let code = seperate!(self, self.expression(name.expression()));
-                self.names.insert(name.path(), code);
-                self.globals.push(name.path());
+            if let anf::Definition::Name(name) = definition {
+                let path = self.metadata.get_path(name.path_id());
+                if !self.globals.pushed(path) {
+                    let code = seperate!(self, self.expression(name.expression()));
+                    self.names.insert(path, code);
+                    self.globals.push(path);
+                }
             }
         }
     }
 
     pub fn compile(
         mut self,
-        expression: &'anf anf::Expression<Resolved>,
+        expression: &'anf anf::Expression,
     ) -> (Vec<Instruction>, ConstantPool) {
         let code = seperate!(self, self.expression(expression));
 
@@ -248,7 +254,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         )
     }
 
-    fn expression(&mut self, expression: &'anf anf::Expression<Resolved>) {
+    fn expression(&mut self, expression: &'anf anf::Expression) {
         match expression {
             anf::Expression::LetIn(letin) => self.letin(letin),
             anf::Expression::Application(application) => self.application(application),
@@ -259,7 +265,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    fn atom(&mut self, atom: &'anf anf::Atom<Resolved>) {
+    fn atom(&mut self, atom: &'anf anf::Atom) {
         match atom {
             anf::Atom::String(id) => self.string(*id),
             anf::Atom::Path(path) => self.path(path),
@@ -285,8 +291,10 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         self.emit(Instruction::String(offset).into())
     }
 
-    fn path(&mut self, identifier: &'anf anf::atom::Path<Resolved>) {
-        let instruction = match identifier.bound() {
+    fn path(&mut self, path: &'anf anf::atom::Path) {
+        let bound = self.metadata.get_anf_bound(path.anf_bound_id());
+
+        let instruction = match bound {
             Bound::Local(id) => Instruction::GetLocal(id.value()).into(),
             Bound::Capture(id) => Instruction::GetCapture(id.value()).into(),
             Bound::Absolute(path) => {
@@ -303,7 +311,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         self.emit(instruction)
     }
 
-    fn application(&mut self, application: &'anf anf::expression::Application<Resolved>) {
+    fn application(&mut self, application: &'anf anf::expression::Application) {
         self.emit(Instruction::PushBase.into());
         self.atom(application.argument());
         self.atom(application.function());
@@ -312,7 +320,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         scoped_expression!(1, self, application.expression());
     }
 
-    fn matchas(&mut self, matchas: &'anf anf::expression::MatchAs<Resolved>) {
+    fn matchas(&mut self, matchas: &'anf anf::expression::MatchAs) {
         let mut matched = seperate!(self, self.atom(matchas.expression()));
 
         for branch in matchas.branches() {
@@ -333,12 +341,18 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    fn pattern_equality(&mut self, matched: &mut Vec<PreInstruction>, pattern: &Pattern<Renamed>) {
+    fn pattern_equality(&mut self, matched: &mut Vec<PreInstruction>, pattern: &Pattern) {
         match pattern {
             Pattern::Any(_) => self.emit(Instruction::Bool(true).into()),
             Pattern::Structure(structure) => {
                 self.extend(matched.iter().cloned());
-                self.emit(Instruction::TagEquals(structure.order()).into());
+
+                let tag = self
+                    .metadata
+                    .get_structure_pattern(structure.structure_pattern_id())
+                    .tag();
+
+                self.emit(Instruction::TagEquals(tag).into());
 
                 for (index, argument) in structure.arguments().iter().enumerate() {
                     matched.push(Instruction::GetArgument(index).into());
@@ -355,7 +369,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    fn pattern_locals(&mut self, matched: &mut Vec<PreInstruction>, pattern: &Pattern<Renamed>) {
+    fn pattern_locals(&mut self, matched: &mut Vec<PreInstruction>, pattern: &Pattern) {
         match pattern {
             Pattern::Any(_) => self.extend(matched.iter().cloned()),
             Pattern::Structure(structure) => {
@@ -369,7 +383,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         }
     }
 
-    fn join(&mut self, join: &'anf anf::expression::Join<Resolved>) {
+    fn join(&mut self, join: &'anf anf::expression::Join) {
         let mut join_instructions = seperate!(self, self.expression(join.join()));
 
         let len = join_instructions.len();
@@ -385,7 +399,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         scoped_expression!(1, self, join.expression());
     }
 
-    fn jump(&mut self, jump: &'anf anf::expression::Jump<Resolved>) {
+    fn jump(&mut self, jump: &'anf anf::expression::Jump) {
         self.atom(jump.expression());
         if self.local_count > 0 {
             self.emit(Instruction::PopScope(self.local_count).into());
@@ -393,7 +407,7 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         self.emit(Placeholder::Jump(jump.to()).into());
     }
 
-    fn lambda(&mut self, lambda: &'anf anf::atom::Lambda<Resolved>) {
+    fn lambda(&mut self, lambda: &'anf anf::atom::Lambda) {
         let old = self.replace_in_lambda(true);
         let lambda_code = seperate!(self, {
             self.expression(lambda.expression());
@@ -404,10 +418,12 @@ impl<'interner, 'anf> Compiler<'interner, 'anf> {
         let id = self.lambdas.len();
         self.lambdas.push(lambda_code);
 
-        self.emit(Instruction::MakeLambda(id, lambda.captures().to_vec()).into())
+        let capture = self.metadata.get_anf_capture(lambda.anf_capture_id());
+
+        self.emit(Instruction::MakeLambda(id, capture.to_vec()).into())
     }
 
-    fn letin(&mut self, letin: &'anf anf::expression::LetIn<Resolved>) {
+    fn letin(&mut self, letin: &'anf anf::expression::LetIn) {
         self.atom(letin.variable_expression());
         scoped_expression!(1, self, letin.return_expression());
     }
@@ -432,12 +448,12 @@ impl ConstantPool {
     }
 }
 
-struct Globals<'anf> {
-    array: Vec<&'anf Path>,
-    table: HashMap<&'anf Path, usize>,
+struct Globals<'path> {
+    array: Vec<&'path Path>,
+    table: HashMap<&'path Path, usize>,
 }
 
-impl<'anf> Globals<'anf> {
+impl<'path> Globals<'path> {
     fn new() -> Self {
         Self {
             array: Vec::new(),
@@ -445,22 +461,22 @@ impl<'anf> Globals<'anf> {
         }
     }
 
-    fn push(&mut self, path: &'anf Path) -> usize {
+    fn push(&mut self, path: &'path Path) -> usize {
         let order = self.array.len();
         self.array.push(path);
         self.table.insert(path, order);
         order
     }
 
-    fn order(&self, path: &'anf Path) -> usize {
+    fn order(&self, path: &'path Path) -> usize {
         *self.table.get(path).unwrap()
     }
 
-    fn pushed(&self, path: &'anf Path) -> bool {
+    fn pushed(&self, path: &'path Path) -> bool {
         self.table.contains_key(path)
     }
 
-    fn iter(&self) -> slice::Iter<'_, &'anf Path> {
+    fn iter(&self) -> slice::Iter<'_, &'path Path> {
         self.array.iter()
     }
 }

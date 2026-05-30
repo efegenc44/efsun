@@ -1,37 +1,23 @@
 use crate::{location::Located, parse::type_expression::TypeExpression};
 
-pub struct Application<State> {
-    function: Box<Located<TypeExpression<State>>>,
-    arguments: Vec<Located<TypeExpression<State>>>,
+pub struct Application {
+    function: Box<Located<TypeExpression>>,
+    arguments: Vec<Located<TypeExpression>>,
 }
 
-pub struct Observation<State> {
-    pub function: Located<TypeExpression<State>>,
-    pub arguments: Vec<Located<TypeExpression<State>>>,
-}
-
-impl<State> From<Observation<State>> for Application<State> {
-    fn from(value: Observation<State>) -> Self {
+impl Application {
+    pub fn new(function: Located<TypeExpression>, arguments: Vec<Located<TypeExpression>>) -> Self {
         Self {
-            function: Box::new(value.function),
-            arguments: value.arguments,
+            function: Box::new(function),
+            arguments,
         }
     }
-}
 
-impl<State> Application<State> {
-    pub fn function(&self) -> &Located<TypeExpression<State>> {
+    pub fn function(&self) -> &Located<TypeExpression> {
         &self.function
     }
 
-    pub fn arguments(&self) -> &[Located<TypeExpression<State>>] {
+    pub fn arguments(&self) -> &[Located<TypeExpression>] {
         &self.arguments
-    }
-
-    pub fn observe(self) -> Observation<State> {
-        Observation {
-            function: *self.function,
-            arguments: self.arguments,
-        }
     }
 }

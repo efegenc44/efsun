@@ -3,17 +3,17 @@ pub mod structure;
 
 use std::fmt::Display;
 
-use crate::interner::{Interner, WithInterner};
+use crate::interner::Interner;
 
-pub type Name<State> = name::Name<State>;
+pub type Name = name::Name;
 pub type Structure = structure::Structure;
 
-pub enum Definition<State> {
-    Name(Name<State>),
+pub enum Definition {
+    Name(Name),
     Structure(Structure),
 }
 
-impl<T> Definition<T> {
+impl Definition {
     #[allow(unused)]
     pub fn print(&self, depth: usize, interner: &Interner) {
         fn indent(display: impl Display, depth: usize) {
@@ -29,73 +29,38 @@ impl<T> Definition<T> {
             Self::Structure(structure) => {
                 indent("Structure Definition:", depth);
                 for constructor in structure.constructors() {
-                    indent(WithInterner::new(constructor.path(), interner), depth + 1);
+                    indent(interner.lookup(&constructor.name()), depth + 1);
+                    // indent(WithInterner::new(constructor.path(), interner), depth + 1);
                 }
             }
         }
     }
 }
 
-pub mod module {
-    use crate::compilation::anf::Definition;
+pub struct Module {
+    definitions: Vec<Definition>,
+}
 
-    pub struct Module<State> {
-        definitions: Vec<Definition<State>>,
+impl Module {
+    pub fn new(definitions: Vec<Definition>) -> Self {
+        Self { definitions }
     }
 
-    pub struct Observation<State> {
-        pub definitions: Vec<Definition<State>>,
-    }
-
-    impl<State> From<Observation<State>> for Module<State> {
-        fn from(value: Observation<State>) -> Self {
-            Self {
-                definitions: value.definitions,
-            }
-        }
-    }
-
-    impl<State> Module<State> {
-        pub fn definitions(&self) -> &[Definition<State>] {
-            &self.definitions
-        }
-
-        pub fn observe(self) -> Observation<State> {
-            Observation {
-                definitions: self.definitions,
-            }
-        }
+    pub fn definitions(&self) -> &[Definition] {
+        &self.definitions
     }
 }
 
-pub mod program {
-    use crate::compilation::anf::Module;
+pub struct Program {
+    modules: Vec<Module>,
+}
 
-    pub struct Program<State> {
-        modules: Vec<Module<State>>,
+impl Program {
+    pub fn new(modules: Vec<Module>) -> Self {
+        Self { modules }
     }
 
-    pub struct Observation<State> {
-        pub modules: Vec<Module<State>>,
-    }
-
-    impl<State> From<Observation<State>> for Program<State> {
-        fn from(value: Observation<State>) -> Self {
-            Self {
-                modules: value.modules,
-            }
-        }
-    }
-
-    impl<State> Program<State> {
-        pub fn modules(&self) -> &[Module<State>] {
-            &self.modules
-        }
-
-        pub fn observe(self) -> Observation<State> {
-            Observation {
-                modules: self.modules,
-            }
-        }
+    pub fn modules(&self) -> &[Module] {
+        &self.modules
     }
 }

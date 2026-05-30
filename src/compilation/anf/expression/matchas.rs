@@ -1,79 +1,48 @@
-use crate::compilation::anf;
+use crate::{
+    compilation::anf::{self, Expression},
+    parse::pattern::Pattern,
+};
 
-pub type Branch<State> = branch::Branch<State>;
-
-pub struct MatchAs<State> {
-    expression: anf::Atom<State>,
-    branches: Vec<Branch<State>>,
+pub struct MatchAs {
+    expression: anf::Atom,
+    branches: Vec<Branch>,
 }
 
-pub struct Observation<State> {
-    pub expression: anf::Atom<State>,
-    pub branches: Vec<Branch<State>>,
-}
-
-impl<State> From<Observation<State>> for MatchAs<State> {
-    fn from(value: Observation<State>) -> Self {
+impl MatchAs {
+    pub fn new(expression: anf::Atom, branches: Vec<Branch>) -> Self {
         Self {
-            expression: value.expression,
-            branches: value.branches,
+            expression,
+            branches,
         }
     }
-}
 
-impl<State> MatchAs<State> {
-    pub fn expression(&self) -> &anf::Atom<State> {
+    pub fn expression(&self) -> &anf::Atom {
         &self.expression
     }
 
-    pub fn branches(&self) -> &[Branch<State>] {
+    pub fn branches(&self) -> &[Branch] {
         &self.branches
-    }
-
-    pub fn observe(self) -> Observation<State> {
-        Observation {
-            expression: self.expression,
-            branches: self.branches,
-        }
     }
 }
 
-pub mod branch {
-    use crate::{compilation::anf::Expression, parse::pattern::Pattern, state::Renamed};
+pub struct Branch {
+    pattern: Pattern,
+    expression: Expression,
+}
 
-    pub struct Branch<T> {
-        pattern: Pattern<Renamed>,
-        expression: Expression<T>,
-    }
-
-    pub struct Observation<State> {
-        pub pattern: Pattern<Renamed>,
-        pub expression: Expression<State>,
-    }
-
-    impl<State> From<Observation<State>> for Branch<State> {
-        fn from(value: Observation<State>) -> Self {
-            Self {
-                pattern: value.pattern,
-                expression: value.expression,
-            }
+impl Branch {
+    pub fn new(pattern: Pattern, expression: Expression) -> Self {
+        Self {
+            pattern,
+            expression,
         }
     }
 
-    impl<State> Branch<State> {
-        pub fn pattern(&self) -> &Pattern<Renamed> {
-            &self.pattern
-        }
+    pub fn pattern(&self) -> &Pattern {
+        &self.pattern
+    }
 
-        pub fn expression(&self) -> &Expression<State> {
-            &self.expression
-        }
-
-        pub fn observe(self) -> Observation<State> {
-            Observation {
-                pattern: self.pattern,
-                expression: self.expression,
-            }
-        }
+    pub fn expression(&self) -> &Expression {
+        &self.expression
     }
 }

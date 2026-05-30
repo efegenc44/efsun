@@ -1,71 +1,29 @@
-use crate::{
-    compilation::anf,
-    resolution::{bound::Capture, renamer::UniqueName},
-    state::{Resolved, Unresolved},
-};
+use crate::{compilation::anf, resolution::renamer::UniqueName};
 
-pub struct Lambda<T> {
+pub struct Lambda {
     variable: UniqueName,
-    expression: Box<anf::Expression<T>>,
-    captures: Option<Vec<Capture>>,
+    expression: Box<anf::Expression>,
+    anf_capture_id: usize,
 }
 
-pub struct UnresolvedObservation {
-    pub variable: UniqueName,
-    pub expression: anf::Expression<Unresolved>,
-}
-
-impl From<UnresolvedObservation> for Lambda<Unresolved> {
-    fn from(value: UnresolvedObservation) -> Self {
+impl Lambda {
+    pub fn new(variable: UniqueName, expression: anf::Expression, anf_capture_id: usize) -> Self {
         Self {
-            variable: value.variable,
-            expression: Box::new(value.expression),
-            captures: None,
+            variable,
+            expression: Box::new(expression),
+            anf_capture_id,
         }
     }
-}
 
-pub struct ResolvedObservation {
-    pub variable: UniqueName,
-    pub expression: anf::Expression<Resolved>,
-    pub captures: Vec<Capture>,
-}
-
-impl From<ResolvedObservation> for Lambda<Resolved> {
-    fn from(value: ResolvedObservation) -> Self {
-        Self {
-            variable: value.variable,
-            expression: Box::new(value.expression),
-            captures: Some(value.captures),
-        }
-    }
-}
-
-impl<State> Lambda<State> {
     pub fn variable(&self) -> UniqueName {
         self.variable
     }
 
-    pub fn expression(&self) -> &anf::Expression<State> {
+    pub fn expression(&self) -> &anf::Expression {
         &self.expression
     }
 
-    pub fn try_captures(&self) -> Option<&Vec<Capture>> {
-        self.captures.as_ref()
-    }
-}
-
-impl Lambda<Unresolved> {
-    pub fn observe(self) -> UnresolvedObservation {
-        UnresolvedObservation {
-            variable: self.variable,
-            expression: *self.expression,
-        }
-    }
-}
-
-impl Lambda<Resolved> {
-    pub fn captures(&self) -> &[Capture] {
-        self.captures.as_ref().unwrap()
+    pub fn anf_capture_id(&self) -> usize {
+        self.anf_capture_id
     }
 }

@@ -1,113 +1,40 @@
-use crate::{
-    interner::InternId,
-    location::Located,
-    parse::expression::Expression,
-    resolution::{bound::Capture, renamer::UniqueName},
-    state::{Renamed, Resolved, Unresolved},
-};
+use crate::{interner::InternId, location::Located, parse::expression::Expression};
 
-pub struct Lambda<State> {
-    variable: Located<InternId>,
-    expression: Box<Located<Expression<State>>>,
-    captures: Option<Vec<Capture>>,
-    unique_variable: Option<UniqueName>,
-}
-
-pub struct UnresolvedObservation {
+pub struct Lambda {
     pub variable: Located<InternId>,
-    pub expression: Located<Expression<Unresolved>>,
+    pub expression: Box<Located<Expression>>,
+    pub capture_id: usize,
+    pub unique_name_id: usize,
 }
 
-impl From<UnresolvedObservation> for Lambda<Unresolved> {
-    fn from(val: UnresolvedObservation) -> Self {
-        Lambda {
-            variable: val.variable,
-            expression: Box::new(val.expression),
-            captures: None,
-            unique_variable: None,
+impl Lambda {
+    pub fn new(
+        variable: Located<InternId>,
+        expression: Located<Expression>,
+        capture_id: usize,
+        unique_name_id: usize,
+    ) -> Self {
+        Self {
+            variable,
+            expression: Box::new(expression),
+            capture_id,
+            unique_name_id,
         }
     }
-}
 
-pub struct ResolvedObservation {
-    pub variable: Located<InternId>,
-    pub expression: Located<Expression<Resolved>>,
-    pub captures: Vec<Capture>,
-}
-
-impl From<ResolvedObservation> for Lambda<Resolved> {
-    fn from(val: ResolvedObservation) -> Self {
-        Lambda {
-            variable: val.variable,
-            expression: Box::new(val.expression),
-            captures: Some(val.captures),
-            unique_variable: None,
-        }
-    }
-}
-
-pub struct RenamedObservation {
-    pub variable: Located<InternId>,
-    pub expression: Located<Expression<Renamed>>,
-    pub captures: Vec<Capture>,
-    pub unique_variable: UniqueName,
-}
-
-impl From<RenamedObservation> for Lambda<Renamed> {
-    fn from(val: RenamedObservation) -> Self {
-        Lambda {
-            variable: val.variable,
-            expression: Box::new(val.expression),
-            captures: Some(val.captures),
-            unique_variable: Some(val.unique_variable),
-        }
-    }
-}
-
-impl<State> Lambda<State> {
     pub fn variable(&self) -> Located<InternId> {
         self.variable
     }
 
-    pub fn expression(&self) -> &Located<Expression<State>> {
+    pub fn expression(&self) -> &Located<Expression> {
         &self.expression
     }
 
-    pub fn try_captures(&self) -> Option<&Vec<Capture>> {
-        self.captures.as_ref()
-    }
-}
-
-impl Lambda<Unresolved> {
-    pub fn observe(self) -> UnresolvedObservation {
-        UnresolvedObservation {
-            variable: self.variable,
-            expression: *self.expression,
-        }
-    }
-}
-
-impl Lambda<Resolved> {
-    pub fn captures(&self) -> &[Capture] {
-        self.captures.as_ref().unwrap()
+    pub fn capture_id(&self) -> usize {
+        self.capture_id
     }
 
-    pub fn observe(self) -> ResolvedObservation {
-        ResolvedObservation {
-            variable: self.variable,
-            expression: *self.expression,
-            captures: self.captures.unwrap(),
-        }
-    }
-}
-
-impl Lambda<Renamed> {
-    pub fn observe(self) -> RenamedObservation {
-        RenamedObservation {
-            variable: self.variable,
-            expression: *self.expression,
-            captures: self.captures.unwrap(),
-            unique_variable: self.unique_variable.unwrap(),
-        }
+    pub fn unique_name_id(&self) -> usize {
+        self.unique_name_id
     }
 }

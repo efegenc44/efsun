@@ -6,6 +6,7 @@ use crate::{
     error::{ReportableError, Result},
     interner::Interner,
     location::{Located, Span},
+    metadata::Metadata,
     parse::{
         definition::{self, Definition, Module, Program},
         expression::{self, Expression},
@@ -16,12 +17,14 @@ use crate::{
         bound::{Bound, Path},
         frame::CheckStack,
     },
-    state::Resolved,
 };
 
 use typ::{ArrowType, MonoType, StructureType, Type};
 
-pub struct TypeChecker<'ast> {
+pub struct TypeChecker<'ast, 'metadata>
+where
+    'ast: 'metadata,
+{
     /// Stack for local variables
     stack: CheckStack<Type>,
     /// Stack for type variables in structure definitions
@@ -30,21 +33,26 @@ pub struct TypeChecker<'ast> {
     ///     Its purpose is to check for cyclic definitions
     in_lambda: bool,
     /// Map for accesing expressions of let definitions and keeping track of cylic definitions
-    name_expressions: ExpressionMap<'ast>,
+    name_expressions: ExpressionMap<'metadata, 'ast>,
     /// Map from path of the let definition to its type
-    names: HashMap<&'ast Path, Type>,
+    names: HashMap<&'metadata Path, Type>,
     /// Map from path of the structure definition to its corresponding type
-    types: HashMap<&'ast Path, Type>,
+    types: HashMap<&'metadata Path, Type>,
     /// Counter for generating fresh type variables
     newvar_counter: usize,
     /// Map from type variable id (usize) to its substitution (MonoType)
     unification_table: HashMap<usize, MonoType>,
     /// Source file name of the current module for error reporting
-    current_source_name: Option<&'ast str>,
+    current_source_name: Option<&'metadata str>,
+    /// Metadata
+    metadata: &'metadata Metadata,
 }
 
-impl<'ast> TypeChecker<'ast> {
-    pub fn new() -> Self {
+impl<'ast, 'metadata> TypeChecker<'metadata, 'ast>
+where
+    'ast: 'metadata,
+{
+    pub fn new(metadata: &'metadata Metadata) -> Self {
         Self {
             stack: CheckStack::new(),
             type_variables: Vec::new(),
@@ -55,6 +63,7 @@ impl<'ast> TypeChecker<'ast> {
             newvar_counter: 0,
             unification_table: HashMap::default(),
             current_source_name: None,
+            metadata,
         }
     }
 
@@ -95,7 +104,7 @@ impl<'ast> TypeChecker<'ast> {
 
     fn evaluate_type_expression(
         &mut self,
-        expression: &Located<TypeExpression<Resolved>>,
+        expression: &Located<TypeExpression>,
     ) -> Result<MonoType> {
         match expression.data() {
             TypeExpression::Path(path) => self.evaluate_type_path(path),
@@ -105,8 +114,10 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn evaluate_type_path(&mut self, path: &type_expression::Path<Resolved>) -> Result<MonoType> {
-        let t = match path.bound() {
+    fn evaluate_type_path(&mut self, path: &type_expression::Path) -> Result<MonoType> {
+        let bound = self.metadata.get_bound(path.bound_id());
+
+        let t = match bound {
             Bound::Capture(_) => unreachable!(),
             Bound::Local(id) => self.type_variables[id.value()].clone(),
             Bound::Absolute(path) => {
@@ -120,7 +131,7 @@ impl<'ast> TypeChecker<'ast> {
 
     fn evaluate_type_application(
         &mut self,
-        application: &type_expression::Application<Resolved>,
+        application: &type_expression::Application,
         span: Span,
     ) -> Result<MonoType> {
         let m = self.evaluate_type_expression(application.function())?;
@@ -143,7 +154,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(MonoType::Structure(structure))
     }
 
-    pub fn infer(&mut self, expression: &'ast Located<Expression<Resolved>>) -> Result<MonoType> {
+    pub fn infer(&mut self, expression: &Located<Expression>) -> Result<MonoType> {
         match expression.data() {
             Expression::String(_) => Ok(MonoType::String),
             Expression::Path(path) => self.path(path, expression.span()),
@@ -213,8 +224,10 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn path(&mut self, path: &'ast expression::Path<Resolved>, span: Span) -> Result<MonoType> {
-        let t = match path.bound() {
+    fn path(&mut self, path: &expression::Path, span: Span) -> Result<MonoType> {
+        let bound = self.metadata.get_bound(path.bound_id());
+
+        let t = match bound {
             Bound::Local(id) => self.stack.get_local(*id),
             Bound::Capture(id) => self.stack.get_capture(*id),
             Bound::Absolute(path) => {
@@ -256,7 +269,7 @@ impl<'ast> TypeChecker<'ast> {
 
     fn application(
         &mut self,
-        application: &'ast expression::Application<Resolved>,
+        application: &expression::Application,
         span: Span,
     ) -> Result<MonoType> {
         let return_type = self.newvar();
@@ -272,10 +285,12 @@ impl<'ast> TypeChecker<'ast> {
         }
     }
 
-    fn lambda(&mut self, lambda: &'ast expression::Lambda<Resolved>) -> Result<MonoType> {
+    fn lambda(&mut self, lambda: &expression::Lambda) -> Result<MonoType> {
         let argument = self.newvar();
 
-        self.stack.push_frame(lambda.captures().to_vec());
+        let captures = self.metadata.get_capture(lambda.capture_id());
+
+        self.stack.push_frame(captures.to_vec());
         self.stack.push_local(Type::Mono(argument.clone()));
         let before = self.replace_in_lambda(true);
         let return_type = self.infer(lambda.expression())?;
@@ -288,7 +303,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(MonoType::Arrow(arrow))
     }
 
-    fn letin(&mut self, letin: &'ast expression::LetIn<Resolved>) -> Result<MonoType> {
+    fn letin(&mut self, letin: &expression::LetIn) -> Result<MonoType> {
         let variable_type = self.infer(letin.variable_expression())?;
         let variable_type = variable_type.generalize();
 
@@ -299,7 +314,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(self.substitute(return_type))
     }
 
-    fn matchlet(&mut self, matchlet: &'ast expression::MatchAs<Resolved>) -> Result<MonoType> {
+    fn matchlet(&mut self, matchlet: &expression::MatchAs) -> Result<MonoType> {
         let t = self.infer(matchlet.expression())?;
         let return_type = self.newvar();
 
@@ -317,7 +332,7 @@ impl<'ast> TypeChecker<'ast> {
     fn match_branch(
         &mut self,
         t: &MonoType,
-        branch: &'ast expression::matchas::Branch<Resolved>,
+        branch: &expression::matchas::Branch,
     ) -> Result<MonoType> {
         let len = self.stack.len();
         self.match_pattern_and_define_locals(t, branch.pattern())?;
@@ -330,7 +345,7 @@ impl<'ast> TypeChecker<'ast> {
     fn match_pattern_and_define_locals(
         &mut self,
         t: &MonoType,
-        pattern: &Located<Pattern<Resolved>>,
+        pattern: &Located<Pattern>,
     ) -> Result<()> {
         match pattern.data() {
             Pattern::Any(_) => {
@@ -342,13 +357,20 @@ impl<'ast> TypeChecker<'ast> {
                 };
             }
             Pattern::Structure(structure) => {
-                let structure_type = self.instantiate(self.types[structure.type_path()].clone());
+                let structure_pattern = self
+                    .metadata
+                    .get_structure_pattern(structure.structure_pattern_id());
+
+                let structure_type =
+                    self.instantiate(self.types[structure_pattern.type_path()].clone());
 
                 if let Err((t1, t2)) = self.unify(t, &structure_type) {
                     return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span());
                 };
 
-                let constructor_path = structure.type_path().append([structure.constructor_name()]);
+                let constructor_path = structure_pattern
+                    .type_path()
+                    .append([structure_pattern.constructor_name()]);
                 let constructor_type = self.names[&constructor_path].clone();
 
                 let variables = structure_type.variables();
@@ -380,11 +402,7 @@ impl<'ast> TypeChecker<'ast> {
         Ok(())
     }
 
-    pub fn program(
-        &mut self,
-        program: &'ast Program<Resolved>,
-        interner: &Interner,
-    ) -> Result<Type> {
+    pub fn program(&mut self, program: &'ast Program, interner: &Interner) -> Result<Type> {
         for module in program.modules() {
             self.collect_definitions(module)?;
         }
@@ -401,33 +419,35 @@ impl<'ast> TypeChecker<'ast> {
         Ok(self.names[&Path::from_parts(parts)].clone())
     }
 
-    pub fn module(&mut self, module: &'ast Module<Resolved>) -> Result<()> {
+    pub fn module(&mut self, module: &'ast Module) -> Result<()> {
         self.current_source_name = Some(module.source_name());
 
         for definition in module.definitions() {
             if let Definition::Name(name) = definition {
-                self.let_definition(name)?
+                self.name_definition(name)?
             }
         }
 
         Ok(())
     }
 
-    fn collect_definitions(&mut self, module: &'ast Module<Resolved>) -> Result<()> {
+    fn collect_definitions(&mut self, module: &'ast Module) -> Result<()> {
         for definition in module.definitions() {
             match definition {
                 Definition::Name(name) => {
+                    let path = self.metadata.get_path(name.path_id());
+
                     let newvar = self.newvar();
-                    self.names.insert(name.path(), Type::Mono(newvar));
-                    self.name_expressions.add(name.path(), name.expression());
+                    self.names.insert(path, Type::Mono(newvar));
+                    self.name_expressions.add(path, name.expression());
                 }
                 Definition::Structure(structure) => {
-                    let t = self.initialize_structure_type(
-                        structure.path().clone(),
-                        structure.variables().len(),
-                    );
+                    let path = self.metadata.get_path(structure.path_id());
 
-                    self.types.insert(structure.path(), t);
+                    let t =
+                        self.initialize_structure_type(path.clone(), structure.variables().len());
+
+                    self.types.insert(path, t);
                 }
                 _ => (),
             }
@@ -436,7 +456,9 @@ impl<'ast> TypeChecker<'ast> {
         // Type constructors
         for definition in module.definitions() {
             if let Definition::Structure(structure) = definition {
-                let structure_type = self.instantiate(self.types[structure.path()].clone());
+                let path = self.metadata.get_path(structure.path_id());
+
+                let structure_type = self.instantiate(self.types[path].clone());
                 let variables = structure_type.variables();
 
                 self.type_variables
@@ -449,8 +471,10 @@ impl<'ast> TypeChecker<'ast> {
                         t = MonoType::Arrow(ArrowType::new(argument, t));
                     }
 
+                    let path = self.metadata.get_path(constructor.data().path_id());
+
                     let t = Type::Poly(variables.clone(), t);
-                    self.names.insert(constructor.data().path(), t);
+                    self.names.insert(path, t);
                 }
 
                 self.type_variables.clear();
@@ -460,11 +484,13 @@ impl<'ast> TypeChecker<'ast> {
         Ok(())
     }
 
-    fn let_definition(&mut self, name_definition: &'ast definition::Name<Resolved>) -> Result<()> {
-        self.name_expressions.visiting(name_definition.path());
+    fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
+        let path = self.metadata.get_path(name_definition.path_id());
+
+        self.name_expressions.visiting(path);
         let m = self.infer(name_definition.expression())?;
 
-        let t = self.instantiate(self.names[name_definition.path()].clone());
+        let t = self.instantiate(self.names[path].clone());
         if let Err((t1, t2)) = self.unify(&m, &t) {
             return self.error(
                 TypeCheckError::TypeMismatch { t1, t2 },
@@ -473,8 +499,8 @@ impl<'ast> TypeChecker<'ast> {
         };
 
         let t = m.generalize();
-        self.names.insert(name_definition.path(), t);
-        self.name_expressions.leaving(name_definition.path());
+        self.names.insert(path, t);
+        self.name_expressions.leaving(path);
 
         Ok(())
     }
@@ -488,22 +514,25 @@ impl<'ast> TypeChecker<'ast> {
     }
 }
 
-pub struct ExpressionMap<'ast> {
-    map: HashMap<&'ast Path, (&'ast Located<Expression<Resolved>>, bool)>,
+pub struct ExpressionMap<'path, 'ast>
+where
+    'ast: 'path,
+{
+    map: HashMap<&'path Path, (&'ast Located<Expression>, bool)>,
 }
 
-impl<'ast> ExpressionMap<'ast> {
+impl<'path, 'ast> ExpressionMap<'path, 'ast> {
     fn new() -> Self {
         Self {
             map: HashMap::new(),
         }
     }
 
-    fn add(&mut self, path: &'ast Path, expression: &'ast Located<Expression<Resolved>>) {
+    fn add(&mut self, path: &'ast Path, expression: &'ast Located<Expression>) {
         self.map.insert(path, (expression, false));
     }
 
-    fn get(&self, path: &Path) -> &'ast Located<Expression<Resolved>> {
+    fn get(&self, path: &Path) -> &'ast Located<Expression> {
         self.map.get(path).unwrap().0
     }
 

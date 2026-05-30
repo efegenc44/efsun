@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 #[derive(Clone, Copy)]
 pub struct Unresolved;
 #[derive(Clone, Copy)]

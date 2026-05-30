@@ -6,71 +6,72 @@ pub mod path;
 
 use std::fmt::Display;
 
-use crate::interner::{InternId, Interner, WithInterner};
+use crate::interner::{InternId, Interner};
 
-pub type Application<State> = application::Application<State>;
-pub type Lambda<State> = lambda::Lambda<State>;
-pub type LetIn<State> = letin::LetIn<State>;
-pub type MatchAs<State> = matchas::MatchAs<State>;
-pub type Path<State> = path::Path<State>;
+pub type Application = application::Application;
+pub type Lambda = lambda::Lambda;
+pub type LetIn = letin::LetIn;
+pub type MatchAs = matchas::MatchAs;
+pub type Path = path::Path;
 
-pub enum Expression<State> {
+pub enum Expression {
     String(InternId),
-    Path(Path<State>),
-    Application(Application<State>),
-    Lambda(Lambda<State>),
-    LetIn(LetIn<State>),
-    MatchAs(MatchAs<State>),
+    Path(Path),
+    Application(Application),
+    Lambda(Lambda),
+    LetIn(LetIn),
+    MatchAs(MatchAs),
 }
 
-impl<T> Expression<T> {
+impl Expression {
     pub fn print(&self, depth: usize, interner: &Interner) {
         fn indent(display: impl Display, depth: usize) {
             println!("{:level$}{display}", "", level = depth * 2);
         }
 
-        match self {
+        match &self {
             Self::String(string) => {
                 indent(format!("\"{}\"", interner.lookup(string)), depth);
             }
-            Self::Path(path) => {
-                let path_string = path
-                    .parts()
-                    .data()
-                    .iter()
-                    .map(|id| interner.lookup(id))
-                    .collect::<Vec<_>>()
-                    .join(".");
+            Self::Path(_path) => {
+                todo!()
+                // let path_string = path
+                //     .parts()
+                //     .data()
+                //     .iter()
+                //     .map(|id| interner.lookup(id))
+                //     .collect::<Vec<_>>()
+                //     .join(".");
 
-                let bound = path
-                    .try_bound()
-                    .map(|bound| format!("#{}", WithInterner::new(bound, interner)));
+                // let bound = path
+                //     .try_bound()
+                //     .map(|bound| format!("#{}", WithInterner::new(bound, interner)));
 
-                indent(
-                    format!(
-                        "Identifier: {}{}",
-                        path_string,
-                        bound.unwrap_or(String::new())
-                    ),
-                    depth,
-                );
+                // indent(
+                //     format!(
+                //         "Identifier: {}{}",
+                //         path_string,
+                //         bound.unwrap_or(String::new())
+                //     ),
+                //     depth,
+                // );
             }
             Self::Lambda(lambda) => {
-                let captures = lambda.try_captures().and_then(|captures| {
-                    (!captures.is_empty()).then(|| {
-                        let mut string = String::from("Captures: [");
-                        for capture in captures {
-                            string.push_str(&capture.to_string());
-                        }
-                        string.push(']');
-                        string
-                    })
-                });
+                // let captures = lambda.try_captures().and_then(|captures| {
+                //     (!captures.is_empty()).then(|| {
+                //         let mut string = String::from("Captures: [");
+                //         for capture in captures {
+                //             string.push_str(&capture.to_string());
+                //         }
+                //         string.push(']');
+                //         string
+                //     })
+                // });
 
                 indent("Lambda:", depth);
-                if let Some(captures) = captures {
-                    indent(captures, depth + 1);
-                }
+                // if let Some(captures) = captures {
+                //     indent(captures, depth + 1);
+                // }
                 indent(interner.lookup(lambda.variable().data()), depth + 1);
                 lambda.expression().data().print(depth + 1, interner);
             }

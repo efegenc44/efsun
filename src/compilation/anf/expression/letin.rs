@@ -1,45 +1,33 @@
 use crate::{compilation::anf, resolution::renamer::UniqueName};
 
-pub struct LetIn<T> {
+pub struct LetIn {
     variable: UniqueName,
-    variable_expression: anf::Atom<T>,
-    return_expression: Box<anf::Expression<T>>,
+    variable_expression: anf::Atom,
+    return_expression: Box<anf::Expression>,
 }
 
-pub struct Observation<T> {
-    pub variable: UniqueName,
-    pub variable_expression: anf::Atom<T>,
-    pub return_expression: anf::Expression<T>,
-}
-
-impl<State> From<Observation<State>> for LetIn<State> {
-    fn from(value: Observation<State>) -> Self {
+impl LetIn {
+    pub fn new(
+        variable: UniqueName,
+        variable_expression: anf::Atom,
+        return_expression: anf::Expression,
+    ) -> Self {
         Self {
-            variable: value.variable,
-            variable_expression: value.variable_expression,
-            return_expression: Box::new(value.return_expression),
+            variable,
+            variable_expression,
+            return_expression: Box::new(return_expression),
         }
     }
-}
 
-impl<State> LetIn<State> {
     pub fn variable(&self) -> UniqueName {
         self.variable
     }
 
-    pub fn variable_expression(&self) -> &anf::Atom<State> {
+    pub fn variable_expression(&self) -> &anf::Atom {
         &self.variable_expression
     }
 
-    pub fn return_expression(&self) -> &anf::Expression<State> {
+    pub fn return_expression(&self) -> &anf::Expression {
         &self.return_expression
-    }
-
-    pub fn observe(self) -> Observation<State> {
-        Observation {
-            variable: self.variable,
-            variable_expression: self.variable_expression,
-            return_expression: *self.return_expression,
-        }
     }
 }

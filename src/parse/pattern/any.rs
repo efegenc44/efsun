@@ -1,67 +1,24 @@
-use std::marker::PhantomData;
-
-use crate::{
-    interner::InternId,
-    resolution::renamer::UniqueName,
-    state::{BeforeRenamed, Renamed},
-};
+use crate::interner::InternId;
 
 #[derive(Clone)]
-pub struct Any<State> {
+pub struct Any {
     identifier: InternId,
-    unique_name: Option<UniqueName>,
-    state: PhantomData<State>,
+    unique_name_id: usize,
 }
 
-pub struct Observation {
-    pub identifier: InternId,
-}
-
-impl<S: BeforeRenamed> From<Observation> for Any<S> {
-    fn from(value: Observation) -> Self {
+impl Any {
+    pub fn new(identifier: InternId, unique_name_id: usize) -> Self {
         Self {
-            identifier: value.identifier,
-            unique_name: None,
-            state: PhantomData,
+            identifier,
+            unique_name_id,
         }
     }
-}
 
-pub struct RenamedObservation {
-    pub identifier: InternId,
-    pub unique_name: UniqueName,
-}
-
-impl From<RenamedObservation> for Any<Renamed> {
-    fn from(value: RenamedObservation) -> Self {
-        Self {
-            identifier: value.identifier,
-            unique_name: Some(value.unique_name),
-            state: PhantomData,
-        }
-    }
-}
-
-impl<State> Any<State> {
     pub fn identifier(&self) -> InternId {
         self.identifier
     }
 
-    pub fn try_unique_name(&self) -> Option<UniqueName> {
-        self.unique_name
-    }
-}
-
-impl<S: BeforeRenamed> Any<S> {
-    pub fn observe(self) -> Observation {
-        Observation {
-            identifier: self.identifier,
-        }
-    }
-}
-
-impl Any<Renamed> {
-    pub fn unique_name(&self) -> UniqueName {
-        self.unique_name.unwrap()
+    pub fn unique_name_id(&self) -> usize {
+        self.unique_name_id
     }
 }

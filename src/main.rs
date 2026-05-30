@@ -1,5 +1,6 @@
 mod check;
 mod compilation;
+mod metadata;
 mod parse;
 mod resolution;
 mod state;

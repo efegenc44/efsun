@@ -1,19 +1,19 @@
 use std::fmt::Display;
 
-use crate::interner::{Interner, WithInterner};
+use crate::interner::Interner;
 
 pub mod application;
 pub mod path;
 
-pub type Path<State> = path::Path<State>;
-pub type Application<State> = application::Application<State>;
+pub type Path = path::Path;
+pub type Application = application::Application;
 
-pub enum TypeExpression<State> {
-    Path(Path<State>),
-    Application(Application<State>),
+pub enum TypeExpression {
+    Path(Path),
+    Application(Application),
 }
 
-impl<State> TypeExpression<State> {
+impl TypeExpression {
     #[allow(unused)]
     pub fn print(&self, interner: &Interner, depth: usize) {
         fn indent(display: impl Display, depth: usize) {
@@ -30,15 +30,15 @@ impl<State> TypeExpression<State> {
                     .collect::<Vec<_>>()
                     .join(".");
 
-                let bound = path
-                    .try_bound()
-                    .map(|bound| format!("#{}", WithInterner::new(bound, interner)));
+                // let bound = path
+                //     .try_bound()
+                //     .map(|bound| format!("#{}", WithInterner::new(bound, interner)));
 
                 indent(
                     format!(
-                        "Type Identifier: {}{}",
+                        "Type Identifier: {}",
                         path_string,
-                        bound.unwrap_or(String::new())
+                        // bound.unwrap_or(String::new())
                     ),
                     depth,
                 );

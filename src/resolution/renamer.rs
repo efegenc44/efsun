@@ -2,12 +2,13 @@ use std::fmt::Display;
 
 use crate::{
     location::Located,
+    metadata::Metadata,
     parse::{
         definition::{self, Definition, Module, Program},
         expression::{self, Expression},
         pattern::{self, Pattern},
     },
-    resolution::{Renamed, Resolved, bound::Bound, frame::CheckStack},
+    resolution::{bound::Bound, frame::CheckStack},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,18 +22,21 @@ impl Display for UniqueName {
 
 /// AST Alpha Renamer
 /// Generates and assigned unique names for every local identifier
-pub struct Renamer {
+pub struct Renamer<'metadata> {
     /// Stack to keep track of unique names
     stack: CheckStack<UniqueName>,
     /// State for unique name generation
     unique_name_counter: usize,
+    /// Metadata
+    metadata: &'metadata mut Metadata,
 }
 
-impl Renamer {
-    pub fn new() -> Self {
+impl<'metadata> Renamer<'metadata> {
+    pub fn new(metadata: &'metadata mut Metadata) -> Self {
         Self {
             stack: CheckStack::new(),
             unique_name_counter: 0,
+            metadata,
         }
     }
 
@@ -42,257 +46,116 @@ impl Renamer {
         name
     }
 
-    pub fn expression(
-        &mut self,
-        expression: Located<Expression<Resolved>>,
-    ) -> Located<Expression<Renamed>> {
-        let (data, span) = expression.destruct();
-
-        let expression = match data {
-            Expression::String(id) => Expression::String(id),
-            Expression::Path(path) => Expression::Path(self.path(path)),
-            Expression::Application(application) => {
-                Expression::Application(self.application(application))
-            }
-            Expression::Lambda(lambda) => Expression::Lambda(self.lambda(lambda)),
-            Expression::LetIn(letin) => Expression::LetIn(self.letin(letin)),
-            Expression::MatchAs(matchlet) => Expression::MatchAs(self.matchlet(matchlet)),
+    pub fn expression(&mut self, expression: &Located<Expression>) {
+        match expression.data() {
+            Expression::String(_) => (),
+            Expression::Path(path) => self.path(path),
+            Expression::Application(application) => self.application(application),
+            Expression::Lambda(lambda) => self.lambda(lambda),
+            Expression::LetIn(letin) => self.letin(letin),
+            Expression::MatchAs(matchas) => self.matchas(matchas),
         };
-
-        Located::new(expression, span)
     }
 
-    fn path(&mut self, path: expression::Path<Resolved>) -> expression::Path<Renamed> {
-        let expression::path::ResolvedObservation { parts, bound } = path.observe();
+    fn path(&mut self, path: &expression::Path) {
+        let bound = self.metadata.get_bound(path.bound_id());
 
-        let unique_name = match &bound {
+        let unique_name = match bound {
             Bound::Local(id) => Some(self.stack.get_local(*id)),
             Bound::Capture(id) => Some(self.stack.get_capture(*id)),
             Bound::Absolute(_) => None,
         };
 
-        expression::path::RenamedObservation {
-            parts,
-            bound,
-            unique_name,
-        }
-        .into()
+        self.metadata
+            .set_unique_name(path.unique_name_id(), unique_name);
     }
 
-    fn application(
-        &mut self,
-        application: expression::Application<Resolved>,
-    ) -> expression::Application<Renamed> {
-        let expression::application::Observation { function, argument } = application.observe();
-
-        let function = self.expression(function);
-        let argument = self.expression(argument);
-
-        expression::application::Observation { function, argument }.into()
+    fn application(&mut self, application: &expression::Application) {
+        self.expression(application.function());
+        self.expression(application.argument());
     }
 
-    fn lambda(&mut self, lambda: expression::Lambda<Resolved>) -> expression::Lambda<Renamed> {
-        let expression::lambda::ResolvedObservation {
-            variable,
-            expression,
-            captures,
-        } = lambda.observe();
-
+    fn lambda(&mut self, lambda: &expression::Lambda) {
         let unique_variable = self.unique_name();
 
-        self.stack.push_frame(captures.clone());
+        let capture = self.metadata.get_capture(lambda.capture_id());
+        self.stack.push_frame(capture.to_vec());
         self.stack.push_local(unique_variable);
-        let expression = self.expression(expression);
+        self.expression(lambda.expression());
         self.stack.pop_local();
         self.stack.pop_frame();
 
-        expression::lambda::RenamedObservation {
-            variable,
-            expression,
-            captures,
-            unique_variable,
-        }
-        .into()
+        self.metadata
+            .set_unique_name(lambda.unique_name_id(), Some(unique_variable));
     }
 
-    fn letin(&mut self, letin: expression::LetIn<Resolved>) -> expression::LetIn<Renamed> {
-        let expression::letin::Observation {
-            variable,
-            variable_expression,
-            return_expression,
-        } = letin.observe();
-
-        let variable_expression = self.expression(variable_expression);
+    fn letin(&mut self, letin: &expression::LetIn) {
+        self.expression(letin.variable_expression());
 
         let unique_variable = self.unique_name();
 
         self.stack.push_local(unique_variable);
-        let return_expression = self.expression(return_expression);
+        self.expression(letin.return_expression());
         self.stack.pop_local();
 
-        expression::letin::RenamedObservation {
-            variable,
-            variable_expression,
-            return_expression,
-            unique_variable,
-        }
-        .into()
+        self.metadata
+            .set_unique_name(letin.unique_name_id(), Some(unique_variable));
     }
 
-    fn matchlet(&mut self, matchas: expression::MatchAs<Resolved>) -> expression::MatchAs<Renamed> {
-        let expression::matchas::Observation {
-            expression,
-            branches,
-        } = matchas.observe();
+    fn matchas(&mut self, matchas: &expression::MatchAs) {
+        self.expression(matchas.expression());
 
-        let expression = self.expression(expression);
-
-        let branches = branches
-            .into_iter()
-            .map(|branch| branch.map(|branch| self.match_branch(branch)))
-            .collect();
-
-        expression::matchas::Observation {
-            expression,
-            branches,
+        for branch in matchas.branches() {
+            self.match_branch(branch.data());
         }
-        .into()
     }
 
-    fn match_branch(
-        &mut self,
-        branch: expression::matchas::Branch<Resolved>,
-    ) -> expression::matchas::Branch<Renamed> {
-        let expression::matchas::branch::Observation {
-            pattern,
-            expression,
-        } = branch.observe();
+    fn match_branch(&mut self, branch: &expression::matchas::Branch) {
         let len = self.stack.len();
-        let pattern = pattern.map(|pattern| self.define_locals_and_pattern(pattern));
-        let expression = self.expression(expression);
+        self.define_pattern_locals(branch.pattern().data());
+        self.expression(branch.expression());
         self.stack.truncate(len);
-
-        expression::matchas::branch::Observation {
-            pattern,
-            expression,
-        }
-        .into()
     }
 
-    fn define_locals_and_pattern(&mut self, pattern: Pattern<Resolved>) -> Pattern<Renamed> {
+    fn define_pattern_locals(&mut self, pattern: &Pattern) {
         match pattern {
-            Pattern::Any(any) => Pattern::Any(self.any_pattern(any)),
-            Pattern::String(id) => Pattern::String(id),
-            Pattern::Structure(structure) => Pattern::Structure(self.structure_pattern(structure)),
+            Pattern::Any(any) => self.any_pattern(any),
+            Pattern::String(_) => (),
+            Pattern::Structure(structure) => self.structure_pattern(structure),
         }
     }
 
-    fn any_pattern(&mut self, any: pattern::Any<Resolved>) -> pattern::Any<Renamed> {
-        let pattern::any::Observation { identifier } = any.observe();
-
+    fn any_pattern(&mut self, any: &pattern::Any) {
         let unique_name = self.unique_name();
         self.stack.push_local(unique_name);
 
-        pattern::any::RenamedObservation {
-            identifier,
-            unique_name,
+        self.metadata
+            .set_unique_name(any.unique_name_id(), Some(unique_name));
+    }
+
+    fn structure_pattern(&mut self, structure: &pattern::Structure) {
+        for argument in structure.arguments() {
+            self.define_pattern_locals(argument.data());
         }
-        .into()
     }
 
-    fn structure_pattern(
-        &mut self,
-        structure: pattern::Structure<Resolved>,
-    ) -> pattern::Structure<Renamed> {
-        let pattern::structure::Observation {
-            parts,
-            arguments,
-            type_path,
-            constructor_name,
-            order,
-        } = structure.observe();
-
-        let arguments = arguments
-            .into_iter()
-            .map(|argument| argument.map(|pattern| self.define_locals_and_pattern(pattern)))
-            .collect();
-
-        pattern::structure::Observation {
-            parts,
-            arguments,
-            type_path,
-            constructor_name,
-            order,
+    pub fn program(&mut self, program: &Program) {
+        for module in program.modules() {
+            self.module(module);
         }
-        .into()
     }
 
-    pub fn program(&mut self, program: Program<Resolved>) -> Program<Renamed> {
-        let definition::program::Observation { modules } = program.observe();
-
-        let modules = modules
-            .into_iter()
-            .map(|module| self.module(module))
-            .collect::<Vec<_>>();
-
-        definition::program::Observation { modules }.into()
-    }
-
-    pub fn module(&mut self, module: Module<Resolved>) -> Module<Renamed> {
-        let definition::module::Observation {
-            definitions,
-            source_name,
-        } = module.observe();
-
-        let mut renamed_definitions = vec![];
-
-        for definition in definitions {
+    pub fn module(&mut self, module: &Module) {
+        for definition in module.definitions() {
             match definition {
-                Definition::Name(name) => {
-                    let definition = Definition::Name(self.name_definition(name));
-                    renamed_definitions.push(definition);
-                }
-                Definition::Structure(structure) => {
-                    let definition = Definition::Structure(self.structure_definition(structure));
-                    renamed_definitions.push(definition);
-                }
+                Definition::Name(name) => self.name_definition(name),
+                Definition::Structure(_) => (),
                 Definition::ModulePath(_) | Definition::Import(_) => (),
             }
         }
-
-        definition::module::Observation {
-            definitions: renamed_definitions,
-            source_name,
-        }
-        .into()
     }
 
-    fn name_definition(
-        &mut self,
-        name_definition: definition::Name<Resolved>,
-    ) -> definition::Name<Renamed> {
-        let definition::name::Observation {
-            identifier,
-            expression,
-            path,
-        } = name_definition.observe();
-
-        let expression = self.expression(expression);
-
-        definition::name::Observation {
-            identifier,
-            expression,
-            path,
-        }
-        .into()
-    }
-
-    fn structure_definition(
-        &self,
-        structure_definition: definition::Structure<Resolved>,
-    ) -> definition::Structure<Renamed> {
-        // NOTE: Nothing to rename in structure definitions
-        //   make state Renamed for bureaucracy
-        unsafe { std::mem::transmute(structure_definition) }
+    fn name_definition(&mut self, name_definition: &definition::Name) {
+        self.expression(name_definition.expression());
     }
 }

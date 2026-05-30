@@ -1,68 +1,29 @@
-use std::marker::PhantomData;
+use crate::{compilation::anf, resolution::bound::Bound};
 
-use crate::{
-    compilation::anf,
-    resolution::bound::Bound,
-    state::{Resolved, Unresolved},
-};
-
-pub struct Path<State> {
+pub struct Path {
     path: anf::Path,
     bound: Option<Bound>,
-    state: PhantomData<State>,
+    anf_bound_id: usize,
 }
 
-pub struct UnresolvedObservation {
-    pub path: anf::Path,
-    pub bound: Option<Bound>,
-}
-
-impl From<UnresolvedObservation> for Path<Unresolved> {
-    fn from(value: UnresolvedObservation) -> Self {
+impl Path {
+    pub fn new(path: anf::Path, bound: Option<Bound>, anf_bound_id: usize) -> Self {
         Self {
-            path: value.path,
-            bound: value.bound,
-            state: PhantomData,
+            path,
+            bound,
+            anf_bound_id,
         }
     }
-}
 
-pub struct ResolvedObservation {
-    pub path: anf::Path,
-    pub bound: Bound,
-}
-
-impl From<ResolvedObservation> for Path<Resolved> {
-    fn from(value: ResolvedObservation) -> Self {
-        Self {
-            path: value.path,
-            bound: Some(value.bound),
-            state: PhantomData,
-        }
-    }
-}
-
-impl<State> Path<State> {
     pub fn path(&self) -> &anf::Path {
         &self.path
     }
 
-    pub fn try_bound(&self) -> Option<&Bound> {
+    pub fn anf_bound_id(&self) -> usize {
+        self.anf_bound_id
+    }
+
+    pub fn bound(&self) -> Option<&Bound> {
         self.bound.as_ref()
-    }
-}
-
-impl Path<Unresolved> {
-    pub fn observe(self) -> UnresolvedObservation {
-        UnresolvedObservation {
-            path: self.path,
-            bound: self.bound,
-        }
-    }
-}
-
-impl Path<Resolved> {
-    pub fn bound(&self) -> &Bound {
-        self.bound.as_ref().unwrap()
     }
 }

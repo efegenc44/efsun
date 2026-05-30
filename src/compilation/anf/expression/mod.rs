@@ -11,22 +11,22 @@ pub mod jump;
 pub mod letin;
 pub mod matchas;
 
-pub type LetIn<State> = letin::LetIn<State>;
-pub type Application<State> = application::Application<State>;
-pub type MatchAs<State> = matchas::MatchAs<State>;
-pub type Join<State> = join::Join<State>;
-pub type Jump<State> = jump::Jump<State>;
+pub type LetIn = letin::LetIn;
+pub type Application = application::Application;
+pub type MatchAs = matchas::MatchAs;
+pub type Join = join::Join;
+pub type Jump = jump::Jump;
 
-pub enum Expression<State> {
-    LetIn(LetIn<State>),
-    Application(Application<State>),
-    Match(MatchAs<State>),
-    Join(Join<State>),
-    Jump(Jump<State>),
-    Atom(atom::Atom<State>),
+pub enum Expression {
+    LetIn(LetIn),
+    Application(Application),
+    Match(MatchAs),
+    Join(Join),
+    Jump(Jump),
+    Atom(atom::Atom),
 }
 
-impl<State> Expression<State> {
+impl Expression {
     #[allow(unused)]
     pub fn print(&self, depth: usize, interner: &Interner) {
         fn indent(display: impl Display, depth: usize) {

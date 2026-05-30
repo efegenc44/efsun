@@ -1,55 +1,27 @@
-use crate::{
-    interner::InternId,
-    location::Located,
-    resolution::bound::Path,
-    state::{AfterUnresolved, Unresolved},
-};
+use crate::{interner::InternId, location::Located, parse::type_expression::TypeExpression};
 
-pub type Constructor<State> = constructor::Constructor<State>;
-
-pub struct Structure<T> {
-    name: Located<InternId>,
-    variables: Vec<Located<InternId>>,
-    constructors: Vec<Located<Constructor<T>>>,
-    path: Option<Path>,
-}
-
-pub struct UnresolvedObservation {
+pub struct Structure {
     pub name: Located<InternId>,
     pub variables: Vec<Located<InternId>>,
-    pub constructors: Vec<Located<Constructor<Unresolved>>>,
+    pub constructors: Vec<Located<Constructor>>,
+    pub path_id: usize,
 }
 
-impl From<UnresolvedObservation> for Structure<Unresolved> {
-    fn from(value: UnresolvedObservation) -> Self {
+impl Structure {
+    pub fn new(
+        name: Located<InternId>,
+        variables: Vec<Located<InternId>>,
+        constructors: Vec<Located<Constructor>>,
+        path_id: usize,
+    ) -> Self {
         Self {
-            name: value.name,
-            variables: value.variables,
-            constructors: value.constructors,
-            path: None,
+            name,
+            variables,
+            constructors,
+            path_id,
         }
     }
-}
 
-pub struct Observation<State: AfterUnresolved> {
-    pub name: Located<InternId>,
-    pub variables: Vec<Located<InternId>>,
-    pub constructors: Vec<Located<Constructor<State>>>,
-    pub path: Path,
-}
-
-impl<S: AfterUnresolved> From<Observation<S>> for Structure<S> {
-    fn from(value: Observation<S>) -> Self {
-        Self {
-            name: value.name,
-            variables: value.variables,
-            constructors: value.constructors,
-            path: Some(value.path),
-        }
-    }
-}
-
-impl<T> Structure<T> {
     pub fn name(&self) -> Located<InternId> {
         self.name
     }
@@ -58,112 +30,43 @@ impl<T> Structure<T> {
         &self.variables
     }
 
-    pub fn constructors(&self) -> &[Located<Constructor<T>>] {
+    pub fn constructors(&self) -> &[Located<Constructor>] {
         &self.constructors
     }
-}
 
-impl Structure<Unresolved> {
-    pub fn observe(self) -> UnresolvedObservation {
-        UnresolvedObservation {
-            name: self.name,
-            variables: self.variables,
-            constructors: self.constructors,
-        }
+    pub fn path_id(&self) -> usize {
+        self.path_id
     }
 }
 
-impl<S: AfterUnresolved> Structure<S> {
-    pub fn path(&self) -> &Path {
-        self.path.as_ref().unwrap()
-    }
-
-    pub fn observe(self) -> Observation<S> {
-        Observation {
-            name: self.name,
-            variables: self.variables,
-            constructors: self.constructors,
-            path: self.path.unwrap(),
-        }
-    }
+pub struct Constructor {
+    pub name: Located<InternId>,
+    pub arguments: Vec<Located<TypeExpression>>,
+    pub path_id: usize,
 }
 
-pub mod constructor {
-    use crate::{
-        interner::InternId,
-        location::Located,
-        parse::type_expression::TypeExpression,
-        resolution::bound::Path,
-        state::{AfterUnresolved, Unresolved},
-    };
-
-    pub struct Constructor<State> {
+impl Constructor {
+    pub fn new(
         name: Located<InternId>,
-        arguments: Vec<Located<TypeExpression<State>>>,
-        path: Option<Path>,
-    }
-
-    pub struct UnresolvedObservation {
-        pub name: Located<InternId>,
-        pub arguments: Vec<Located<TypeExpression<Unresolved>>>,
-    }
-
-    impl From<UnresolvedObservation> for Constructor<Unresolved> {
-        fn from(value: UnresolvedObservation) -> Self {
-            Self {
-                name: value.name,
-                arguments: value.arguments,
-                path: None,
-            }
+        arguments: Vec<Located<TypeExpression>>,
+        path_id: usize,
+    ) -> Self {
+        Self {
+            name,
+            arguments,
+            path_id,
         }
     }
 
-    pub struct Observation<State: AfterUnresolved> {
-        pub name: Located<InternId>,
-        pub arguments: Vec<Located<TypeExpression<State>>>,
-        pub path: Path,
+    pub fn name(&self) -> Located<InternId> {
+        self.name
     }
 
-    impl<S: AfterUnresolved> From<Observation<S>> for Constructor<S> {
-        fn from(value: Observation<S>) -> Self {
-            Self {
-                name: value.name,
-                arguments: value.arguments,
-                path: Some(value.path),
-            }
-        }
+    pub fn arguments(&self) -> &[Located<TypeExpression>] {
+        &self.arguments
     }
 
-    impl<State> Constructor<State> {
-        pub fn name(&self) -> Located<InternId> {
-            self.name
-        }
-
-        pub fn arguments(&self) -> &[Located<TypeExpression<State>>] {
-            &self.arguments
-        }
-    }
-
-    impl Constructor<Unresolved> {
-        pub fn observe(self) -> UnresolvedObservation {
-            UnresolvedObservation {
-                name: self.name,
-                arguments: self.arguments,
-            }
-        }
-    }
-
-    impl<S: AfterUnresolved> Constructor<S> {
-        pub fn path(&self) -> &Path {
-            self.path.as_ref().unwrap()
-        }
-
-        pub fn observe(self) -> Observation<S> {
-            Observation {
-                name: self.name,
-                arguments: self.arguments,
-                path: self.path.unwrap(),
-            }
-        }
+    pub fn path_id(&self) -> usize {
+        self.path_id
     }
 }

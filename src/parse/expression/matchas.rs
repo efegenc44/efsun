@@ -1,82 +1,48 @@
-use crate::{location::Located, parse::expression::Expression};
+use crate::{
+    location::Located,
+    parse::{expression::Expression, pattern::Pattern},
+};
 
-pub type Branch<State> = branch::Branch<State>;
-
-pub struct MatchAs<State> {
-    expression: Box<Located<Expression<State>>>,
-    branches: Vec<Located<Branch<State>>>,
+pub struct MatchAs {
+    pub expression: Box<Located<Expression>>,
+    pub branches: Vec<Located<Branch>>,
 }
 
-pub struct Observation<State> {
-    pub expression: Located<Expression<State>>,
-    pub branches: Vec<Located<Branch<State>>>,
-}
-
-impl<State> From<Observation<State>> for MatchAs<State> {
-    fn from(val: Observation<State>) -> Self {
-        MatchAs {
-            expression: Box::new(val.expression),
-            branches: val.branches,
+impl MatchAs {
+    pub fn new(expression: Located<Expression>, branches: Vec<Located<Branch>>) -> Self {
+        Self {
+            expression: Box::new(expression),
+            branches,
         }
     }
-}
 
-impl<State> MatchAs<State> {
-    pub fn expression(&self) -> &Located<Expression<State>> {
+    pub fn expression(&self) -> &Located<Expression> {
         &self.expression
     }
 
-    pub fn branches(&self) -> &[Located<Branch<State>>] {
+    pub fn branches(&self) -> &[Located<Branch>] {
         &self.branches
-    }
-
-    pub fn observe(self) -> Observation<State> {
-        Observation {
-            expression: *self.expression,
-            branches: self.branches,
-        }
     }
 }
 
-pub mod branch {
-    use crate::{
-        location::Located,
-        parse::{expression::Expression, pattern::Pattern},
-    };
+pub struct Branch {
+    pub pattern: Located<Pattern>,
+    pub expression: Located<Expression>,
+}
 
-    pub struct Branch<State> {
-        pattern: Located<Pattern<State>>,
-        expression: Located<Expression<State>>,
-    }
-
-    pub struct Observation<State> {
-        pub pattern: Located<Pattern<State>>,
-        pub expression: Located<Expression<State>>,
-    }
-
-    impl<State> From<Observation<State>> for Branch<State> {
-        fn from(val: Observation<State>) -> Self {
-            Branch {
-                pattern: val.pattern,
-                expression: val.expression,
-            }
+impl Branch {
+    pub fn new(pattern: Located<Pattern>, expression: Located<Expression>) -> Self {
+        Self {
+            pattern,
+            expression,
         }
     }
 
-    impl<State> Branch<State> {
-        pub fn pattern(&self) -> &Located<Pattern<State>> {
-            &self.pattern
-        }
+    pub fn pattern(&self) -> &Located<Pattern> {
+        &self.pattern
+    }
 
-        pub fn expression(&self) -> &Located<Expression<State>> {
-            &self.expression
-        }
-
-        pub fn observe(self) -> Observation<State> {
-            Observation {
-                pattern: self.pattern,
-                expression: self.expression,
-            }
-        }
+    pub fn expression(&self) -> &Located<Expression> {
+        &self.expression
     }
 }
