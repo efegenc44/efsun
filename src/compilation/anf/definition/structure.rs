@@ -1,4 +1,4 @@
-use crate::interner::InternId;
+use crate::{interner::InternId, metadata::PathMetadataId};
 
 pub struct Structure {
     constructors: Vec<Constructor>,
@@ -17,11 +17,11 @@ impl Structure {
 pub struct Constructor {
     name: InternId,
     arity: usize,
-    path_id: usize,
+    path_id: PathMetadataId,
 }
 
 impl Constructor {
-    pub fn new(name: InternId, arity: usize, path_id: usize) -> Self {
+    pub fn new(name: InternId, arity: usize, path_id: PathMetadataId) -> Self {
         Self {
             name,
             arity,
@@ -37,7 +37,7 @@ impl Constructor {
         self.arity
     }
 
-    pub fn path_id(&self) -> usize {
+    pub fn path_id(&self) -> PathMetadataId {
         self.path_id
     }
 }

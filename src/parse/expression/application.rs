@@ -4,7 +4,6 @@ use crate::{
     parse::expression::Expression,
 };
 
-
 pub struct Application {
     function: Box<Located<Expression>>,
     argument: Box<Located<Expression>>,

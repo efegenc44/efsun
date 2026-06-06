@@ -10,7 +10,7 @@ use crate::{
     error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
-    metadata::IndexState,
+    metadata::{Generator, Indicies},
     parse::definition::Module,
 };
 
@@ -47,14 +47,14 @@ const PATTERN_START: &[Token] = &[
 pub struct Parser<'source, 'interner> {
     tokens: Peekable<Lexer<'source, 'interner>>,
     source_name: &'source str,
-    indicies: IndexState,
+    indicies: Indicies,
 }
 
 impl<'source, 'interner> Parser<'source, 'interner> {
     pub fn from_source(
         source_name: &'source str,
         source: &'source str,
-        indicies: IndexState,
+        indicies: Indicies,
         interner: &'interner mut Interner,
     ) -> Self {
         Self {
@@ -64,7 +64,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
     }
 
-    pub fn indicies(&self) -> IndexState {
+    pub fn indicies(&self) -> Indicies {
         self.indicies
     }
 
@@ -91,9 +91,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         };
         let peek = peek?;
 
-        Ok(list
-            .iter()
-            .any(|token| std::mem::discriminant(token) == std::mem::discriminant(peek.data())))
+        let tag = std::mem::discriminant;
+
+        Ok(list.iter().any(|token| tag(token) == tag(peek.data())))
     }
 
     fn peek_is(&mut self, token: Token) -> Result<bool> {
@@ -117,7 +117,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn expect(&mut self, expected: Token) -> Result<Located<Token>> {
         let token = self.next_some()?;
 
-        if std::mem::discriminant(&expected) == std::mem::discriminant(token.data()) {
+        let tag = std::mem::discriminant;
+
+        if tag(&expected) == tag(token.data()) {
             Ok(token)
         } else {
             self.error(
@@ -172,8 +174,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let lambda = expression::Lambda::new(
             variable,
             expression,
-            self.indicies.new_capture_id(),
-            self.indicies.new_unique_name_id(),
+            self.indicies.get(),
+            self.indicies.get(),
         );
         let expression = Located::new(Expression::Lambda(lambda), Span::new(start, end));
 
@@ -193,7 +195,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             variable,
             variable_expression,
             return_expression,
-            self.indicies.new_unique_name_id(),
+            self.indicies.get(),
         );
         let expression = Located::new(Expression::LetIn(letin), Span::new(start, end));
 
@@ -258,7 +260,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let start = self.expect(Token::Tilde)?.span().start();
         let identifier = self.expect_identifier()?;
         let end = identifier.span().end();
-        let any = pattern::Any::new(identifier.into_data(), self.indicies.new_unique_name_id());
+        let any = pattern::Any::new(identifier.into_data(), self.indicies.get());
 
         Ok(Located::new(Pattern::Any(any), Span::new(start, end)))
     }
@@ -274,8 +276,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             arguments.push(pattern);
         }
 
-        let structure =
-            pattern::Structure::new(parts, arguments, self.indicies.new_structure_pattern_id());
+        let structure = pattern::Structure::new(parts, arguments, self.indicies.get());
         let pattern = Located::new(Pattern::Structure(structure), Span::new(start, end));
 
         Ok(pattern)
@@ -315,11 +316,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn path(&mut self) -> Result<Located<Expression>> {
         let parts = self.path_parts()?;
         let span = parts.span();
-        let path = expression::Path::new(
-            parts,
-            self.indicies.new_bound_id(),
-            self.indicies.new_unique_name_id(),
-        );
+        let path = expression::Path::new(parts, self.indicies.get(), self.indicies.get());
         let expression = Located::new(Expression::Path(path), span);
 
         Ok(expression)
@@ -390,7 +387,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let parts = self.path_parts()?;
         let span = parts.span();
 
-        let path = type_expression::Path::new(parts, self.indicies.new_bound_id());
+        let path = type_expression::Path::new(parts, self.indicies.get());
         let mut type_expression = Located::new(TypeExpression::Path(path), span);
 
         if self.next_if_peek(Token::LeftBracket)? {
@@ -457,7 +454,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
 
-        let definiton = definition::Name::new(identifier, expression, self.indicies.new_path_id());
+        let definiton = definition::Name::new(identifier, expression, self.indicies.get());
 
         Ok(Definition::Name(definiton))
     }
@@ -516,7 +513,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
 
         let structure =
-            definition::Structure::new(name, variables, constructors, self.indicies.new_path_id());
+            definition::Structure::new(name, variables, constructors, self.indicies.get());
 
         Ok(Definition::Structure(structure))
     }
@@ -534,7 +531,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         }
 
         let constructor =
-            definition::structure::Constructor::new(name, arguments, self.indicies.new_path_id());
+            definition::structure::Constructor::new(name, arguments, self.indicies.get());
         let constructor = Located::new(constructor, Span::new(start, end));
 
         Ok(constructor)

@@ -1,12 +1,13 @@
 use crate::{
-    compilation::anf, interner::InternId, location::Located, parse::expression::Expression,
+    compilation::anf, interner::InternId, location::Located, metadata::UniqueNameMetadataId,
+    parse::expression::Expression,
 };
 
 pub struct LetIn {
     variable: Located<InternId>,
     variable_expression: Box<Located<Expression>>,
     return_expression: Box<Located<Expression>>,
-    unique_name_id: usize,
+    unique_name_id: UniqueNameMetadataId,
 }
 
 impl LetIn {
@@ -14,7 +15,7 @@ impl LetIn {
         variable: Located<InternId>,
         variable_expression: Located<Expression>,
         return_expression: Located<Expression>,
-        unique_name_id: usize,
+        unique_name_id: UniqueNameMetadataId,
     ) -> Self {
         Self {
             variable,
@@ -36,7 +37,7 @@ impl LetIn {
         &self.return_expression
     }
 
-    pub fn unique_name_id(&self) -> usize {
+    pub fn unique_name_id(&self) -> UniqueNameMetadataId {
         self.unique_name_id
     }
 
@@ -51,7 +52,7 @@ impl LetIn {
         #[rustfmt::skip]
         let result = variable_expression.into_data().into_anf(transformer, Box::new(|variable_expression| {
             let letin = anf::expression::LetIn::new(
-                transformer.metadata().get_unique_name(unique_name_id).unwrap(),
+                transformer.metadata()[unique_name_id].unwrap(),
                 variable_expression,
                 return_expression.into_data().into_anf(transformer, k),
             );

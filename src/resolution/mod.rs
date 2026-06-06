@@ -12,20 +12,25 @@ use crate::{
     error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
-    metadata::{self, Metadata},
+    metadata::{self, Metadata, Setter, Unresolved},
     parse::{
         definition::{self, Definition, Module, Program},
         expression::{self, Expression},
         pattern::{self, Pattern},
         type_expression::{self, TypeExpression},
     },
+    resolution::renamer::Renamed,
 };
 
 use bound::{Bound, BoundId, Module as ModuleBound, Path};
 use frame::ResolutionStack;
 
+/// Proof of resolution step
+///   Can only be constructed from here
+pub struct Resolved(());
+
 /// AST Name Resolver
-pub struct Resolver<'metadata> {
+pub struct Resolver {
     /// Stack for local variables
     stack: ResolutionStack<InternId>,
     /// Stack for type parameters in structure definitions
@@ -39,11 +44,11 @@ pub struct Resolver<'metadata> {
     /// Path of the current module
     current_module_path: Option<Path>,
     /// Metadata
-    metadata: &'metadata mut Metadata,
+    metadata: Metadata<Unresolved>,
 }
 
-impl<'metadata> Resolver<'metadata> {
-    pub fn new(metadata: &'metadata mut Metadata) -> Self {
+impl Resolver {
+    pub fn new(metadata: Metadata<Unresolved>) -> Self {
         Resolver {
             stack: ResolutionStack::new(),
             type_variables: Vec::new(),
@@ -139,7 +144,7 @@ impl<'metadata> Resolver<'metadata> {
             }
         };
 
-        self.metadata.set_bound(path.bound_id(), bound);
+        self.metadata.set(path.bound_id(), bound);
 
         Ok(())
     }
@@ -151,7 +156,7 @@ impl<'metadata> Resolver<'metadata> {
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
-        self.metadata.set_capture(lambda.capture_id(), capture);
+        self.metadata.set(lambda.capture_id(), capture);
 
         Ok(())
     }
@@ -240,7 +245,7 @@ impl<'metadata> Resolver<'metadata> {
 
         let structure_pattern = metadata::StructurePattern::new(type_path, constructor_name, tag);
         self.metadata
-            .set_structure_pattern(structure.structure_pattern_id(), structure_pattern);
+            .set(structure.structure_pattern_id(), structure_pattern);
 
         Ok(())
     }
@@ -297,7 +302,7 @@ impl<'metadata> Resolver<'metadata> {
             }
         };
 
-        self.metadata.set_bound(path.bound_id(), bound);
+        self.metadata.set(path.bound_id(), bound);
 
         Ok(())
     }
@@ -483,7 +488,7 @@ impl<'metadata> Resolver<'metadata> {
         self.expression(name_definition.expression())?;
         let path = self.append_current_path(name_definition.identifier().into_data());
 
-        self.metadata.set_path(name_definition.path_id(), path);
+        self.metadata.set(name_definition.path_id(), path);
 
         Ok(())
     }
@@ -504,7 +509,7 @@ impl<'metadata> Resolver<'metadata> {
 
         self.type_variables.clear();
 
-        self.metadata.set_path(structure_definition.path_id(), path);
+        self.metadata.set(structure_definition.path_id(), path);
 
         Ok(())
     }
@@ -520,7 +525,7 @@ impl<'metadata> Resolver<'metadata> {
 
         let path = type_path.append([constructor.name().into_data()]);
 
-        self.metadata.set_path(constructor.path_id(), path);
+        self.metadata.set(constructor.path_id(), path);
 
         Ok(())
     }
@@ -532,20 +537,28 @@ impl<'metadata> Resolver<'metadata> {
             self.current_module().source_name().to_string(),
         ))
     }
+
+    pub fn finish(self) -> Metadata<Resolved> {
+        self.metadata.transition(Resolved(()))
+    }
 }
+
+/// Proof of ANF resolution
+///   Can only be constructed from here
+pub struct ANFResolved(());
 
 /// ANF Name Resolver
 /// ANF only affects local variables so ANFResolver only
 /// re-resolves local variables
-pub struct ANFResolver<'metadata> {
+pub struct ANFResolver {
     /// Stack for local variables
     stack: ResolutionStack<anf::Local>,
     /// Metadata
-    metadata: &'metadata mut Metadata,
+    metadata: Metadata<Renamed>,
 }
 
-impl<'metadata> ANFResolver<'metadata> {
-    pub fn new(metadata: &'metadata mut Metadata) -> Self {
+impl ANFResolver {
+    pub fn new(metadata: Metadata<Renamed>) -> Self {
         ANFResolver {
             stack: ResolutionStack::new(),
             metadata,
@@ -582,7 +595,7 @@ impl<'metadata> ANFResolver<'metadata> {
             }
         };
 
-        self.metadata.set_anf_bound(path.anf_bound_id(), bound);
+        self.metadata.set(path.anf_bound_id(), bound);
     }
 
     fn identifier(&mut self, identifier: Local) -> Bound {
@@ -596,8 +609,7 @@ impl<'metadata> ANFResolver<'metadata> {
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
-        self.metadata
-            .set_anf_capture(lambda.anf_capture_id(), capture);
+        self.metadata.set(lambda.anf_capture_id(), capture);
     }
 
     fn letin(&mut self, letin: &anf::expression::LetIn) {
@@ -633,7 +645,7 @@ impl<'metadata> ANFResolver<'metadata> {
     fn define_pattern_locals(&mut self, pattern: &Pattern) {
         match pattern {
             Pattern::Any(any) => {
-                let unique_name = self.metadata.get_unique_name(any.unique_name_id());
+                let unique_name = &self.metadata[any.unique_name_id()];
                 self.stack.push_local(Local::Standard(unique_name.unwrap()));
             }
             pattern::Pattern::String(_) => (),
@@ -677,6 +689,10 @@ impl<'metadata> ANFResolver<'metadata> {
 
     fn name_definition(&mut self, name_definition: &anf::definition::Name) {
         self.expression(name_definition.expression());
+    }
+
+    pub fn finish(self) -> Metadata<ANFResolved> {
+        self.metadata.transition(ANFResolved(()))
     }
 }
 

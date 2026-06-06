@@ -38,7 +38,7 @@ impl BoundId {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Capture {
     Local(BoundId),
     Outer(BoundId),

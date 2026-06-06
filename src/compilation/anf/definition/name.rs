@@ -1,13 +1,13 @@
-use crate::{compilation::anf, interner::InternId};
+use crate::{compilation::anf, interner::InternId, metadata::PathMetadataId};
 
 pub struct Name {
     identifier: InternId,
     expression: anf::Expression,
-    path_id: usize,
+    path_id: PathMetadataId,
 }
 
 impl Name {
-    pub fn new(identifier: InternId, expression: anf::Expression, path_id: usize) -> Self {
+    pub fn new(identifier: InternId, expression: anf::Expression, path_id: PathMetadataId) -> Self {
         Self {
             identifier,
             expression,
@@ -23,7 +23,7 @@ impl Name {
         &self.expression
     }
 
-    pub fn path_id(&self) -> usize {
+    pub fn path_id(&self) -> PathMetadataId {
         self.path_id
     }
 }

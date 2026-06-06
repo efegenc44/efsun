@@ -14,6 +14,7 @@ use crate::{
         type_expression::{self, TypeExpression},
     },
     resolution::{
+        Resolved,
         bound::{Bound, Path},
         frame::CheckStack,
     },
@@ -45,14 +46,14 @@ where
     /// Source file name of the current module for error reporting
     current_source_name: Option<&'metadata str>,
     /// Metadata
-    metadata: &'metadata Metadata,
+    metadata: &'metadata Metadata<Resolved>,
 }
 
 impl<'ast, 'metadata> TypeChecker<'metadata, 'ast>
 where
     'ast: 'metadata,
 {
-    pub fn new(metadata: &'metadata Metadata) -> Self {
+    pub fn new(metadata: &'metadata Metadata<Resolved>) -> Self {
         Self {
             stack: CheckStack::new(),
             type_variables: Vec::new(),
@@ -115,7 +116,7 @@ where
     }
 
     fn evaluate_type_path(&mut self, path: &type_expression::Path) -> Result<MonoType> {
-        let bound = self.metadata.get_bound(path.bound_id());
+        let bound = &self.metadata[path.bound_id()];
 
         let t = match bound {
             Bound::Capture(_) => unreachable!(),
@@ -225,7 +226,7 @@ where
     }
 
     fn path(&mut self, path: &expression::Path, span: Span) -> Result<MonoType> {
-        let bound = self.metadata.get_bound(path.bound_id());
+        let bound = &self.metadata[path.bound_id()];
 
         let t = match bound {
             Bound::Local(id) => self.stack.get_local(*id),
@@ -288,7 +289,7 @@ where
     fn lambda(&mut self, lambda: &expression::Lambda) -> Result<MonoType> {
         let argument = self.newvar();
 
-        let captures = self.metadata.get_capture(lambda.capture_id());
+        let captures = &self.metadata[lambda.capture_id()];
 
         self.stack.push_frame(captures.to_vec());
         self.stack.push_local(Type::Mono(argument.clone()));
@@ -357,9 +358,7 @@ where
                 };
             }
             Pattern::Structure(structure) => {
-                let structure_pattern = self
-                    .metadata
-                    .get_structure_pattern(structure.structure_pattern_id());
+                let structure_pattern = &self.metadata[structure.structure_pattern_id()];
 
                 let structure_type =
                     self.instantiate(self.types[structure_pattern.type_path()].clone());
@@ -435,14 +434,14 @@ where
         for definition in module.definitions() {
             match definition {
                 Definition::Name(name) => {
-                    let path = self.metadata.get_path(name.path_id());
+                    let path = &self.metadata[name.path_id()];
 
                     let newvar = self.newvar();
                     self.names.insert(path, Type::Mono(newvar));
                     self.name_expressions.add(path, name.expression());
                 }
                 Definition::Structure(structure) => {
-                    let path = self.metadata.get_path(structure.path_id());
+                    let path = &self.metadata[structure.path_id()];
 
                     let t =
                         self.initialize_structure_type(path.clone(), structure.variables().len());
@@ -456,7 +455,7 @@ where
         // Type constructors
         for definition in module.definitions() {
             if let Definition::Structure(structure) = definition {
-                let path = self.metadata.get_path(structure.path_id());
+                let path = &self.metadata[structure.path_id()];
 
                 let structure_type = self.instantiate(self.types[path].clone());
                 let variables = structure_type.variables();
@@ -471,7 +470,7 @@ where
                         t = MonoType::Arrow(ArrowType::new(argument, t));
                     }
 
-                    let path = self.metadata.get_path(constructor.data().path_id());
+                    let path = &self.metadata[constructor.data().path_id()];
 
                     let t = Type::Poly(variables.clone(), t);
                     self.names.insert(path, t);
@@ -485,7 +484,7 @@ where
     }
 
     fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
-        let path = self.metadata.get_path(name_definition.path_id());
+        let path = &self.metadata[name_definition.path_id()];
 
         self.name_expressions.visiting(path);
         let m = self.infer(name_definition.expression())?;

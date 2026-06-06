@@ -1,4 +1,4 @@
-use crate::{interner::InternId, location::Located};
+use crate::{interner::InternId, location::Located, metadata::StructurePatternMetadataId};
 
 use super::Pattern;
 
@@ -6,14 +6,14 @@ use super::Pattern;
 pub struct Structure {
     parts: Located<Vec<InternId>>,
     arguments: Vec<Located<Pattern>>,
-    structure_pattern_id: usize,
+    structure_pattern_id: StructurePatternMetadataId,
 }
 
 impl Structure {
     pub fn new(
         parts: Located<Vec<InternId>>,
         arguments: Vec<Located<Pattern>>,
-        structure_pattern_id: usize,
+        structure_pattern_id: StructurePatternMetadataId,
     ) -> Self {
         Self {
             parts,
@@ -30,7 +30,7 @@ impl Structure {
         &self.parts
     }
 
-    pub fn structure_pattern_id(&self) -> usize {
+    pub fn structure_pattern_id(&self) -> StructurePatternMetadataId {
         self.structure_pattern_id
     }
 }

@@ -1,13 +1,13 @@
-use crate::{compilation::anf, resolution::bound::Bound};
+use crate::{compilation::anf, metadata::BoundMetadataId, resolution::bound::Bound};
 
 pub struct Path {
     path: anf::Path,
     bound: Option<Bound>,
-    anf_bound_id: usize,
+    anf_bound_id: BoundMetadataId,
 }
 
 impl Path {
-    pub fn new(path: anf::Path, bound: Option<Bound>, anf_bound_id: usize) -> Self {
+    pub fn new(path: anf::Path, bound: Option<Bound>, anf_bound_id: BoundMetadataId) -> Self {
         Self {
             path,
             bound,
@@ -19,7 +19,7 @@ impl Path {
         &self.path
     }
 
-    pub fn anf_bound_id(&self) -> usize {
+    pub fn anf_bound_id(&self) -> BoundMetadataId {
         self.anf_bound_id
     }
 

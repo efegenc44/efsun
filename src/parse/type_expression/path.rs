@@ -1,12 +1,12 @@
-use crate::{interner::InternId, location::Located};
+use crate::{interner::InternId, location::Located, metadata::BoundMetadataId};
 
 pub struct Path {
     parts: Located<Vec<InternId>>,
-    bound_id: usize,
+    bound_id: BoundMetadataId,
 }
 
 impl Path {
-    pub fn new(parts: Located<Vec<InternId>>, bound_id: usize) -> Self {
+    pub fn new(parts: Located<Vec<InternId>>, bound_id: BoundMetadataId) -> Self {
         Self { parts, bound_id }
     }
 
@@ -14,7 +14,7 @@ impl Path {
         &self.parts
     }
 
-    pub fn bound_id(&self) -> usize {
+    pub fn bound_id(&self) -> BoundMetadataId {
         self.bound_id
     }
 }

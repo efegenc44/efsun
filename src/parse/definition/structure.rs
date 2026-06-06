@@ -2,14 +2,15 @@ use crate::{
     compilation::anf,
     interner::InternId,
     location::Located,
+    metadata::PathMetadataId,
     parse::{definition, type_expression::TypeExpression},
 };
 
 pub struct Structure {
-    pub name: Located<InternId>,
-    pub variables: Vec<Located<InternId>>,
-    pub constructors: Vec<Located<Constructor>>,
-    pub path_id: usize,
+    name: Located<InternId>,
+    variables: Vec<Located<InternId>>,
+    constructors: Vec<Located<Constructor>>,
+    path_id: PathMetadataId,
 }
 
 impl Structure {
@@ -17,7 +18,7 @@ impl Structure {
         name: Located<InternId>,
         variables: Vec<Located<InternId>>,
         constructors: Vec<Located<Constructor>>,
-        path_id: usize,
+        path_id: PathMetadataId,
     ) -> Self {
         Self {
             name,
@@ -39,7 +40,7 @@ impl Structure {
         &self.constructors
     }
 
-    pub fn path_id(&self) -> usize {
+    pub fn path_id(&self) -> PathMetadataId {
         self.path_id
     }
 
@@ -71,14 +72,14 @@ impl Structure {
 pub struct Constructor {
     pub name: Located<InternId>,
     pub arguments: Vec<Located<TypeExpression>>,
-    pub path_id: usize,
+    pub path_id: PathMetadataId,
 }
 
 impl Constructor {
     pub fn new(
         name: Located<InternId>,
         arguments: Vec<Located<TypeExpression>>,
-        path_id: usize,
+        path_id: PathMetadataId,
     ) -> Self {
         Self {
             name,
@@ -95,7 +96,7 @@ impl Constructor {
         &self.arguments
     }
 
-    pub fn path_id(&self) -> usize {
+    pub fn path_id(&self) -> PathMetadataId {
         self.path_id
     }
 }

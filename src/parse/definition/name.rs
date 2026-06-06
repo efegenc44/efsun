@@ -1,18 +1,19 @@
 use crate::{
-    compilation::anf, interner::InternId, location::Located, parse::expression::Expression,
+    compilation::anf, interner::InternId, location::Located, metadata::PathMetadataId,
+    parse::expression::Expression,
 };
 
 pub struct Name {
     pub identifier: Located<InternId>,
     pub expression: Located<Expression>,
-    pub path_id: usize,
+    pub path_id: PathMetadataId,
 }
 
 impl Name {
     pub fn new(
         identifier: Located<InternId>,
         expression: Located<Expression>,
-        path_id: usize,
+        path_id: PathMetadataId,
     ) -> Self {
         Self {
             identifier,
@@ -29,7 +30,7 @@ impl Name {
         &self.expression
     }
 
-    pub fn path_id(&self) -> usize {
+    pub fn path_id(&self) -> PathMetadataId {
         self.path_id
     }
 

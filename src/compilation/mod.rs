@@ -9,7 +9,10 @@ use crate::{
     interner::{InternId, Interner},
     metadata::Metadata,
     parse::pattern::Pattern,
-    resolution::bound::{Bound, Path},
+    resolution::{
+        ANFResolved,
+        bound::{Bound, Path},
+    },
 };
 
 use instruction::Instruction;
@@ -61,14 +64,14 @@ pub struct Compiler<'interner, 'anf, 'metadata> {
     ///   to a join point
     local_count: usize,
     /// Metadata
-    metadata: &'metadata Metadata,
+    metadata: &'metadata Metadata<ANFResolved>,
 }
 
 impl<'interner, 'anf, 'metadata> Compiler<'interner, 'anf, 'metadata>
 where
     'metadata: 'anf,
 {
-    pub fn new(interner: &'interner Interner, metadata: &'metadata Metadata) -> Self {
+    pub fn new(interner: &'interner Interner, metadata: &'metadata Metadata<ANFResolved>) -> Self {
         Self {
             interns: Vec::new(),
             strings: Vec::new(),
@@ -200,7 +203,7 @@ where
     fn collect_names(&mut self, module: &'anf anf::Module) {
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
-                let path = self.metadata.get_path(name.path_id());
+                let path = &self.metadata[name.path_id()];
                 self.name_anfs.insert(path, name.expression());
             }
 
@@ -214,7 +217,7 @@ where
                         Instruction::Constructor(name_offset, order, constructor.arity())
                     };
 
-                    let path = self.metadata.get_path(constructor.path_id());
+                    let path = &self.metadata[constructor.path_id()];
 
                     self.names.insert(path, vec![instruction.into()]);
                     self.globals.push(path);
@@ -226,7 +229,7 @@ where
     pub fn module(&mut self, module: &'anf anf::Module) {
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
-                let path = self.metadata.get_path(name.path_id());
+                let path = &self.metadata[name.path_id()];
                 if !self.globals.pushed(path) {
                     let code = seperate!(self, self.expression(name.expression()));
                     self.names.insert(path, code);
@@ -292,7 +295,7 @@ where
     }
 
     fn path(&mut self, path: &'anf anf::atom::Path) {
-        let bound = self.metadata.get_anf_bound(path.anf_bound_id());
+        let bound = &self.metadata[path.anf_bound_id()];
 
         let instruction = match bound {
             Bound::Local(id) => Instruction::GetLocal(id.value()).into(),
@@ -347,10 +350,7 @@ where
             Pattern::Structure(structure) => {
                 self.extend(matched.iter().cloned());
 
-                let tag = self
-                    .metadata
-                    .get_structure_pattern(structure.structure_pattern_id())
-                    .tag();
+                let tag = self.metadata[structure.structure_pattern_id()].tag();
 
                 self.emit(Instruction::TagEquals(tag).into());
 
@@ -418,7 +418,7 @@ where
         let id = self.lambdas.len();
         self.lambdas.push(lambda_code);
 
-        let capture = self.metadata.get_anf_capture(lambda.anf_capture_id());
+        let capture = &self.metadata[lambda.anf_capture_id()];
 
         self.emit(Instruction::MakeLambda(id, capture.to_vec()).into())
     }

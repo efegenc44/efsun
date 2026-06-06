@@ -3,7 +3,6 @@ mod compilation;
 mod metadata;
 mod parse;
 mod resolution;
-mod state;
 
 mod cli;
 mod error;

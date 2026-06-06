@@ -2,13 +2,16 @@ pub mod atom;
 pub mod definition;
 pub mod expression;
 
-use std::{cell::RefCell, fmt::Display};
+use std::{
+    cell::{Cell, RefCell, RefMut},
+    fmt::Display,
+};
 
 use crate::{
     interner::{InternId, WithInterner},
-    metadata::Metadata,
+    metadata::{Generator, Indicies, Metadata},
     parse::expression::Expression as ASTExpression,
-    resolution::renamer::UniqueName,
+    resolution::renamer::{Renamed, UniqueName},
 };
 
 pub type Definition = definition::Definition;
@@ -77,43 +80,33 @@ pub type Continuation<'a> = Box<dyn FnOnce(Atom) -> Expression + 'a>;
 /// AST to ANF Transformer
 pub struct Transformer<'metadata> {
     /// State for ANF-introduced local variables and jump labels
-    counter: RefCell<usize>,
+    counter: Cell<usize>,
     /// Metadata
-    metadata: &'metadata Metadata,
-
-    anf_bound_counter: RefCell<usize>,
-    anf_capture_counter: RefCell<usize>,
+    metadata: &'metadata Metadata<Renamed>,
+    /// Indicies for metadata
+    indicies: RefCell<Indicies>,
 }
 
 impl<'metadata> Transformer<'metadata> {
-    pub fn new(metadata: &'metadata Metadata) -> Self {
+    pub fn new(metadata: &'metadata Metadata<Renamed>, indicies: Indicies) -> Self {
         Self {
-            counter: RefCell::new(0),
+            counter: Cell::new(0),
             metadata,
-            anf_bound_counter: RefCell::new(0),
-            anf_capture_counter: RefCell::new(0),
+            indicies: RefCell::new(indicies),
         }
     }
 
-    pub fn metadata(&self) -> &'metadata Metadata {
+    pub fn metadata(&self) -> &Metadata<Renamed> {
         self.metadata
     }
 
+    pub fn indicies_mut(&self) -> RefMut<'_, Indicies> {
+        self.indicies.borrow_mut()
+    }
+
     pub fn new_local_id(&self) -> usize {
-        let id = *self.counter.borrow();
-        *self.counter.borrow_mut() += 1;
-        id
-    }
-
-    pub fn new_anf_bound_id(&self) -> usize {
-        let id = *self.anf_bound_counter.borrow();
-        *self.anf_bound_counter.borrow_mut() += 1;
-        id
-    }
-
-    pub fn new_anf_capture_id(&self) -> usize {
-        let id = *self.anf_capture_counter.borrow();
-        *self.anf_capture_counter.borrow_mut() += 1;
+        let id = self.counter.get();
+        self.counter.update(|x| x + 1);
         id
     }
 
@@ -121,7 +114,7 @@ impl<'metadata> Transformer<'metadata> {
         let id = self.new_local_id();
 
         let local = Local::ANFLocal(id);
-        let path = atom::Path::new(Path::ANFLocal(id), None, self.new_anf_bound_id());
+        let path = atom::Path::new(Path::ANFLocal(id), None, self.indicies.borrow_mut().get());
 
         (local, path)
     }

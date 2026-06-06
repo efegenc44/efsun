@@ -2,22 +2,23 @@ use crate::{
     compilation::anf::{self, Atom, atom},
     interner::InternId,
     location::Located,
+    metadata::{CaptureMetadataId, Generator, UniqueNameMetadataId},
     parse::expression::Expression,
 };
 
 pub struct Lambda {
     variable: Located<InternId>,
     expression: Box<Located<Expression>>,
-    capture_id: usize,
-    unique_name_id: usize,
+    capture_id: CaptureMetadataId,
+    unique_name_id: UniqueNameMetadataId,
 }
 
 impl Lambda {
     pub fn new(
         variable: Located<InternId>,
         expression: Located<Expression>,
-        capture_id: usize,
-        unique_name_id: usize,
+        capture_id: CaptureMetadataId,
+        unique_name_id: UniqueNameMetadataId,
     ) -> Self {
         Self {
             variable,
@@ -35,11 +36,11 @@ impl Lambda {
         &self.expression
     }
 
-    pub fn capture_id(&self) -> usize {
+    pub fn capture_id(&self) -> CaptureMetadataId {
         self.capture_id
     }
 
-    pub fn unique_name_id(&self) -> usize {
+    pub fn unique_name_id(&self) -> UniqueNameMetadataId {
         self.unique_name_id
     }
 
@@ -50,14 +51,12 @@ impl Lambda {
             ..
         } = self;
 
-        let variable = transformer
-            .metadata()
-            .get_unique_name(unique_name_id)
-            .unwrap();
+        let variable = transformer.metadata()[unique_name_id].unwrap();
+
         let lambda = atom::Lambda::new(
             variable,
             transformer.transform(expression.into_data()),
-            transformer.new_anf_capture_id(),
+            transformer.indicies_mut().get(),
         );
 
         k(Atom::Lambda(lambda))
