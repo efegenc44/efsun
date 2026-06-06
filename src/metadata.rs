@@ -96,8 +96,7 @@ metadata! {
     CaptureMetadataId -> Vec<Capture>,
     StructurePatternMetadataId -> StructurePattern,
     PathMetadataId -> Path,
-    UniqueNameMetadataId -> Option<UniqueName>,
-    ANFBoundMetadataId -> Bound
+    UniqueNameMetadataId -> Option<UniqueName>
 }
 
 pub struct StructurePattern {
