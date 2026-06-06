@@ -5,7 +5,7 @@ pub mod structure;
 
 use std::fmt::Display;
 
-use crate::interner::Interner;
+use crate::{compilation::anf, interner::Interner};
 
 pub type ModulePath = module_path::ModulePath;
 pub type Name = name::Name;
@@ -89,6 +89,26 @@ impl Module {
     pub fn source_name(&self) -> &str {
         &self.source_name
     }
+
+    pub fn into_anf(self, transformer: &anf::Transformer) -> anf::Module {
+        let Self { definitions, .. } = self;
+
+        let mut anf_module = Vec::new();
+
+        for definition in definitions {
+            match definition {
+                Definition::Name(name_definition) => {
+                    anf_module.push(name_definition.into_anf(transformer));
+                }
+                Definition::Structure(structure_definition) => {
+                    anf_module.push(structure_definition.into_anf());
+                }
+                _ => (),
+            }
+        }
+
+        anf::definition::Module::new(anf_module)
+    }
 }
 
 pub struct Program {
@@ -102,5 +122,16 @@ impl Program {
 
     pub fn modules(&self) -> &[Module] {
         &self.modules
+    }
+
+    pub fn into_anf(self, transformer: &anf::Transformer) -> anf::Program {
+        let Self { modules } = self;
+
+        let modules = modules
+            .into_iter()
+            .map(|module| module.into_anf(transformer))
+            .collect::<Vec<_>>();
+
+        anf::definition::Program::new(modules)
     }
 }

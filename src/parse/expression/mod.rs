@@ -6,7 +6,10 @@ pub mod path;
 
 use std::fmt::Display;
 
-use crate::interner::{InternId, Interner};
+use crate::{
+    compilation::anf::{self, Atom},
+    interner::{InternId, Interner},
+};
 
 pub type Application = application::Application;
 pub type Lambda = lambda::Lambda;
@@ -24,6 +27,17 @@ pub enum Expression {
 }
 
 impl Expression {
+    pub fn into_anf(self, transformer: &anf::Transformer, k: anf::Continuation) -> anf::Expression {
+        match self {
+            Self::String(id) => k(Atom::String(id)),
+            Self::Path(path) => path.into_anf(transformer, k),
+            Self::Application(application) => application.into_anf(transformer, k),
+            Self::Lambda(lambda) => lambda.into_anf(transformer, k),
+            Self::LetIn(letin) => letin.into_anf(transformer, k),
+            Self::MatchAs(matchas) => matchas.into_anf(transformer, k),
+        }
+    }
+
     pub fn print(&self, depth: usize, interner: &Interner) {
         fn indent(display: impl Display, depth: usize) {
             println!("{:level$}{display}", "", level = depth * 2);

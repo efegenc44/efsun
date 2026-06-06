@@ -33,7 +33,10 @@ fn expression(
         .expression(&expression)?;
     let t = TypeChecker::new(&metadata).infer(&expression)?;
     Renamer::new(&mut metadata).expression(&expression);
-    let anf = anf::Transformer::new(&metadata).transform(expression.into_data());
+
+    let transformer = anf::Transformer::new(&metadata);
+    let anf = transformer.transform(expression.into_data());
+
     ANFResolver::new(&mut metadata).expression(&anf);
     let (code, pool) = Compiler::new(interner, &metadata).compile(&anf);
     let result = vm.run(&code, &pool, false);
@@ -61,7 +64,10 @@ fn program(
     Resolver::new(&mut metadata).program(&program)?;
     let t = TypeChecker::new(&metadata).program(&program, interner)?;
     Renamer::new(&mut metadata).program(&program);
-    let anf = anf::Transformer::new(&metadata).program(program);
+
+    let transformer = anf::Transformer::new(&metadata);
+    let anf = program.into_anf(&transformer);
+
     ANFResolver::new(&mut metadata).program(&anf);
     let (code, pool) = Compiler::new(interner, &metadata).program(&anf);
     let result = vm.run(&code, &pool, false);

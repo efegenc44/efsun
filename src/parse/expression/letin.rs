@@ -1,10 +1,12 @@
-use crate::{interner::InternId, location::Located, parse::expression::Expression};
+use crate::{
+    compilation::anf, interner::InternId, location::Located, parse::expression::Expression,
+};
 
 pub struct LetIn {
-    pub variable: Located<InternId>,
-    pub variable_expression: Box<Located<Expression>>,
-    pub return_expression: Box<Located<Expression>>,
-    pub unique_name_id: usize,
+    variable: Located<InternId>,
+    variable_expression: Box<Located<Expression>>,
+    return_expression: Box<Located<Expression>>,
+    unique_name_id: usize,
 }
 
 impl LetIn {
@@ -36,5 +38,27 @@ impl LetIn {
 
     pub fn unique_name_id(&self) -> usize {
         self.unique_name_id
+    }
+
+    pub fn into_anf(self, transformer: &anf::Transformer, k: anf::Continuation) -> anf::Expression {
+        let Self {
+            variable_expression,
+            return_expression,
+            unique_name_id,
+            ..
+        } = self;
+
+        #[rustfmt::skip]
+        let result = variable_expression.into_data().into_anf(transformer, Box::new(|variable_expression| {
+            let letin = anf::expression::LetIn::new(
+                transformer.metadata().get_unique_name(unique_name_id).unwrap(),
+                variable_expression,
+                return_expression.into_data().into_anf(transformer, k),
+            );
+
+            anf::Expression::LetIn(letin)
+        }));
+
+        result
     }
 }

@@ -1,4 +1,9 @@
-use crate::{interner::InternId, location::Located, parse::type_expression::TypeExpression};
+use crate::{
+    compilation::anf,
+    interner::InternId,
+    location::Located,
+    parse::{definition, type_expression::TypeExpression},
+};
 
 pub struct Structure {
     pub name: Located<InternId>,
@@ -36,6 +41,30 @@ impl Structure {
 
     pub fn path_id(&self) -> usize {
         self.path_id
+    }
+
+    pub fn into_anf(self) -> anf::Definition {
+        let Self { constructors, .. } = self;
+
+        let constructors = constructors
+            .into_iter()
+            .map(|constructor| {
+                let definition::structure::Constructor {
+                    name,
+                    arguments,
+                    path_id,
+                    ..
+                } = constructor.into_data();
+
+                anf::definition::structure::Constructor::new(
+                    name.into_data(),
+                    arguments.len(),
+                    path_id,
+                )
+            })
+            .collect();
+
+        anf::Definition::Structure(anf::definition::Structure::new(constructors))
     }
 }
 
