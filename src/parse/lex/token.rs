@@ -26,9 +26,11 @@ pub enum Token {
 
 impl Display for WithInterner<'_, &Token> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.data() {
-            Token::Identifier(id) => write!(f, "{}", self.interner().lookup(id)),
-            Token::String(string) => write!(f, "\"{}\"", self.interner().lookup(string)),
+        let interner = self.interner;
+
+        match &self.data {
+            Token::Identifier(id) => write!(f, "{}", interner.lookup(id)),
+            Token::String(string) => write!(f, "\"{}\"", interner.lookup(string)),
             Token::LeftParenthesis => write!(f, "("),
             Token::RightParenthesis => write!(f, ")"),
             Token::LeftBracket => write!(f, "["),

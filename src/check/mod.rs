@@ -96,10 +96,13 @@ where
 
     fn initialize_structure_type(&mut self, path: Path, argument_count: usize) -> Type {
         if argument_count == 0 {
-            Type::Mono(MonoType::Structure(StructureType::new(path, vec![])))
+            Type::Mono(MonoType::Structure(StructureType {
+                path,
+                arguments: vec![],
+            }))
         } else {
             let arguments = (0..argument_count).map(|_| self.newvar()).collect();
-            MonoType::Structure(StructureType::new(path, arguments)).generalize()
+            MonoType::Structure(StructureType { path, arguments }).generalize()
         }
     }
 
@@ -107,16 +110,16 @@ where
         &mut self,
         expression: &Located<TypeExpression>,
     ) -> Result<MonoType> {
-        match expression.data() {
+        match &expression.data {
             TypeExpression::Path(path) => self.evaluate_type_path(path),
             TypeExpression::Application(application) => {
-                self.evaluate_type_application(application, expression.span())
+                self.evaluate_type_application(application, expression.span)
             }
         }
     }
 
     fn evaluate_type_path(&mut self, path: &type_expression::Path) -> Result<MonoType> {
-        let bound = &self.metadata[path.bound_id()];
+        let bound = &self.metadata[path.bound_id];
 
         let t = match bound {
             Bound::Capture(_) => unreachable!(),
@@ -135,33 +138,35 @@ where
         application: &type_expression::Application,
         span: Span,
     ) -> Result<MonoType> {
-        let m = self.evaluate_type_expression(application.function())?;
+        let m = self.evaluate_type_expression(&application.function)?;
         let MonoType::Structure(structure) = m else {
             return self.error(TypeCheckError::ExpectedStructure(m), span);
         };
 
-        let expected = structure.arguments().len();
-        let found = application.arguments().len();
+        let expected = structure.arguments.len();
+        let found = application.arguments.len();
         let true = found == expected else {
             return self.error(TypeCheckError::TypeArityMismatch { expected, found }, span);
         };
 
         let mut application_arguments = Vec::new();
-        for argument in application.arguments() {
+        for argument in &application.arguments {
             application_arguments.push(self.evaluate_type_expression(argument)?);
         }
 
-        let structure = StructureType::new(structure.path().clone(), application_arguments);
+        let structure = StructureType {
+            path: structure.path.clone(),
+            arguments: application_arguments,
+        };
+
         Ok(MonoType::Structure(structure))
     }
 
     pub fn infer(&mut self, expression: &Located<Expression>) -> Result<MonoType> {
-        match expression.data() {
+        match &expression.data {
             Expression::String(_) => Ok(MonoType::String),
-            Expression::Path(path) => self.path(path, expression.span()),
-            Expression::Application(application) => {
-                self.application(application, expression.span())
-            }
+            Expression::Path(path) => self.path(path, expression.span),
+            Expression::Application(application) => self.application(application, expression.span),
             Expression::Lambda(lambda) => self.lambda(lambda),
             Expression::LetIn(letin) => self.letin(letin),
             Expression::MatchAs(matchlet) => self.matchlet(matchlet),
@@ -205,14 +210,14 @@ where
                 }
             }
             (MonoType::Arrow(arrow1), MonoType::Arrow(arrow2)) => {
-                self.unify(arrow1.from(), arrow2.from())?;
-                self.unify(arrow1.to(), arrow2.to())
+                self.unify(&arrow1.from, &arrow2.from)?;
+                self.unify(&arrow1.to, &arrow2.to)
             }
             (MonoType::Structure(structure1), MonoType::Structure(structure2)) => {
-                if structure1.path() != structure2.path() {
+                if structure1.path != structure2.path {
                     Err((self.substitute(t1.clone()), self.substitute(t2.clone())))
                 } else {
-                    let arguments = structure1.arguments().iter().zip(structure2.arguments());
+                    let arguments = structure1.arguments.iter().zip(&structure2.arguments);
                     for (argument1, argument2) in arguments {
                         self.unify(argument1, argument2)?;
                     }
@@ -226,9 +231,7 @@ where
     }
 
     fn path(&mut self, path: &expression::Path, span: Span) -> Result<MonoType> {
-        let bound = &self.metadata[path.bound_id()];
-
-        let t = match bound {
+        let t = match &self.metadata[path.bound_id] {
             Bound::Local(id) => self.stack.get_local(*id),
             Bound::Capture(id) => self.stack.get_capture(*id),
             Bound::Absolute(path) => {
@@ -252,7 +255,7 @@ where
                     if let Err((t1, t2)) = self.unify(&m, &t) {
                         return self.error(
                             TypeCheckError::TypeMismatch { t1, t2 },
-                            self.name_expressions.get(path).span(),
+                            self.name_expressions.get(path).span,
                         );
                     };
 
@@ -274,9 +277,12 @@ where
         span: Span,
     ) -> Result<MonoType> {
         let return_type = self.newvar();
-        let function = self.infer(application.function())?;
-        let argument = self.infer(application.argument())?;
-        let arrow = ArrowType::new(argument.clone(), return_type.clone());
+        let function = self.infer(&application.function)?;
+        let argument = self.infer(&application.argument)?;
+        let arrow = ArrowType {
+            from: Box::new(argument.clone()),
+            to: Box::new(return_type.clone()),
+        };
         let arrow = MonoType::Arrow(arrow);
 
         if let Err((t1, t2)) = self.unify(&function, &arrow) {
@@ -289,55 +295,54 @@ where
     fn lambda(&mut self, lambda: &expression::Lambda) -> Result<MonoType> {
         let argument = self.newvar();
 
-        let captures = &self.metadata[lambda.capture_id()];
+        let captures = &self.metadata[lambda.capture_id];
 
         self.stack.push_frame(captures.to_vec());
         self.stack.push_local(Type::Mono(argument.clone()));
         let before = self.replace_in_lambda(true);
-        let return_type = self.infer(lambda.expression())?;
+        let return_type = self.infer(&lambda.expression)?;
         self.replace_in_lambda(before);
         self.stack.pop_local();
         self.stack.pop_frame();
 
-        let arrow = ArrowType::new(self.substitute(argument), self.substitute(return_type));
+        let arrow = ArrowType {
+            from: Box::new(self.substitute(argument)),
+            to: Box::new(self.substitute(return_type)),
+        };
 
         Ok(MonoType::Arrow(arrow))
     }
 
     fn letin(&mut self, letin: &expression::LetIn) -> Result<MonoType> {
-        let variable_type = self.infer(letin.variable_expression())?;
+        let variable_type = self.infer(&letin.variable_expression)?;
         let variable_type = variable_type.generalize();
 
         self.stack.push_local(variable_type);
-        let return_type = self.infer(letin.return_expression())?;
+        let return_type = self.infer(&letin.return_expression)?;
         self.stack.pop_local();
 
         Ok(self.substitute(return_type))
     }
 
-    fn matchlet(&mut self, matchlet: &expression::MatchAs) -> Result<MonoType> {
-        let t = self.infer(matchlet.expression())?;
+    fn matchlet(&mut self, matchas: &expression::MatchAs) -> Result<MonoType> {
+        let t = self.infer(&matchas.expression)?;
         let return_type = self.newvar();
 
-        for branch in matchlet.branches() {
-            let t = self.match_branch(&t, branch.data())?;
+        for branch in &matchas.branches {
+            let t = self.match_branch(&t, &branch.data)?;
 
             if let Err((t1, t2)) = self.unify(&return_type, &t) {
-                return self.error(TypeCheckError::TypeMismatch { t1, t2 }, branch.span());
+                return self.error(TypeCheckError::TypeMismatch { t1, t2 }, branch.span);
             }
         }
 
         Ok(self.substitute(return_type))
     }
 
-    fn match_branch(
-        &mut self,
-        t: &MonoType,
-        branch: &expression::matchas::Branch,
-    ) -> Result<MonoType> {
+    fn match_branch(&mut self, t: &MonoType, branch: &expression::Branch) -> Result<MonoType> {
         let len = self.stack.len();
-        self.match_pattern_and_define_locals(t, branch.pattern())?;
-        let m = self.infer(branch.expression())?;
+        self.match_pattern_and_define_locals(t, &branch.pattern)?;
+        let m = self.infer(&branch.expression)?;
         self.stack.truncate(len);
 
         Ok(m)
@@ -348,23 +353,23 @@ where
         t: &MonoType,
         pattern: &Located<Pattern>,
     ) -> Result<()> {
-        match pattern.data() {
+        match &pattern.data {
             Pattern::Any(_) => {
                 self.stack.push_local(Type::Mono(t.clone()));
             }
             Pattern::String(_) => {
                 if let Err((t1, t2)) = self.unify(t, &MonoType::String) {
-                    return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span());
+                    return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span);
                 };
             }
             Pattern::Structure(structure) => {
-                let structure_pattern = &self.metadata[structure.structure_pattern_id()];
+                let structure_pattern = &self.metadata[structure.structure_pattern_id];
 
                 let structure_type =
                     self.instantiate(self.types[structure_pattern.type_path()].clone());
 
                 if let Err((t1, t2)) = self.unify(t, &structure_type) {
-                    return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span());
+                    return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span);
                 };
 
                 let constructor_path = structure_pattern
@@ -385,9 +390,9 @@ where
 
                 if let MonoType::Arrow(constructor) = m {
                     let mut t = &constructor;
-                    for argument in structure.arguments() {
-                        self.match_pattern_and_define_locals(t.from(), argument)?;
-                        if let MonoType::Arrow(arrow) = t.to() {
+                    for argument in &structure.arguments {
+                        self.match_pattern_and_define_locals(&t.from, argument)?;
+                        if let MonoType::Arrow(arrow) = t.to.as_ref() {
                             t = arrow;
                         }
                     }
@@ -402,11 +407,11 @@ where
     }
 
     pub fn program(&mut self, program: &'ast Program, interner: &Interner) -> Result<Type> {
-        for module in program.modules() {
+        for module in &program.modules {
             self.collect_definitions(module)?;
         }
 
-        for module in program.modules() {
+        for module in &program.modules {
             self.module(module)?;
         }
 
@@ -419,9 +424,9 @@ where
     }
 
     pub fn module(&mut self, module: &'ast Module) -> Result<()> {
-        self.current_source_name = Some(module.source_name());
+        self.current_source_name = Some(&module.source_name);
 
-        for definition in module.definitions() {
+        for definition in &module.definitions {
             if let Definition::Name(name) = definition {
                 self.name_definition(name)?
             }
@@ -431,20 +436,19 @@ where
     }
 
     fn collect_definitions(&mut self, module: &'ast Module) -> Result<()> {
-        for definition in module.definitions() {
+        for definition in &module.definitions {
             match definition {
                 Definition::Name(name) => {
-                    let path = &self.metadata[name.path_id()];
+                    let path = &self.metadata[name.path_id];
 
                     let newvar = self.newvar();
                     self.names.insert(path, Type::Mono(newvar));
-                    self.name_expressions.add(path, name.expression());
+                    self.name_expressions.add(path, &name.expression);
                 }
                 Definition::Structure(structure) => {
-                    let path = &self.metadata[structure.path_id()];
+                    let path = &self.metadata[structure.path_id];
 
-                    let t =
-                        self.initialize_structure_type(path.clone(), structure.variables().len());
+                    let t = self.initialize_structure_type(path.clone(), structure.variables.len());
 
                     self.types.insert(path, t);
                 }
@@ -453,9 +457,9 @@ where
         }
 
         // Type constructors
-        for definition in module.definitions() {
+        for definition in &module.definitions {
             if let Definition::Structure(structure) = definition {
-                let path = &self.metadata[structure.path_id()];
+                let path = &self.metadata[structure.path_id];
 
                 let structure_type = self.instantiate(self.types[path].clone());
                 let variables = structure_type.variables();
@@ -463,14 +467,19 @@ where
                 self.type_variables
                     .extend(variables.iter().copied().map(MonoType::Variable));
 
-                for constructor in structure.constructors() {
+                for constructor in &structure.constructors {
                     let mut t = structure_type.clone();
-                    for argument in constructor.data().arguments().iter().rev() {
+                    for argument in constructor.data.arguments.iter().rev() {
                         let argument = self.evaluate_type_expression(argument)?;
-                        t = MonoType::Arrow(ArrowType::new(argument, t));
+                        let arrow = ArrowType {
+                            from: Box::new(argument),
+                            to: Box::new(t),
+                        };
+
+                        t = MonoType::Arrow(arrow);
                     }
 
-                    let path = &self.metadata[constructor.data().path_id()];
+                    let path = &self.metadata[constructor.data.path_id];
 
                     let t = Type::Poly(variables.clone(), t);
                     self.names.insert(path, t);
@@ -484,16 +493,16 @@ where
     }
 
     fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
-        let path = &self.metadata[name_definition.path_id()];
+        let path = &self.metadata[name_definition.path_id];
 
         self.name_expressions.visiting(path);
-        let m = self.infer(name_definition.expression())?;
+        let m = self.infer(&name_definition.expression)?;
 
         let t = self.instantiate(self.names[path].clone());
         if let Err((t1, t2)) = self.unify(&m, &t) {
             return self.error(
                 TypeCheckError::TypeMismatch { t1, t2 },
-                name_definition.identifier().span(),
+                name_definition.identifier.span,
             );
         };
 
@@ -505,11 +514,11 @@ where
     }
 
     fn error<T>(&self, error: TypeCheckError, span: Span) -> Result<T> {
-        Err(ReportableError::new(
-            error,
-            span,
-            self.current_source_name.unwrap().to_string(),
-        ))
+        Err(Box::new(ReportableError {
+            error: error.into(),
+            source_name: self.current_source_name.unwrap().to_string(),
+            span: Some(span),
+        }))
     }
 }
 

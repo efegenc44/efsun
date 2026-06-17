@@ -73,7 +73,10 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
             }
         };
 
-        Located::new(token, Span::new(start, end))
+        Located {
+            data: token,
+            span: Span { start, end },
+        }
     }
 
     fn string(&mut self) -> Result<Located<Token>> {
@@ -95,13 +98,16 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
                 end
             };
 
-            return self.error(LexError::UnterminatedStringLiteral, Span::new(start, end));
+            return self.error(LexError::UnterminatedStringLiteral, Span { start, end });
         };
 
         let end = self.location;
 
         let string = Token::String(self.interner.intern(string));
-        Ok(Located::new(string, Span::new(start, end)))
+        Ok(Located {
+            data: string,
+            span: Span { start, end },
+        })
     }
 
     fn single(&mut self, token: Token) -> Located<Token> {
@@ -109,7 +115,10 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
         self.next();
         let end = self.location;
 
-        Located::new(token, Span::new(start, end))
+        Located {
+            data: token,
+            span: Span { start, end },
+        }
     }
 
     fn skip_whitespace(&mut self) {
@@ -123,11 +132,11 @@ impl<'source, 'interner> Lexer<'source, 'interner> {
     }
 
     fn error<T>(&self, error: LexError, span: Span) -> Result<T> {
-        Err(ReportableError::new(
-            error,
-            span,
-            self.source_name.to_string(),
-        ))
+        Err(Box::new(ReportableError {
+            error: error.into(),
+            source_name: self.source_name.to_string(),
+            span: Some(span),
+        }))
     }
 }
 
@@ -157,10 +166,9 @@ impl<'source, 'interner> Iterator for Lexer<'source, 'interner> {
                 self.next();
                 let end = self.location;
 
-                return Some(self.error(
-                    LexError::UnknownStartOfAToken(unknown),
-                    Span::new(start, end),
-                ));
+                return Some(
+                    self.error(LexError::UnknownStartOfAToken(unknown), Span { start, end }),
+                );
             }
         };
 

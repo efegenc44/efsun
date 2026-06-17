@@ -1,7 +1,7 @@
 use crate::{
     check::TypeCheckError,
     interner::{Interner, WithInterner},
-    location::{Located, Span},
+    location::Span,
     parse::{ParseError, lex::LexError},
     resolution::ResolutionError,
 };
@@ -24,8 +24,14 @@ fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
         } => {
             format!(
                 "Encountered unexpected token `{}`, expected {}.",
-                WithInterner::new(unexpected, interner),
-                WithInterner::new(expected, interner),
+                WithInterner {
+                    data: unexpected,
+                    interner
+                },
+                WithInterner {
+                    data: expected,
+                    interner
+                },
             )
         }
         ParseError::UnexpectedTokenStart {
@@ -34,7 +40,10 @@ fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
         } => {
             let mut message = format!(
                 "Encountered unexpected token `{}`, expected ",
-                WithInterner::new(unexpected, interner)
+                WithInterner {
+                    data: unexpected,
+                    interner
+                }
             );
             match expected {
                 [] => unreachable!(),
@@ -60,13 +69,22 @@ fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
 fn resolution_error_description(error: &ResolutionError, interner: &Interner) -> String {
     match error {
         ResolutionError::UnboundPath(path) => {
-            format!("`{}` is not bound.", WithInterner::new(path, interner))
+            format!(
+                "`{}` is not bound.",
+                WithInterner {
+                    data: path,
+                    interner
+                }
+            )
         }
         ResolutionError::MissingModuleDefinition => "Module definiton is missing.".to_string(),
         ResolutionError::UnresolvedImport(path) => {
             format!(
                 "Import `{}` could not be resolved.",
-                WithInterner::new(path, interner)
+                WithInterner {
+                    data: path,
+                    interner
+                }
             )
         }
     }
@@ -77,20 +95,26 @@ fn type_check_error_description(error: &TypeCheckError, interner: &Interner) -> 
         TypeCheckError::TypeMismatch { t1, t2 } => {
             format!(
                 "Couldn't match type `{}` with `{}`",
-                WithInterner::new(t1, interner),
-                WithInterner::new(t2, interner),
+                WithInterner { data: t1, interner },
+                WithInterner { data: t2, interner },
             )
         }
         TypeCheckError::CyclicDefinition(path) => {
             format!(
                 "`{}` is defined cyclically",
-                WithInterner::new(path, interner)
+                WithInterner {
+                    data: path,
+                    interner
+                }
             )
         }
         TypeCheckError::ExpectedStructure(expected) => {
             format!(
                 "Can only apply to structures not `{}`",
-                WithInterner::new(expected, interner)
+                WithInterner {
+                    data: expected,
+                    interner
+                }
             )
         }
         TypeCheckError::TypeArityMismatch { expected, found } => {
@@ -144,41 +168,31 @@ impl From<TypeCheckError> for Error {
 
 #[derive(Clone)]
 pub struct ReportableError {
-    error: Box<Located<Error>>,
-    source_name: String,
+    pub error: Error,
+    pub source_name: String,
+    pub span: Option<Span>,
 }
 
 impl ReportableError {
-    pub fn new<E: Into<Error>>(error: E, span: Span, source_name: String) -> Self {
-        Self {
-            error: Box::new(Located::new(error.into(), span)),
-            source_name,
-        }
-    }
-
-    pub fn eof<E: Into<Error>>(error: E, source_name: String) -> Self {
-        Self::new(error, Span::eof(), source_name)
-    }
-
-    pub fn source_name(&self) -> &str {
-        &self.source_name
-    }
-
     pub fn report(&self, source: &str, interner: &Interner) {
-        let Self { error, source_name } = self;
+        let Self {
+            error,
+            source_name,
+            span,
+        } = self;
 
-        let mut lines = source.lines();
-
-        let start = error.span().start();
-        let end = error.span().end();
-
-        if error.span().is_eof() {
+        let Some(span) = span else {
             eprintln!();
             eprintln!("        | [{source_name}]");
             eprintln!("        |");
-            eprintln!("        | {}", error.data().description(interner));
+            eprintln!("        | {}", error.description(interner));
             return;
-        }
+        };
+
+        let mut lines = source.lines();
+
+        let start = span.start;
+        let end = span.end;
 
         let first_line_number = start.row();
 
@@ -199,7 +213,7 @@ impl ReportableError {
                 spaces = (1..start.column()).len(),
                 carrots = (start.column()..end.column()).len()
             );
-            eprintln!("        | {}", error.data().description(interner))
+            eprintln!("        | {}", error.description(interner))
         } else {
             let first_line = lines.nth(first_line_number - 1).unwrap();
             eprintln!("  {first_line_number:>5} | {first_line}");
@@ -228,9 +242,9 @@ impl ReportableError {
                 "",
                 carrots = (1..end.column()).len()
             );
-            eprintln!("        | {}", error.data().description(interner))
+            eprintln!("        | {}", error.description(interner))
         }
     }
 }
 
-pub type Result<T> = std::result::Result<T, ReportableError>;
+pub type Result<T> = std::result::Result<T, Box<ReportableError>>;

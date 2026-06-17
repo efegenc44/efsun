@@ -37,34 +37,8 @@ impl Display for SourceLocation {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Span {
-    start: SourceLocation,
-    end: SourceLocation,
-}
-
-impl Span {
-    pub fn new(start: SourceLocation, end: SourceLocation) -> Self {
-        Self { start, end }
-    }
-
-    pub fn eof() -> Self {
-        let zero = SourceLocation { row: 0, column: 0 };
-        Self {
-            start: zero,
-            end: zero,
-        }
-    }
-
-    pub fn is_eof(&self) -> bool {
-        self.start.row == 0
-    }
-
-    pub fn start(&self) -> SourceLocation {
-        self.start
-    }
-
-    pub fn end(&self) -> SourceLocation {
-        self.end
-    }
+    pub start: SourceLocation,
+    pub end: SourceLocation,
 }
 
 impl Display for Span {
@@ -75,26 +49,8 @@ impl Display for Span {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Located<T> {
-    data: T,
-    span: Span,
-}
-
-impl<T> Located<T> {
-    pub fn new(data: T, span: Span) -> Self {
-        Self { data, span }
-    }
-
-    pub fn into_data(self) -> T {
-        self.data
-    }
-
-    pub fn data(&self) -> &T {
-        &self.data
-    }
-
-    pub fn span(&self) -> Span {
-        self.span
-    }
+    pub data: T,
+    pub span: Span,
 }
 
 impl<T: Display> Display for Located<T> {

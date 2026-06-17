@@ -77,12 +77,8 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 
     fn peek_some(&mut self) -> Result<Located<Token>> {
-        self.peek().unwrap_or_else(|| {
-            Err(ReportableError::eof(
-                ParseError::UnexpectedEOF,
-                self.source_name.to_string(),
-            ))
-        })
+        self.peek()
+            .unwrap_or_else(|| self.error(ParseError::UnexpectedEOF, None))
     }
 
     fn peek_is_one_of(&mut self, list: &[Token]) -> Result<bool> {
@@ -93,7 +89,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
         let tag = std::mem::discriminant;
 
-        Ok(list.iter().any(|token| tag(token) == tag(peek.data())))
+        Ok(list.iter().any(|token| tag(token) == tag(&peek.data)))
     }
 
     fn peek_is(&mut self, token: Token) -> Result<bool> {
@@ -119,25 +115,28 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
         let tag = std::mem::discriminant;
 
-        if tag(&expected) == tag(token.data()) {
+        if tag(&expected) == tag(&token.data) {
             Ok(token)
         } else {
             self.error(
                 ParseError::UnexpectedToken {
-                    unexpected: token.into_data(),
+                    unexpected: token.data,
                     expected,
                 },
-                token.span(),
+                Some(token.span),
             )
         }
     }
 
     fn expect_identifier(&mut self) -> Result<Located<InternId>> {
         let token = self.expect(Token::Identifier(InternId::dummy()))?;
-        let Token::Identifier(id) = token.data() else {
+        let Token::Identifier(id) = &token.data else {
             unreachable!()
         };
-        Ok(Located::new(*id, token.span()))
+        Ok(Located {
+            data: *id,
+            span: token.span,
+        })
     }
 
     pub fn expression_repl(&mut self) -> Result<Located<Expression>> {
@@ -145,10 +144,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
 
         // NOTE: Maybe it is not needed
         if self.peek().is_some() {
-            return Err(ReportableError::eof(
-                ParseError::IllFormedExpression,
-                self.source_name.to_string(),
-            ));
+            return self.error(ParseError::IllFormedExpression, None);
         }
 
         Ok(expression)
@@ -157,7 +153,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     pub fn expression(&mut self) -> Result<Located<Expression>> {
         let token = self.peek_some()?;
 
-        match token.data() {
+        match &token.data {
             Token::Backslash => self.lambda(),
             Token::LetKeyword => self.letin(),
             Token::MatchKeyword => self.matchas(),
@@ -166,69 +162,91 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     }
 
     fn lambda(&mut self) -> Result<Located<Expression>> {
-        let start = self.expect(Token::Backslash)?.span().start();
+        let start = self.expect(Token::Backslash)?.span.start;
         let variable = self.expect_identifier()?;
         let expression = self.expression()?;
-        let end = expression.span().end();
+        let end = expression.span.end;
 
-        let lambda = expression::Lambda::new(
+        let lambda = expression::Lambda {
             variable,
-            expression,
-            self.indicies.get(),
-            self.indicies.get(),
-        );
-        let expression = Located::new(Expression::Lambda(lambda), Span::new(start, end));
+            expression: Box::new(expression),
+            capture_id: self.indicies.get(),
+            unique_name_id: self.indicies.get(),
+        };
+
+        let expression = Located {
+            data: Expression::Lambda(lambda),
+            span: Span { start, end },
+        };
 
         Ok(expression)
     }
 
     fn letin(&mut self) -> Result<Located<Expression>> {
-        let start = self.expect(Token::LetKeyword)?.span().start();
+        let start = self.expect(Token::LetKeyword)?.span.start;
         let variable = self.expect_identifier()?;
         self.expect(Token::Equals)?;
         let variable_expression = self.expression()?;
         self.expect(Token::InKeyword)?;
         let return_expression = self.expression()?;
-        let end = return_expression.span().end();
+        let end = return_expression.span.end;
 
-        let letin = expression::LetIn::new(
+        let letin = expression::LetIn {
             variable,
-            variable_expression,
-            return_expression,
-            self.indicies.get(),
-        );
-        let expression = Located::new(Expression::LetIn(letin), Span::new(start, end));
+            variable_expression: Box::new(variable_expression),
+            return_expression: Box::new(return_expression),
+            unique_name_id: self.indicies.get(),
+        };
+
+        let expression = Located {
+            data: Expression::LetIn(letin),
+            span: Span { start, end },
+        };
 
         Ok(expression)
     }
 
     fn matchas(&mut self) -> Result<Located<Expression>> {
-        let start = self.expect(Token::MatchKeyword)?.span().start();
+        let start = self.expect(Token::MatchKeyword)?.span.start;
         let expression = self.expression()?;
-        let mut end = expression.span().end();
+        let mut end = expression.span.end;
 
         let mut branches = Vec::new();
         while self.next_if_peek(Token::Bar)? {
             let branch = self.match_branch()?;
-            end = branch.span().end();
+            end = branch.span.end;
             branches.push(branch);
         }
 
-        let matchas = expression::MatchAs::new(expression, branches);
-        let expression = Located::new(Expression::MatchAs(matchas), Span::new(start, end));
+        let matchas = expression::MatchAs {
+            expression: Box::new(expression),
+            branches,
+        };
+
+        let expression = Located {
+            data: Expression::MatchAs(matchas),
+            span: Span { start, end },
+        };
 
         Ok(expression)
     }
 
-    fn match_branch(&mut self) -> Result<Located<expression::matchas::Branch>> {
+    fn match_branch(&mut self) -> Result<Located<expression::Branch>> {
         let pattern = self.pattern()?;
-        let start = pattern.span().start();
+        let start = pattern.span.start;
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
-        let end = expression.span().end();
+        let end = expression.span.end;
 
-        let branch = expression::matchas::Branch::new(pattern, expression);
-        let branch = Located::new(branch, Span::new(start, end));
+        let branch = expression::Branch {
+            pattern,
+            expression,
+        };
+
+        let branch = Located {
+            data: branch,
+            span: Span { start, end },
+        };
 
         Ok(branch)
     }
@@ -236,7 +254,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn pattern(&mut self) -> Result<Located<Pattern>> {
         let token = self.peek_some()?;
 
-        match token.data() {
+        match &token.data {
             Token::String(string) => self.pattern_literal(Pattern::String(*string)),
             Token::Tilde => self.pattern_any(),
             Token::Identifier(_) => self.pattern_structure(),
@@ -246,47 +264,67 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                     unexpected: *unexpected,
                     expected: PATTERN_START,
                 },
-                token.span(),
+                Some(token.span),
             ),
         }
     }
 
     fn pattern_literal(&mut self, literal: Pattern) -> Result<Located<Pattern>> {
-        let span = self.next().unwrap()?.span();
-        Ok(Located::new(literal, span))
+        let span = self.next().unwrap()?.span;
+        Ok(Located {
+            data: literal,
+            span,
+        })
     }
 
     fn pattern_any(&mut self) -> Result<Located<Pattern>> {
-        let start = self.expect(Token::Tilde)?.span().start();
+        let start = self.expect(Token::Tilde)?.span.start;
         let identifier = self.expect_identifier()?;
-        let end = identifier.span().end();
-        let any = pattern::Any::new(identifier.into_data(), self.indicies.get());
+        let end = identifier.span.end;
+        let any = pattern::Any {
+            identifier: identifier.data,
+            unique_name_id: self.indicies.get(),
+        };
 
-        Ok(Located::new(Pattern::Any(any), Span::new(start, end)))
+        Ok(Located {
+            data: Pattern::Any(any),
+            span: Span { start, end },
+        })
     }
 
     fn pattern_structure(&mut self) -> Result<Located<Pattern>> {
         let parts = self.path_parts()?;
-        let start = parts.span().start();
-        let mut end = parts.span().end();
+        let start = parts.span.start;
+        let mut end = parts.span.end;
         let mut arguments = Vec::new();
         while self.peek_is_one_of(PATTERN_START)? {
             let pattern = self.pattern()?;
-            end = pattern.span().end();
+            end = pattern.span.end;
             arguments.push(pattern);
         }
 
-        let structure = pattern::Structure::new(parts, arguments, self.indicies.get());
-        let pattern = Located::new(Pattern::Structure(structure), Span::new(start, end));
+        let structure = pattern::Structure {
+            parts,
+            arguments,
+            structure_pattern_id: self.indicies.get(),
+        };
+
+        let pattern = Located {
+            data: Pattern::Structure(structure),
+            span: Span { start, end },
+        };
 
         Ok(pattern)
     }
 
     fn pattern_grouping(&mut self) -> Result<Located<Pattern>> {
-        let start = self.expect(Token::LeftParenthesis)?.span().start();
+        let start = self.expect(Token::LeftParenthesis)?.span.start;
         let pattern = self.pattern()?;
-        let end = self.expect(Token::RightParenthesis)?.span().end();
-        let pattern = Located::new(pattern.into_data(), Span::new(start, end));
+        let end = self.expect(Token::RightParenthesis)?.span.end;
+        let pattern = Located {
+            data: pattern.data,
+            span: Span { start, end },
+        };
 
         Ok(pattern)
     }
@@ -294,7 +332,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn primary(&mut self) -> Result<Located<Expression>> {
         let token = self.peek_some()?;
 
-        match token.data() {
+        match &token.data {
             Token::String(string) => self.literal(Expression::String(*string)),
             Token::Identifier(_) => self.path(),
             Token::LeftParenthesis => self.grouping(),
@@ -303,46 +341,66 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                     unexpected: *unexpected,
                     expected: PRIMARY_EXPRESSION_START,
                 },
-                token.span(),
+                Some(token.span),
             ),
         }
     }
 
     fn literal(&mut self, literal: Expression) -> Result<Located<Expression>> {
-        let span = self.next().unwrap()?.span();
-        Ok(Located::new(literal, span))
+        let span = self.next().unwrap()?.span;
+        Ok(Located {
+            data: literal,
+            span,
+        })
     }
 
     fn path(&mut self) -> Result<Located<Expression>> {
         let parts = self.path_parts()?;
-        let span = parts.span();
-        let path = expression::Path::new(parts, self.indicies.get(), self.indicies.get());
-        let expression = Located::new(Expression::Path(path), span);
+        let span = parts.span;
+        let path = expression::Path {
+            parts,
+            bound_id: self.indicies.get(),
+            unique_name_id: self.indicies.get(),
+        };
+        let expression = Located {
+            data: Expression::Path(path),
+            span,
+        };
 
         Ok(expression)
     }
 
     fn grouping(&mut self) -> Result<Located<Expression>> {
-        let start = self.expect(Token::LeftParenthesis)?.span().start();
+        let start = self.expect(Token::LeftParenthesis)?.span.start;
         let expression = self.expression()?;
-        let end = self.expect(Token::RightParenthesis)?.span().end();
-        let expression = Located::new(expression.into_data(), Span::new(start, end));
+        let end = self.expect(Token::RightParenthesis)?.span.end;
+        let expression = Located {
+            data: expression.data,
+            span: Span { start, end },
+        };
 
         Ok(expression)
     }
 
     fn application(&mut self) -> Result<Located<Expression>> {
         let mut function = self.primary()?;
-        let start = function.span().start();
+        let start = function.span.start;
 
         while self.peek_is_one_of(PRIMARY_EXPRESSION_START)? {
             let argument = self.primary()?;
-            let end = argument.span().end();
+            let end = argument.span.end;
 
-            let application = expression::Application::new(function, argument);
+            let application = expression::Application {
+                function: Box::new(function),
+                argument: Box::new(argument),
+            };
+
             let application = Expression::Application(application);
 
-            function = Located::new(application, Span::new(start, end));
+            function = Located {
+                data: application,
+                span: Span { start, end },
+            };
         }
 
         Ok(function)
@@ -355,7 +413,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn type_primary(&mut self) -> Result<Located<TypeExpression>> {
         let token = self.peek_some()?;
 
-        match token.data() {
+        match &token.data {
             Token::Identifier(_) => self.type_path(),
             Token::LeftParenthesis => self.type_grouping(),
             unexpected => self.error(
@@ -363,32 +421,41 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                     unexpected: *unexpected,
                     expected: PRIMARY_TYPE_EXPRESSION_START,
                 },
-                token.span(),
+                Some(token.span),
             ),
         }
     }
 
     fn path_parts(&mut self) -> Result<Located<Vec<InternId>>> {
         let identifier = self.expect_identifier()?;
-        let start = identifier.span().start();
-        let mut end = identifier.span().end();
-        let mut parts = vec![identifier.into_data()];
+        let start = identifier.span.start;
+        let mut end = identifier.span.end;
+        let mut parts = vec![identifier.data];
 
         while self.next_if_peek(Token::Dot)? {
             let part = self.expect_identifier()?;
-            end = part.span().end();
-            parts.push(part.into_data());
+            end = part.span.end;
+            parts.push(part.data);
         }
 
-        Ok(Located::new(parts, Span::new(start, end)))
+        Ok(Located {
+            data: parts,
+            span: Span { start, end },
+        })
     }
 
     fn type_path(&mut self) -> Result<Located<TypeExpression>> {
         let parts = self.path_parts()?;
-        let span = parts.span();
+        let span = parts.span;
 
-        let path = type_expression::Path::new(parts, self.indicies.get());
-        let mut type_expression = Located::new(TypeExpression::Path(path), span);
+        let path = type_expression::Path {
+            parts,
+            bound_id: self.indicies.get(),
+        };
+        let mut type_expression = Located {
+            data: TypeExpression::Path(path),
+            span,
+        };
 
         if self.next_if_peek(Token::LeftBracket)? {
             let mut arguments = Vec::new();
@@ -396,24 +463,33 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 let argument = self.type_primary()?;
                 arguments.push(argument);
             }
-            let end = self.expect(Token::RightBracket)?.span().end();
+            let end = self.expect(Token::RightBracket)?.span.end;
 
-            let application = type_expression::Application::new(type_expression, arguments);
+            let application = type_expression::Application {
+                function: Box::new(type_expression),
+                arguments,
+            };
 
-            type_expression = Located::new(
-                TypeExpression::Application(application),
-                Span::new(span.start(), end),
-            );
+            type_expression = Located {
+                data: TypeExpression::Application(application),
+                span: Span {
+                    start: span.start,
+                    end,
+                },
+            };
         }
 
         Ok(type_expression)
     }
 
     fn type_grouping(&mut self) -> Result<Located<TypeExpression>> {
-        let start = self.expect(Token::LeftParenthesis)?.span().start();
+        let start = self.expect(Token::LeftParenthesis)?.span.start;
         let type_expression = self.type_expression()?;
-        let end = self.expect(Token::RightParenthesis)?.span().end();
-        let type_expression = Located::new(type_expression.into_data(), Span::new(start, end));
+        let end = self.expect(Token::RightParenthesis)?.span.end;
+        let type_expression = Located {
+            data: type_expression.data,
+            span: Span { start, end },
+        };
 
         Ok(type_expression)
     }
@@ -425,7 +501,10 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             definitions.push(self.definiton()?);
         }
 
-        let module = definition::Module::new(definitions, self.source_name.to_string());
+        let module = definition::Module {
+            definitions,
+            source_name: self.source_name.to_string(),
+        };
 
         Ok(module)
     }
@@ -433,7 +512,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
     fn definiton(&mut self) -> Result<Definition> {
         let token = self.peek_some()?;
 
-        match token.data() {
+        match &token.data {
             Token::LetKeyword => self.name_definition(),
             Token::ModuleKeyword => self.module_definition(),
             Token::ImportKeyword => self.import_definition(),
@@ -443,7 +522,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                     unexpected: *unexpected,
                     expected: DEFINITION_START,
                 },
-                token.span(),
+                Some(token.span),
             ),
         }
     }
@@ -454,7 +533,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         self.expect(Token::Equals)?;
         let expression = self.expression()?;
 
-        let definiton = definition::Name::new(identifier, expression, self.indicies.get());
+        let definiton = definition::Name {
+            identifier,
+            expression,
+            path_id: self.indicies.get(),
+        };
 
         Ok(Definition::Name(definiton))
     }
@@ -463,7 +546,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         self.expect(Token::ModuleKeyword)?;
 
         let parts = self.path_parts()?;
-        let definition = definition::ModulePath::new(parts);
+        let definition = definition::ModulePath { parts };
 
         Ok(Definition::ModulePath(definition))
     }
@@ -482,14 +565,17 @@ impl<'source, 'interner> Parser<'source, 'interner> {
                 imports.push(self.import()?);
             }
 
-            Some(definition::import::Subimport::Import(imports))
+            Some(definition::Subimport::Import(imports))
         } else if self.next_if_peek(Token::AsKeyword)? {
-            Some(definition::import::Subimport::As(self.expect_identifier()?))
+            Some(definition::Subimport::As(self.expect_identifier()?))
         } else {
             None
         };
 
-        Ok(definition::Import::new(parts, subimport))
+        Ok(definition::Import {
+            module_path: parts,
+            subimport,
+        })
     }
 
     fn structure_definition(&mut self) -> Result<Definition> {
@@ -512,37 +598,48 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             constructors.push(self.constructor()?);
         }
 
-        let structure =
-            definition::Structure::new(name, variables, constructors, self.indicies.get());
+        let structure = definition::Structure {
+            name,
+            variables,
+            constructors,
+            path_id: self.indicies.get(),
+        };
 
         Ok(Definition::Structure(structure))
     }
 
-    fn constructor(&mut self) -> Result<Located<definition::structure::Constructor>> {
+    fn constructor(&mut self) -> Result<Located<definition::Constructor>> {
         let name = self.expect_identifier()?;
-        let start = name.span().start();
-        let mut end = name.span().end();
+        let start = name.span.start;
+        let mut end = name.span.end;
 
         let mut arguments = Vec::new();
         while self.peek_is_one_of(PRIMARY_TYPE_EXPRESSION_START)? {
             let primary = self.type_primary()?;
-            end = primary.span().end();
+            end = primary.span.end;
             arguments.push(primary);
         }
 
-        let constructor =
-            definition::structure::Constructor::new(name, arguments, self.indicies.get());
-        let constructor = Located::new(constructor, Span::new(start, end));
+        let constructor = definition::Constructor {
+            name,
+            arguments,
+            path_id: self.indicies.get(),
+        };
+
+        let constructor = Located {
+            data: constructor,
+            span: Span { start, end },
+        };
 
         Ok(constructor)
     }
 
-    fn error<T>(&self, error: ParseError, span: Span) -> Result<T> {
-        Err(ReportableError::new(
-            error,
+    fn error<T>(&self, error: ParseError, span: Option<Span>) -> Result<T> {
+        Err(Box::new(ReportableError {
+            error: error.into(),
+            source_name: self.source_name.to_string(),
             span,
-            self.source_name.to_string(),
-        ))
+        }))
     }
 }
 

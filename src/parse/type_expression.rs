@@ -1,16 +1,24 @@
 use std::fmt::Display;
 
-use crate::interner::Interner;
-
-pub mod application;
-pub mod path;
-
-pub type Path = path::Path;
-pub type Application = application::Application;
+use crate::{
+    interner::{InternId, Interner},
+    location::Located,
+    metadata::BoundMetadataId,
+};
 
 pub enum TypeExpression {
     Path(Path),
     Application(Application),
+}
+
+pub struct Path {
+    pub parts: Located<Vec<InternId>>,
+    pub bound_id: BoundMetadataId,
+}
+
+pub struct Application {
+    pub function: Box<Located<TypeExpression>>,
+    pub arguments: Vec<Located<TypeExpression>>,
 }
 
 impl TypeExpression {
@@ -23,8 +31,8 @@ impl TypeExpression {
         match self {
             Self::Path(path) => {
                 let path_string = path
-                    .parts()
-                    .data()
+                    .parts
+                    .data
                     .iter()
                     .map(|id| interner.lookup(id))
                     .collect::<Vec<_>>()
@@ -45,9 +53,9 @@ impl TypeExpression {
             }
             Self::Application(application) => {
                 indent("Type Application", depth);
-                application.function().data().print(interner, depth + 1);
-                for argument in application.arguments() {
-                    argument.data().print(interner, depth + 1);
+                application.function.data.print(interner, depth + 1);
+                for argument in &application.arguments {
+                    argument.data.print(interner, depth + 1);
                 }
             }
         }

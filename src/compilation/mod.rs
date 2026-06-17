@@ -203,21 +203,21 @@ where
     fn collect_names(&mut self, module: &'anf anf::Module) {
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
-                let path = &self.metadata[name.path_id()];
-                self.name_anfs.insert(path, name.expression());
+                let path = &self.metadata[name.path_id];
+                self.name_anfs.insert(path, &name.expression);
             }
 
             if let anf::Definition::Structure(structure) = definition {
-                for (order, constructor) in structure.constructors().iter().enumerate() {
-                    let name_offset = self.string_offset(constructor.name());
+                for (order, constructor) in structure.constructors.iter().enumerate() {
+                    let name_offset = self.string_offset(constructor.name);
 
-                    let instruction = if constructor.arity() == 0 {
+                    let instruction = if constructor.arity == 0 {
                         Instruction::Structure(name_offset, order)
                     } else {
-                        Instruction::Constructor(name_offset, order, constructor.arity())
+                        Instruction::Constructor(name_offset, order, constructor.arity)
                     };
 
-                    let path = &self.metadata[constructor.path_id()];
+                    let path = &self.metadata[constructor.path_id];
 
                     self.names.insert(path, vec![instruction.into()]);
                     self.globals.push(path);
@@ -229,9 +229,9 @@ where
     pub fn module(&mut self, module: &'anf anf::Module) {
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
-                let path = &self.metadata[name.path_id()];
+                let path = &self.metadata[name.path_id];
                 if !self.globals.pushed(path) {
-                    let code = seperate!(self, self.expression(name.expression()));
+                    let code = seperate!(self, self.expression(&name.expression));
                     self.names.insert(path, code);
                     self.globals.push(path);
                 }
@@ -261,7 +261,7 @@ where
         match expression {
             anf::Expression::LetIn(letin) => self.letin(letin),
             anf::Expression::Application(application) => self.application(application),
-            anf::Expression::Match(matchlet) => self.matchas(matchlet),
+            anf::Expression::MatchAs(matchlet) => self.matchas(matchlet),
             anf::Expression::Join(join) => self.join(join),
             anf::Expression::Jump(jump) => self.jump(jump),
             anf::Expression::Atom(atom) => self.atom(atom),
@@ -295,7 +295,7 @@ where
     }
 
     fn path(&mut self, path: &'anf anf::atom::Path) {
-        let bound = &self.metadata[path.anf_bound_id()];
+        let bound = &self.metadata[path.anf_bound_id];
 
         let instruction = match bound {
             Bound::Local(id) => Instruction::GetLocal(id.value()).into(),
@@ -316,25 +316,25 @@ where
 
     fn application(&mut self, application: &'anf anf::expression::Application) {
         self.emit(Instruction::PushBase.into());
-        self.atom(application.argument());
-        self.atom(application.function());
+        self.atom(&application.argument);
+        self.atom(&application.function);
         self.emit(Instruction::SetBase(2).into());
         self.emit(Instruction::Call.into());
-        scoped_expression!(1, self, application.expression());
+        scoped_expression!(1, self, &application.expression);
     }
 
     fn matchas(&mut self, matchas: &'anf anf::expression::MatchAs) {
-        let mut matched = seperate!(self, self.atom(matchas.expression()));
+        let mut matched = seperate!(self, self.atom(&matchas.expression));
 
-        for branch in matchas.branches() {
-            self.pattern_equality(&mut matched, branch.pattern());
+        for branch in &matchas.branches {
+            self.pattern_equality(&mut matched, &branch.pattern);
 
-            let local_code = seperate!(self, self.pattern_locals(&mut matched, branch.pattern()));
+            let local_code = seperate!(self, self.pattern_locals(&mut matched, &branch.pattern));
 
             let old = self.reset_local_counter();
             let branch_code = seperate!(
                 self,
-                scoped_expression!(branch.pattern().local_count(), self, branch.expression())
+                scoped_expression!(branch.pattern.local_count(), self, &branch.expression)
             );
             self.restore_local_counter(old);
 
@@ -350,13 +350,13 @@ where
             Pattern::Structure(structure) => {
                 self.extend(matched.iter().cloned());
 
-                let tag = self.metadata[structure.structure_pattern_id()].tag();
+                let tag = self.metadata[structure.structure_pattern_id].tag();
 
                 self.emit(Instruction::TagEquals(tag).into());
 
-                for (index, argument) in structure.arguments().iter().enumerate() {
+                for (index, argument) in structure.arguments.iter().enumerate() {
                     matched.push(Instruction::GetArgument(index).into());
-                    self.pattern_equality(matched, argument.data());
+                    self.pattern_equality(matched, &argument.data);
                     self.emit(Instruction::LogicalAnd.into());
                     matched.pop();
                 }
@@ -373,9 +373,9 @@ where
         match pattern {
             Pattern::Any(_) => self.extend(matched.iter().cloned()),
             Pattern::Structure(structure) => {
-                for (index, argument) in structure.arguments().iter().enumerate() {
+                for (index, argument) in structure.arguments.iter().enumerate() {
                     matched.push(Instruction::GetArgument(index).into());
-                    self.pattern_locals(matched, argument.data());
+                    self.pattern_locals(matched, &argument.data);
                     matched.pop();
                 }
             }
@@ -384,33 +384,33 @@ where
     }
 
     fn join(&mut self, join: &'anf anf::expression::Join) {
-        let mut join_instructions = seperate!(self, self.expression(join.join()));
+        let mut join_instructions = seperate!(self, self.expression(&join.join));
 
         let len = join_instructions.len();
         for (index, instruction) in join_instructions.iter_mut().enumerate() {
             if let PreInstruction::Placeholder(Placeholder::Jump(label)) = instruction
-                && *label == join.label()
+                && *label == join.label
             {
                 *instruction = Placeholder::Skip(len - (index + 1)).into()
             }
         }
 
         self.extend(join_instructions.into_iter());
-        scoped_expression!(1, self, join.expression());
+        scoped_expression!(1, self, &join.expression);
     }
 
     fn jump(&mut self, jump: &'anf anf::expression::Jump) {
-        self.atom(jump.expression());
+        self.atom(&jump.expression);
         if self.local_count > 0 {
             self.emit(Instruction::PopScope(self.local_count).into());
         }
-        self.emit(Placeholder::Jump(jump.to()).into());
+        self.emit(Placeholder::Jump(jump.to).into());
     }
 
     fn lambda(&mut self, lambda: &'anf anf::atom::Lambda) {
         let old = self.replace_in_lambda(true);
         let lambda_code = seperate!(self, {
-            self.expression(lambda.expression());
+            self.expression(&lambda.expression);
             self.emit(Instruction::Return.into());
         });
         self.replace_in_lambda(old);
@@ -418,14 +418,14 @@ where
         let id = self.lambdas.len();
         self.lambdas.push(lambda_code);
 
-        let capture = &self.metadata[lambda.anf_capture_id()];
+        let capture = &self.metadata[lambda.anf_capture_id];
 
         self.emit(Instruction::MakeLambda(id, capture.to_vec()).into())
     }
 
     fn letin(&mut self, letin: &'anf anf::expression::LetIn) {
-        self.atom(letin.variable_expression());
-        scoped_expression!(1, self, letin.return_expression());
+        self.atom(&letin.variable_expression);
+        scoped_expression!(1, self, &letin.return_expression);
     }
 }
 

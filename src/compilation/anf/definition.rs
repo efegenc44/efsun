@@ -1,16 +1,30 @@
-pub mod name;
-pub mod structure;
-
 use std::fmt::Display;
 
-use crate::interner::Interner;
-
-pub type Name = name::Name;
-pub type Structure = structure::Structure;
+use crate::{
+    compilation::anf,
+    interner::{InternId, Interner},
+    metadata::PathMetadataId,
+};
 
 pub enum Definition {
     Name(Name),
     Structure(Structure),
+}
+
+pub struct Name {
+    pub identifier: InternId,
+    pub expression: anf::Expression,
+    pub path_id: PathMetadataId,
+}
+
+pub struct Structure {
+    pub constructors: Vec<Constructor>,
+}
+
+pub struct Constructor {
+    pub name: InternId,
+    pub arity: usize,
+    pub path_id: PathMetadataId,
 }
 
 impl Definition {
@@ -23,13 +37,13 @@ impl Definition {
         match self {
             Self::Name(name) => {
                 indent("Name Definition:", depth);
-                indent(interner.lookup(&name.identifier()), depth + 1);
-                name.expression().print(depth + 1, interner);
+                indent(interner.lookup(&name.identifier), depth + 1);
+                name.expression.print(depth + 1, interner);
             }
             Self::Structure(structure) => {
                 indent("Structure Definition:", depth);
-                for constructor in structure.constructors() {
-                    indent(interner.lookup(&constructor.name()), depth + 1);
+                for constructor in &structure.constructors {
+                    indent(interner.lookup(&constructor.name), depth + 1);
                     // indent(WithInterner::new(constructor.path(), interner), depth + 1);
                 }
             }

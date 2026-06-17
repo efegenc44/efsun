@@ -10,8 +10,10 @@ pub enum Type {
 
 impl<'interner> Display for WithInterner<'interner, &Type> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.data() {
-            Type::Mono(m) => write!(f, "{}", WithInterner::new(m, self.interner())),
+        let interner = self.interner;
+
+        match &self.data {
+            Type::Mono(m) => write!(f, "{}", WithInterner { data: m, interner }),
             Type::Poly(variables, m) => {
                 // TODO: Print type variables with more care (greek letters?)
                 if !variables.is_empty() {
@@ -27,7 +29,7 @@ impl<'interner> Display for WithInterner<'interner, &Type> {
                     }
                     write!(f, " ")?;
                 }
-                write!(f, "{}", WithInterner::new(m, self.interner()))
+                write!(f, "{}", WithInterner { data: m, interner })
             }
         }
     }
@@ -60,11 +62,11 @@ impl MonoType {
                 }
             }
             Self::Arrow(arrow) => {
-                arrow.from().gather_variables(variables);
-                arrow.to().gather_variables(variables);
+                arrow.from.gather_variables(variables);
+                arrow.to.gather_variables(variables);
             }
             Self::Structure(structure) => {
-                for argument in structure.arguments() {
+                for argument in &structure.arguments {
                     argument.gather_variables(variables);
                 }
             }
@@ -81,7 +83,10 @@ impl MonoType {
             Self::Arrow(arrow) => {
                 let from = arrow.from.substitute(table);
                 let to = arrow.to.substitute(table);
-                let arrow = ArrowType::new(from, to);
+                let arrow = ArrowType {
+                    from: Box::new(from),
+                    to: Box::new(to),
+                };
 
                 Self::Arrow(arrow)
             }
@@ -92,7 +97,10 @@ impl MonoType {
                     .map(|argument| argument.substitute(table))
                     .collect();
 
-                let structure = StructureType::new(structure.path, arguments);
+                let structure = StructureType {
+                    path: structure.path,
+                    arguments,
+                };
                 Self::Structure(structure)
             }
             Self::String => self,
@@ -102,9 +110,9 @@ impl MonoType {
     pub fn includes(&self, variable: usize) -> bool {
         match self {
             Self::Variable(id) => *id == variable,
-            Self::Arrow(arrow) => arrow.from().includes(variable) || arrow.to().includes(variable),
+            Self::Arrow(arrow) => arrow.from.includes(variable) || arrow.to.includes(variable),
             Self::Structure(structure) => structure
-                .arguments()
+                .arguments
                 .iter()
                 .any(|argument| argument.includes(variable)),
             Self::String => false,
@@ -114,31 +122,64 @@ impl MonoType {
 
 impl<'interner> Display for WithInterner<'interner, &MonoType> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.data() {
+        let interner = self.interner;
+
+        match &self.data {
             MonoType::Variable(id) => write!(f, "a{id}"),
             MonoType::Arrow(arrow) => {
-                if let MonoType::Arrow(_) = arrow.from() {
-                    write!(f, "({})", WithInterner::new(arrow.from(), self.interner()))?;
+                if let MonoType::Arrow(_) = *arrow.from {
+                    write!(
+                        f,
+                        "({})",
+                        WithInterner {
+                            data: arrow.from.as_ref(),
+                            interner
+                        }
+                    )?;
                 } else {
-                    write!(f, "{}", WithInterner::new(arrow.from(), self.interner()))?;
+                    write!(
+                        f,
+                        "{}",
+                        WithInterner {
+                            data: arrow.from.as_ref(),
+                            interner
+                        }
+                    )?;
                 }
-                write!(f, " -> {}", WithInterner::new(arrow.to(), self.interner()))
+                write!(
+                    f,
+                    " -> {}",
+                    WithInterner {
+                        data: arrow.to.as_ref(),
+                        interner
+                    }
+                )
             }
             MonoType::Structure(structure) => {
                 write!(
                     f,
                     "{}",
-                    WithInterner::new(structure.path(), self.interner())
+                    WithInterner {
+                        data: &structure.path,
+                        interner
+                    }
                 )?;
-                match structure.arguments() {
+                match structure.arguments.as_slice() {
                     [] => Ok(()),
                     [argument] => {
-                        write!(f, "[{}]", WithInterner::new(argument, self.interner()))
+                        write!(
+                            f,
+                            "[{}]",
+                            WithInterner {
+                                data: argument,
+                                interner
+                            }
+                        )
                     }
                     [x, xs @ ..] => {
-                        write!(f, "[{}", WithInterner::new(x, self.interner()))?;
+                        write!(f, "[{}", WithInterner { data: x, interner })?;
                         for x in xs {
-                            write!(f, " {}", WithInterner::new(x, self.interner()))?;
+                            write!(f, " {}", WithInterner { data: x, interner })?;
                         }
                         write!(f, "]")
                     }
@@ -151,43 +192,12 @@ impl<'interner> Display for WithInterner<'interner, &MonoType> {
 
 #[derive(Debug, Clone)]
 pub struct ArrowType {
-    from: Box<MonoType>,
-    to: Box<MonoType>,
-}
-
-impl ArrowType {
-    pub fn new(from: MonoType, to: MonoType) -> Self {
-        ArrowType {
-            from: Box::new(from),
-            to: Box::new(to),
-        }
-    }
-
-    pub fn from(&self) -> &MonoType {
-        &self.from
-    }
-
-    pub fn to(&self) -> &MonoType {
-        &self.to
-    }
+    pub from: Box<MonoType>,
+    pub to: Box<MonoType>,
 }
 
 #[derive(Debug, Clone)]
 pub struct StructureType {
-    path: Path,
-    arguments: Vec<MonoType>,
-}
-
-impl StructureType {
-    pub fn new(path: Path, arguments: Vec<MonoType>) -> Self {
-        Self { path, arguments }
-    }
-
-    pub fn arguments(&self) -> &[MonoType] {
-        &self.arguments
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
+    pub path: Path,
+    pub arguments: Vec<MonoType>,
 }

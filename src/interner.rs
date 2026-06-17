@@ -59,20 +59,20 @@ impl Display for InternId {
 }
 
 pub struct WithInterner<'interner, T> {
-    data: T,
-    interner: &'interner Interner,
+    pub data: T,
+    pub interner: &'interner Interner,
 }
 
-impl<'interner, T> WithInterner<'interner, T> {
-    pub fn new(data: T, interner: &'interner Interner) -> Self {
-        Self { data, interner }
-    }
+// impl<'interner, T> WithInterner<'interner, T> {
+//     pub fn new(data: T, interner: &'interner Interner) -> Self {
+//         Self { data, interner }
+//     }
 
-    pub fn data(&self) -> &T {
-        &self.data
-    }
+//     pub fn data(&self) -> &T {
+//         &self.data
+//     }
 
-    pub fn interner(&self) -> &Interner {
-        self.interner
-    }
-}
+//     pub fn interner(&self) -> &Interner {
+//         self.interner
+//     }
+// }

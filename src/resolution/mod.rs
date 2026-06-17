@@ -89,9 +89,9 @@ impl Resolver {
     }
 
     pub fn expression(&mut self, expression: &Located<Expression>) -> Result<()> {
-        let span = expression.span();
+        let span = expression.span;
 
-        match expression.data() {
+        match &expression.data {
             Expression::String(_) => (),
             Expression::Path(path) => self.path(path, span)?,
             Expression::Lambda(lambda) => self.lambda(lambda)?,
@@ -105,7 +105,7 @@ impl Resolver {
 
     fn absolute_path(&self, base: &InternId) -> Path {
         if let Some(import_path) = self.current_module().imports().get(base) {
-            import_path.data().clone()
+            import_path.data.clone()
         } else {
             self.append_current_path(*base)
         }
@@ -119,7 +119,7 @@ impl Resolver {
                 if !self.names.contains(&path) {
                     self.error(
                         ResolutionError::UnboundPath(Path::from_parts(vec![identifier])),
-                        span,
+                        Some(span),
                     )
                 } else {
                     Ok(Bound::Absolute(path))
@@ -129,7 +129,7 @@ impl Resolver {
     }
 
     fn path(&mut self, path: &expression::Path, span: Span) -> Result<()> {
-        let bound = match path.parts().data().as_slice() {
+        let bound = match path.parts.data.as_slice() {
             [] => unreachable!(),
             [identifier] => self.identifier(*identifier, span)?,
             [base, rest @ ..] => {
@@ -137,62 +137,62 @@ impl Resolver {
                 path.push(rest);
 
                 let true = self.names.contains(&path) else {
-                    return self.error(ResolutionError::UnboundPath(path), span);
+                    return self.error(ResolutionError::UnboundPath(path), Some(span));
                 };
 
                 Bound::Absolute(path)
             }
         };
 
-        self.metadata.set(path.bound_id(), bound);
+        self.metadata.set(path.bound_id, bound);
 
         Ok(())
     }
 
     fn lambda(&mut self, lambda: &expression::Lambda) -> Result<()> {
         self.stack.push_frame();
-        self.stack.push_local(lambda.variable().into_data());
-        self.expression(lambda.expression())?;
+        self.stack.push_local(lambda.variable.data);
+        self.expression(&lambda.expression)?;
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
-        self.metadata.set(lambda.capture_id(), capture);
+        self.metadata.set(lambda.capture_id, capture);
 
         Ok(())
     }
 
     fn application(&mut self, application: &expression::Application) -> Result<()> {
-        self.expression(application.function())?;
-        self.expression(application.argument())?;
+        self.expression(&application.function)?;
+        self.expression(&application.argument)?;
 
         Ok(())
     }
 
     fn letin(&mut self, letin: &expression::LetIn) -> Result<()> {
-        self.expression(letin.variable_expression())?;
-        self.stack.push_local(letin.variable().into_data());
-        self.expression(letin.return_expression())?;
+        self.expression(&letin.variable_expression)?;
+        self.stack.push_local(letin.variable.data);
+        self.expression(&letin.return_expression)?;
         self.stack.pop_local();
 
         Ok(())
     }
 
     fn matchas(&mut self, matchas: &expression::MatchAs) -> Result<()> {
-        self.expression(matchas.expression())?;
+        self.expression(&matchas.expression)?;
 
-        for branch in matchas.branches() {
-            self.match_branch(branch.data())?;
+        for branch in &matchas.branches {
+            self.match_branch(&branch.data)?;
         }
 
         Ok(())
     }
 
-    fn match_branch(&mut self, branch: &expression::matchas::Branch) -> Result<()> {
-        let span = branch.pattern().span();
+    fn match_branch(&mut self, branch: &expression::Branch) -> Result<()> {
+        let span = branch.pattern.span;
 
         let len = self.stack.len();
-        self.pattern_define_locals(branch.pattern().data(), span)?;
-        self.expression(branch.expression())?;
+        self.pattern_define_locals(&branch.pattern.data, span)?;
+        self.expression(&branch.expression)?;
         self.stack.truncate(len);
 
         Ok(())
@@ -209,24 +209,24 @@ impl Resolver {
     }
 
     fn any_pattern(&mut self, any: &pattern::Any) -> Result<()> {
-        self.stack.push_local(any.identifier());
+        self.stack.push_local(any.identifier);
 
         Ok(())
     }
 
     fn structure_pattern(&mut self, structure: &pattern::Structure, span: Span) -> Result<()> {
-        for argument in structure.arguments() {
-            self.pattern_define_locals(argument.data(), span)?;
+        for argument in &structure.arguments {
+            self.pattern_define_locals(&argument.data, span)?;
         }
 
-        let (type_path, constructor_name, tag) = match structure.parts().data().as_slice() {
+        let (type_path, constructor_name, tag) = match &structure.parts.data.as_slice() {
             [] => unreachable!(),
             [base, rest @ ..] => {
                 let mut path = self.absolute_path(base);
                 path.push(rest);
 
                 let true = self.names.contains(&path) else {
-                    return self.error(ResolutionError::UnboundPath(path), span);
+                    return self.error(ResolutionError::UnboundPath(path), Some(span));
                 };
 
                 let constructor_name = path.pop();
@@ -245,15 +245,15 @@ impl Resolver {
 
         let structure_pattern = metadata::StructurePattern::new(type_path, constructor_name, tag);
         self.metadata
-            .set(structure.structure_pattern_id(), structure_pattern);
+            .set(structure.structure_pattern_id, structure_pattern);
 
         Ok(())
     }
 
     fn type_expression(&mut self, expression: &Located<TypeExpression>) -> Result<()> {
-        let span = expression.span();
+        let span = expression.span;
 
-        match expression.data() {
+        match &expression.data {
             TypeExpression::Path(path) => self.type_path(path, span)?,
             TypeExpression::Application(application) => self.type_application(application)?,
         };
@@ -277,7 +277,7 @@ impl Resolver {
                 if !self.types.contains(&path) {
                     self.error(
                         ResolutionError::UnboundPath(Path::from_parts(vec![*identifier])),
-                        span,
+                        Some(span),
                     )
                 } else {
                     Ok(Bound::Absolute(path))
@@ -287,7 +287,7 @@ impl Resolver {
     }
 
     fn type_path(&mut self, path: &type_expression::Path, span: Span) -> Result<()> {
-        let bound = match path.parts().data().as_slice() {
+        let bound = match &path.parts.data.as_slice() {
             [] => unreachable!(),
             [identifier] => self.type_identifier(identifier, span)?,
             [base, rest @ ..] => {
@@ -295,22 +295,22 @@ impl Resolver {
                 path.push(rest);
 
                 let true = self.types.contains(&path) else {
-                    return self.error(ResolutionError::UnboundPath(path), span);
+                    return self.error(ResolutionError::UnboundPath(path), Some(span));
                 };
 
                 Bound::Absolute(path)
             }
         };
 
-        self.metadata.set(path.bound_id(), bound);
+        self.metadata.set(path.bound_id, bound);
 
         Ok(())
     }
 
     fn type_application(&mut self, application: &type_expression::Application) -> Result<()> {
-        self.type_expression(application.function())?;
+        self.type_expression(&application.function)?;
 
-        for argument in application.arguments() {
+        for argument in &application.arguments {
             self.type_expression(argument)?;
         }
 
@@ -319,7 +319,7 @@ impl Resolver {
 
     pub fn program(&mut self, program: &Program) -> Result<()> {
         let module_paths = program
-            .modules()
+            .modules
             .iter()
             .map(|module| {
                 let path = self.find_module_name(module)?;
@@ -331,7 +331,7 @@ impl Resolver {
 
         self.check_if_imports_exist()?;
 
-        for (module, module_path) in program.modules().iter().zip(module_paths) {
+        for (module, module_path) in program.modules.iter().zip(module_paths) {
             self.current_module_path = Some(module_path);
             self.module(module)?;
         }
@@ -340,7 +340,7 @@ impl Resolver {
     }
 
     pub fn module(&mut self, module: &Module) -> Result<()> {
-        for definition in module.definitions() {
+        for definition in &module.definitions {
             self.definition(definition)?;
         }
 
@@ -348,12 +348,12 @@ impl Resolver {
     }
 
     fn find_module_name(&mut self, module: &Module) -> Result<Path> {
-        for definition in module.definitions() {
+        for definition in &module.definitions {
             if let Definition::ModulePath(module_path) = definition {
-                let module_path = Path::from_parts(module_path.parts().data().to_vec());
+                let module_path = Path::from_parts(module_path.parts.data.to_vec());
                 self.modules.insert(
                     module_path.clone(),
-                    ModuleBound::empty(module.source_name().to_string()),
+                    ModuleBound::empty(module.source_name.to_string()),
                 );
 
                 return Ok(module_path);
@@ -361,57 +361,63 @@ impl Resolver {
         }
 
         // TODO: Check for duplicate module definition
-        Err(ReportableError::eof(
-            ResolutionError::MissingModuleDefinition,
-            module.source_name().to_string(),
-        ))
+        let error = ReportableError {
+            error: ResolutionError::MissingModuleDefinition.into(),
+            source_name: module.source_name.to_string(),
+            span: None,
+        };
+
+        Err(Box::new(error))
     }
 
     fn collect_names(&mut self, module: &Module) -> Result<()> {
-        for definition in module.definitions() {
+        for definition in &module.definitions {
             if let Definition::Name(name) = definition {
                 // TODO: Check for duplicate definitions
                 self.current_module_mut()
                     .names_mut()
-                    .insert(name.identifier().into_data());
+                    .insert(name.identifier.data);
 
                 self.names
-                    .insert(self.append_current_path(name.identifier().into_data()));
+                    .insert(self.append_current_path(name.identifier.data));
             }
 
             if let Definition::Structure(structure) = definition {
-                let structure_path = self.append_current_path(structure.name().into_data());
+                let structure_path = self.append_current_path(structure.name.data);
 
-                for constructor in structure.constructors() {
-                    self.names
-                        .insert(structure_path.append([constructor.data().name().into_data()]));
+                for constructor in &structure.constructors {
+                    let name = constructor.data.name.data;
+                    self.names.insert(structure_path.append([name]));
                 }
 
                 self.types.insert(structure_path);
 
                 // TODO: Check for duplicate definitions
                 let constructors = structure
-                    .constructors()
+                    .constructors
                     .iter()
-                    .map(|constructor| constructor.data().name().into_data())
+                    .map(|constructor| constructor.data.name.data)
                     .collect();
 
                 self.current_module_mut()
                     .types_mut()
-                    .insert(structure.name().into_data(), constructors);
+                    .insert(structure.name.data, constructors);
             }
 
             if let Definition::Import(import) = definition {
-                let base = Path::from_parts(import.module_path().data().to_vec());
+                let base = Path::from_parts(import.module_path.data.to_vec());
 
-                match import.subimport() {
+                match &import.subimport {
                     Some(import_name) => {
                         self.collect_subimport(import_name, &base)?;
                     }
                     None => {
                         self.current_module_mut().imports_mut().insert(
-                            *import.module_path().data().last().unwrap(),
-                            Located::new(base, import.module_path().span()),
+                            *import.module_path.data.last().unwrap(),
+                            Located {
+                                data: base,
+                                span: import.module_path.span,
+                            },
                         );
                     }
                 }
@@ -423,27 +429,34 @@ impl Resolver {
 
     fn collect_subimport(
         &mut self,
-        import_name: &definition::import::Subimport,
+        import_name: &definition::Subimport,
         base: &Path,
     ) -> Result<()> {
         match import_name {
-            definition::import::Subimport::As(as_name) => {
-                self.current_module_mut()
-                    .imports_mut()
-                    .insert(*as_name.data(), Located::new(base.clone(), as_name.span()));
+            definition::Subimport::As(as_name) => {
+                self.current_module_mut().imports_mut().insert(
+                    as_name.data,
+                    Located {
+                        data: base.clone(),
+                        span: as_name.span,
+                    },
+                );
             }
-            definition::import::Subimport::Import(imports) => {
+            definition::Subimport::Import(imports) => {
                 for import in imports {
-                    let base = base.append(import.module_path().data());
+                    let base = base.append(&import.module_path.data);
 
-                    match import.subimport() {
+                    match &import.subimport {
                         Some(subimport) => {
                             self.collect_subimport(subimport, &base)?;
                         }
                         None => {
                             self.current_module_mut().imports_mut().insert(
-                                *import.module_path().data().last().unwrap(),
-                                Located::new(base, import.module_path().span()),
+                                *import.module_path.data.last().unwrap(),
+                                Located {
+                                    data: base,
+                                    span: import.module_path.span,
+                                },
                             );
                         }
                     }
@@ -457,15 +470,17 @@ impl Resolver {
     fn check_if_imports_exist(&self) -> Result<()> {
         for module in self.modules.values() {
             for import in module.imports().values() {
-                if !(self.names.contains(import.data())
-                    || self.types.contains(import.data())
-                    || self.modules.contains_key(import.data()))
+                if !(self.names.contains(&import.data)
+                    || self.types.contains(&import.data)
+                    || self.modules.contains_key(&import.data))
                 {
-                    return Err(ReportableError::new(
-                        ResolutionError::UnresolvedImport(import.data().clone()),
-                        import.span(),
-                        module.source_name().to_string(),
-                    ));
+                    let error = ReportableError {
+                        error: ResolutionError::UnresolvedImport(import.data.clone()).into(),
+                        source_name: module.source_name().to_string(),
+                        span: Some(import.span),
+                    };
+
+                    return Err(Box::new(error));
                 }
             }
         }
@@ -485,57 +500,53 @@ impl Resolver {
     }
 
     fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
-        self.expression(name_definition.expression())?;
-        let path = self.append_current_path(name_definition.identifier().into_data());
+        self.expression(&name_definition.expression)?;
+        let path = self.append_current_path(name_definition.identifier.data);
 
-        self.metadata.set(name_definition.path_id(), path);
+        self.metadata.set(name_definition.path_id, path);
 
         Ok(())
     }
 
     fn structure_definition(&mut self, structure_definition: &definition::Structure) -> Result<()> {
-        let path = self.append_current_path(structure_definition.name().into_data());
+        let path = self.append_current_path(structure_definition.name.data);
 
-        self.type_variables.extend(
-            structure_definition
-                .variables()
-                .iter()
-                .map(|v| v.into_data()),
-        );
+        self.type_variables
+            .extend(structure_definition.variables.iter().map(|v| v.data));
 
-        for constructor in structure_definition.constructors() {
-            self.constructor(constructor.data(), &path)?;
+        for constructor in &structure_definition.constructors {
+            self.constructor(&constructor.data, &path)?;
         }
 
         self.type_variables.clear();
 
-        self.metadata.set(structure_definition.path_id(), path);
+        self.metadata.set(structure_definition.path_id, path);
 
         Ok(())
     }
 
     fn constructor(
         &mut self,
-        constructor: &definition::structure::Constructor,
+        constructor: &definition::Constructor,
         type_path: &Path,
     ) -> Result<()> {
-        for argument in constructor.arguments() {
+        for argument in &constructor.arguments {
             self.type_expression(argument)?;
         }
 
-        let path = type_path.append([constructor.name().into_data()]);
+        let path = type_path.append([constructor.name.data]);
 
-        self.metadata.set(constructor.path_id(), path);
+        self.metadata.set(constructor.path_id, path);
 
         Ok(())
     }
 
-    fn error<T>(&self, error: ResolutionError, span: Span) -> Result<T> {
-        Err(ReportableError::new(
-            error,
+    fn error<T>(&self, error: ResolutionError, span: Option<Span>) -> Result<T> {
+        Err(Box::new(ReportableError {
+            error: error.into(),
+            source_name: self.current_module().source_name().to_string(),
             span,
-            self.current_module().source_name().to_string(),
-        ))
+        }))
     }
 
     pub fn finish(self) -> Metadata<Resolved> {
@@ -569,7 +580,7 @@ impl ANFResolver {
         match anf {
             anf::Expression::LetIn(letin) => self.letin(letin),
             anf::Expression::Application(application) => self.application(application),
-            anf::Expression::Match(matchlet) => self.matchas(matchlet),
+            anf::Expression::MatchAs(matchlet) => self.matchas(matchlet),
             anf::Expression::Join(join) => self.join(join),
             anf::Expression::Jump(jump) => self.jump(jump),
             anf::Expression::Atom(atom) => self.atom(atom),
@@ -585,17 +596,17 @@ impl ANFResolver {
     }
 
     fn path(&mut self, path: &anf::atom::Path) {
-        let bound = if let Some(bound) = path.bound() {
+        let bound = if let Some(bound) = &path.bound {
             bound.clone()
         } else {
-            match path.path() {
+            match &path.path {
                 anf::Path::ANFLocal(id) => self.identifier(Local::ANFLocal(*id)),
                 anf::Path::Local(local) => self.identifier(Local::Standard(*local)),
                 anf::Path::Absolute(_) => unreachable!(),
             }
         };
 
-        self.metadata.set(path.anf_bound_id(), bound);
+        self.metadata.set(path.anf_bound_id, bound);
     }
 
     fn identifier(&mut self, identifier: Local) -> Bound {
@@ -604,68 +615,68 @@ impl ANFResolver {
 
     fn lambda(&mut self, lambda: &anf::atom::Lambda) {
         self.stack.push_frame();
-        self.stack.push_local(Local::Standard(lambda.variable()));
-        self.expression(lambda.expression());
+        self.stack.push_local(Local::Standard(lambda.variable));
+        self.expression(&lambda.expression);
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
-        self.metadata.set(lambda.anf_capture_id(), capture);
+        self.metadata.set(lambda.anf_capture_id, capture);
     }
 
     fn letin(&mut self, letin: &anf::expression::LetIn) {
-        self.atom(letin.variable_expression());
-        self.stack.push_local(Local::Standard(letin.variable()));
-        self.expression(letin.return_expression());
+        self.atom(&letin.variable_expression);
+        self.stack.push_local(Local::Standard(letin.variable));
+        self.expression(&letin.return_expression);
         self.stack.pop_local();
     }
 
     fn application(&mut self, application: &anf::expression::Application) {
-        self.atom(application.function());
-        self.atom(application.argument());
-        self.stack.push_local(application.variable());
-        self.expression(application.expression());
+        self.atom(&application.function);
+        self.atom(&application.argument);
+        self.stack.push_local(application.variable);
+        self.expression(&application.expression);
         self.stack.pop_local();
     }
 
     fn matchas(&mut self, matchas: &anf::expression::MatchAs) {
-        self.atom(matchas.expression());
+        self.atom(&matchas.expression);
 
-        for branch in matchas.branches() {
+        for branch in &matchas.branches {
             self.branch(branch);
         }
     }
 
-    fn branch(&mut self, branch: &anf::expression::matchas::Branch) {
+    fn branch(&mut self, branch: &anf::expression::Branch) {
         let len = self.stack.len();
-        self.define_pattern_locals(branch.pattern());
-        self.expression(branch.expression());
+        self.define_pattern_locals(&branch.pattern);
+        self.expression(&branch.expression);
         self.stack.truncate(len);
     }
 
     fn define_pattern_locals(&mut self, pattern: &Pattern) {
         match pattern {
             Pattern::Any(any) => {
-                let unique_name = &self.metadata[any.unique_name_id()];
+                let unique_name = &self.metadata[any.unique_name_id];
                 self.stack.push_local(Local::Standard(unique_name.unwrap()));
             }
             pattern::Pattern::String(_) => (),
             pattern::Pattern::Structure(structure) => {
-                for argument in structure.arguments() {
-                    self.define_pattern_locals(argument.data());
+                for argument in &structure.arguments {
+                    self.define_pattern_locals(&argument.data);
                 }
             }
         }
     }
 
     fn join(&mut self, join: &anf::expression::Join) {
-        self.expression(join.join());
-        self.stack.push_local(join.variable());
-        self.expression(join.expression());
+        self.expression(&join.join);
+        self.stack.push_local(join.variable);
+        self.expression(&join.expression);
         self.stack.pop_local();
     }
 
     fn jump(&mut self, jump: &anf::expression::Jump) {
-        self.atom(jump.expression());
+        self.atom(&jump.expression);
     }
 
     pub fn program(&mut self, program: &anf::Program) {
@@ -688,7 +699,7 @@ impl ANFResolver {
     }
 
     fn name_definition(&mut self, name_definition: &anf::definition::Name) {
-        self.expression(name_definition.expression());
+        self.expression(&name_definition.expression);
     }
 
     pub fn finish(self) -> Metadata<ANFResolved> {

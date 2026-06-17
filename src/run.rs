@@ -42,7 +42,7 @@ fn expression(
     let metadata = renamer.finish();
 
     let transformer = anf::Transformer::new(&metadata, indicies);
-    let anf = transformer.transform(expression.into_data());
+    let anf = transformer.transform(expression.data);
 
     let mut resolver = ANFResolver::new(metadata);
     resolver.expression(&anf);
@@ -67,7 +67,7 @@ fn program(
         current_indicies = parser.indicies();
     }
 
-    let program = definition::Program::new(modules);
+    let program = definition::Program { modules };
 
     let metadata = Metadata::new();
 
@@ -82,7 +82,7 @@ fn program(
     let metadata = renamer.finish();
 
     let transformer = anf::Transformer::new(&metadata, current_indicies);
-    let anf = program.into_anf(&transformer);
+    let anf = transformer.program(program);
 
     let mut resolver = ANFResolver::new(metadata);
     resolver.program(&anf);
@@ -118,7 +118,10 @@ pub fn repl() {
             Ok((result, t, pool)) => println!(
                 "= {} : {}",
                 result.display(pool.strings()),
-                WithInterner::new(&t, &interner)
+                WithInterner {
+                    data: &t,
+                    interner: &interner
+                }
             ),
             Err(error) => {
                 vm.reset_state();
@@ -143,8 +146,11 @@ pub fn from_file(file_paths: Vec<String>) {
         Ok((result, t, pool)) => println!(
             "= {} : {}",
             result.display(pool.strings()),
-            WithInterner::new(&t, &interner)
+            WithInterner {
+                data: &t,
+                interner: &interner
+            }
         ),
-        Err(error) => error.report(&sources[error.source_name()], &interner),
+        Err(error) => error.report(&sources[&error.source_name], &interner),
     }
 }

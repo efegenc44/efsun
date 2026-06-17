@@ -1,17 +1,28 @@
 use std::fmt::Display;
 
-use crate::interner::{InternId, Interner, WithInterner};
-
-pub mod lambda;
-pub mod path;
-
-pub type Path = path::Path;
-pub type Lambda = lambda::Lambda;
+use crate::{
+    compilation::anf,
+    interner::{InternId, Interner, WithInterner},
+    metadata::{BoundMetadataId, CaptureMetadataId},
+    resolution::{bound::Bound, renamer::UniqueName},
+};
 
 pub enum Atom {
     String(InternId),
     Path(Path),
     Lambda(Lambda),
+}
+
+pub struct Path {
+    pub path: anf::Path,
+    pub bound: Option<Bound>,
+    pub anf_bound_id: BoundMetadataId,
+}
+
+pub struct Lambda {
+    pub variable: UniqueName,
+    pub expression: Box<anf::Expression>,
+    pub anf_capture_id: CaptureMetadataId,
 }
 
 impl Atom {
@@ -30,7 +41,10 @@ impl Atom {
                 indent(
                     format!(
                         "{}",
-                        WithInterner::new(path.path(), interner),
+                        WithInterner {
+                            data: &path.path,
+                            interner
+                        },
                         // bound.unwrap_or(String::new())
                     ),
                     depth,
@@ -52,8 +66,8 @@ impl Atom {
                 // if let Some(captures) = captures {
                 //     indent(captures, depth + 1);
                 // }
-                indent(lambda.variable(), depth + 1);
-                lambda.expression().print(depth + 1, interner);
+                indent(lambda.variable, depth + 1);
+                lambda.expression.print(depth + 1, interner);
             }
         }
     }

@@ -1,18 +1,26 @@
-pub mod any;
-pub mod structure;
-
 use std::fmt::Display;
 
-use crate::interner::{InternId, Interner};
+use crate::{
+    interner::{InternId, Interner},
+    location::Located,
+    metadata::{StructurePatternMetadataId, UniqueNameMetadataId},
+};
 
-pub type Structure = structure::Structure;
-pub type Any = any::Any;
-
-#[derive(Clone)]
 pub enum Pattern {
     Any(Any),
     Structure(Structure),
     String(InternId),
+}
+
+pub struct Any {
+    pub identifier: InternId,
+    pub unique_name_id: UniqueNameMetadataId,
+}
+
+pub struct Structure {
+    pub parts: Located<Vec<InternId>>,
+    pub arguments: Vec<Located<Pattern>>,
+    pub structure_pattern_id: StructurePatternMetadataId,
 }
 
 impl Pattern {
@@ -35,8 +43,8 @@ impl Pattern {
             }
             Self::Structure(structure) => {
                 indent("Structure Pattern", depth);
-                for argument in structure.arguments() {
-                    argument.data().print(depth + 1, interner);
+                for argument in &structure.arguments {
+                    argument.data.print(depth + 1, interner);
                 }
             }
             Self::String(string) => indent(format!("\"{}\"", interner.lookup(string)), depth),
@@ -47,9 +55,9 @@ impl Pattern {
         match self {
             Self::Any(_) => 1,
             Self::Structure(structure) => structure
-                .arguments()
+                .arguments
                 .iter()
-                .fold(0, |acc, x| acc + x.data().local_count()),
+                .fold(0, |acc, x| acc + x.data.local_count()),
             Self::String(_) => 0,
         }
     }

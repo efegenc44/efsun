@@ -17,10 +17,19 @@ pub enum Bound {
 
 impl<'interner> Display for WithInterner<'interner, &Bound> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.data() {
+        let interner = self.interner;
+
+        match &self.data {
             Bound::Local(id) => write!(f, "{}", id.0),
             Bound::Capture(id) => write!(f, "captured({})", id.0),
-            Bound::Absolute(path) => write!(f, "{}", WithInterner::new(path, self.interner())),
+            Bound::Absolute(path) => write!(
+                f,
+                "{}",
+                WithInterner {
+                    data: path,
+                    interner
+                }
+            ),
         }
     }
 }
@@ -29,7 +38,7 @@ impl<'interner> Display for WithInterner<'interner, &Bound> {
 pub struct BoundId(usize);
 
 impl BoundId {
-    pub fn new(id: usize) -> Self {
+    pub(super) fn new(id: usize) -> Self {
         Self(id)
     }
 
@@ -88,12 +97,14 @@ impl Path {
 
 impl<'interner> Display for WithInterner<'interner, &Path> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.data().0.as_slice() {
+        let interner = self.interner;
+
+        match self.data.0.as_slice() {
             [] => unreachable!(),
             [x, xs @ ..] => {
-                write!(f, "{}", self.interner().lookup(x))?;
+                write!(f, "{}", interner.lookup(x))?;
                 for x in xs {
-                    write!(f, ".{}", self.interner().lookup(x))?;
+                    write!(f, ".{}", interner.lookup(x))?;
                 }
 
                 Ok(())
