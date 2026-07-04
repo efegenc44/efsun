@@ -60,7 +60,7 @@ impl Resolver {
         }
     }
 
-    pub fn interactive_environment(mut self, interner: &mut Interner) -> Self {
+    pub fn set_interactive_module(mut self, interner: &mut Interner) -> Self {
         let interactive_id = interner.intern(String::from("interactive"));
         let path = Path::from_parts([interactive_id]);
         let module = ModuleBound::empty("<interactive>".to_string());
@@ -549,8 +549,13 @@ impl Resolver {
         }))
     }
 
-    pub fn finish(self) -> Metadata<Resolved> {
-        self.metadata.transition(Resolved(()))
+    pub fn finish<T>(
+        mut self,
+        f: fn(&mut Self, T) -> Result<()>,
+        argument: T,
+    ) -> Result<Metadata<Resolved>> {
+        f(&mut self, argument)?;
+        Ok(self.metadata.transition(Resolved(())))
     }
 }
 
@@ -702,7 +707,8 @@ impl ANFResolver {
         self.expression(&name_definition.expression);
     }
 
-    pub fn finish(self) -> Metadata<ANFResolved> {
+    pub fn finish<T>(mut self, f: fn(&mut Self, T), argument: T) -> Metadata<ANFResolved> {
+        f(&mut self, argument);
         self.metadata.transition(ANFResolved(()))
     }
 }

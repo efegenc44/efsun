@@ -4,14 +4,14 @@ pub mod lex;
 pub mod pattern;
 pub mod type_expression;
 
-use std::iter::Peekable;
+use std::{collections::HashMap, iter::Peekable};
 
 use crate::{
     error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
     metadata::{Generator, Indicies},
-    parse::definition::Module,
+    parse::definition::{Module, Program},
 };
 
 use lex::{Lexer, token::Token};
@@ -44,6 +44,43 @@ const PATTERN_START: &[Token] = &[
     Token::LeftParenthesis,
 ];
 
+pub struct ProgramParser<'source, 'interner> {
+    sources: &'source HashMap<String, String>,
+    interner: &'interner mut Interner,
+    indicies: Indicies,
+}
+
+impl<'source, 'interner> ProgramParser<'source, 'interner> {
+    pub fn new(
+        sources: &'source HashMap<String, String>,
+        interner: &'interner mut Interner,
+        indicies: Indicies,
+    ) -> Self {
+        Self {
+            sources,
+            interner,
+            indicies,
+        }
+    }
+
+    pub fn parse(self) -> Result<(Program, Indicies)> {
+        let mut indicies = self.indicies;
+
+        let modules = self
+            .sources
+            .iter()
+            .map(|(source_name, source)| {
+                let mut parser = Parser::from_source(source_name, source, indicies, self.interner);
+                let module = parser.module();
+                indicies = parser.indicies;
+                module
+            })
+            .collect::<Result<Vec<_>>>()?;
+
+        Ok((Program { modules }, indicies))
+    }
+}
+
 pub struct Parser<'source, 'interner> {
     tokens: Peekable<Lexer<'source, 'interner>>,
     source_name: &'source str,
@@ -62,10 +99,6 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             source_name,
             indicies,
         }
-    }
-
-    pub fn indicies(&self) -> Indicies {
-        self.indicies
     }
 
     fn peek(&mut self) -> Option<Result<Located<Token>>> {
@@ -632,6 +665,11 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         };
 
         Ok(constructor)
+    }
+
+    pub fn parse<T>(mut self, f: fn(&mut Self) -> Result<T>) -> Result<(T, Indicies)> {
+        let ast = f(&mut self)?;
+        Ok((ast, self.indicies))
     }
 
     fn error<T>(&self, error: ParseError, span: Option<Span>) -> Result<T> {

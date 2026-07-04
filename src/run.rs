@@ -13,7 +13,7 @@ use crate::{
     error::Result,
     interner::{Interner, WithInterner},
     metadata::{Indicies, Metadata},
-    parse::{Parser, definition},
+    parse::{Parser, ProgramParser},
     resolution::{ANFResolver, Resolver, renamer::Renamer},
     vm::{VM, value::Value},
 };
@@ -23,32 +23,17 @@ fn expression(
     vm: &mut VM,
     interner: &mut Interner,
 ) -> Result<(Value, MonoType, ConstantPool)> {
-    let indicies = Indicies::default();
-
-    let mut parser = Parser::from_source("<interactive>", source, indicies, interner);
-    let expression = parser.expression_repl()?;
-    let indicies = parser.indicies();
-
-    let metadata = Metadata::new();
-
-    let mut resolver = Resolver::new(metadata).interactive_environment(interner);
-    resolver.expression(&expression)?;
-    let metadata = resolver.finish();
-
+    let (expression, indicies) =
+        Parser::from_source("<interactive>", source, Indicies::default(), interner)
+            .parse(Parser::expression_repl)?;
+    let metadata = Resolver::new(Metadata::new())
+        .set_interactive_module(interner)
+        .finish(Resolver::expression, &expression)?;
     let t = TypeChecker::new(&metadata).infer(&expression)?;
-
-    let mut renamer = Renamer::new(metadata);
-    renamer.expression(&expression);
-    let metadata = renamer.finish();
-
-    let transformer = anf::Transformer::new(&metadata, indicies);
-    let anf = transformer.transform(expression.data);
-
-    let mut resolver = ANFResolver::new(metadata);
-    resolver.expression(&anf);
-    let metadata = resolver.finish();
-
-    let (code, pool) = Compiler::new(interner, &metadata).compile(&anf);
+    let metadata = Renamer::new(metadata).finish(Renamer::expression, &expression);
+    let anf_expression = anf::Transformer::new(&metadata, indicies).transform(expression.data);
+    let metadata = ANFResolver::new(metadata).finish(ANFResolver::expression, &anf_expression);
+    let (code, pool) = Compiler::new(interner, &metadata).compile(&anf_expression);
     let result = vm.run(&code, &pool, false);
 
     Ok((result, t, pool))
@@ -59,36 +44,13 @@ fn program(
     vm: &mut VM,
     interner: &mut Interner,
 ) -> Result<(Value, Type, ConstantPool)> {
-    let mut modules = vec![];
-    let mut current_indicies = Indicies::default();
-    for (source_name, source) in sources {
-        let mut parser = Parser::from_source(source_name, source, current_indicies, interner);
-        modules.push(parser.module()?);
-        current_indicies = parser.indicies();
-    }
-
-    let program = definition::Program { modules };
-
-    let metadata = Metadata::new();
-
-    let mut resolver = Resolver::new(metadata);
-    resolver.program(&program)?;
-    let metadata = resolver.finish();
-
+    let (program, indicies) = ProgramParser::new(sources, interner, Indicies::default()).parse()?;
+    let metadata = Resolver::new(Metadata::new()).finish(Resolver::program, &program)?;
     let t = TypeChecker::new(&metadata).program(&program, interner)?;
-
-    let mut renamer = Renamer::new(metadata);
-    renamer.program(&program);
-    let metadata = renamer.finish();
-
-    let transformer = anf::Transformer::new(&metadata, current_indicies);
-    let anf = transformer.program(program);
-
-    let mut resolver = ANFResolver::new(metadata);
-    resolver.program(&anf);
-    let metadata = resolver.finish();
-
-    let (code, pool) = Compiler::new(interner, &metadata).program(&anf);
+    let metadata = Renamer::new(metadata).finish(Renamer::program, &program);
+    let anf_program = anf::Transformer::new(&metadata, indicies).program(program);
+    let metadata = ANFResolver::new(metadata).finish(ANFResolver::program, &anf_program);
+    let (code, pool) = Compiler::new(interner, &metadata).program(&anf_program);
     let result = vm.run(&code, &pool, false);
 
     Ok((result, t, pool))

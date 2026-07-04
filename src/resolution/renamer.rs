@@ -161,7 +161,8 @@ impl Renamer {
         self.expression(&name_definition.expression);
     }
 
-    pub fn finish(self) -> Metadata<Renamed> {
+    pub fn finish<T>(mut self, f: fn(&mut Self, T), argument: T) -> Metadata<Renamed> {
+        f(&mut self, argument);
         self.metadata.transition(Renamed(()))
     }
 }
