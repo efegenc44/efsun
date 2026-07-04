@@ -601,6 +601,9 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             Some(definition::Subimport::Import(imports))
         } else if self.next_if_peek(Token::AsKeyword)? {
             Some(definition::Subimport::As(self.expect_identifier()?))
+        } else if self.peek_is(Token::InKeyword)? {
+            let span = self.expect(Token::InKeyword)?.span;
+            Some(definition::Subimport::All(span))
         } else {
             None
         };

@@ -38,9 +38,11 @@ pub struct Resolver {
     /// All of the names defined across the program
     names: HashSet<Path>,
     /// All of the types defined across the program
-    types: HashSet<Path>,
+    types: HashMap<Path, HashSet<InternId>>,
     /// Modules of the program and their bound information
     modules: HashMap<Path, ModuleBound>,
+    /// Map from modules paths to thier import all-ed paths
+    import_alls: HashMap<Path, Vec<Located<Path>>>,
     /// Path of the current module
     current_module_path: Option<Path>,
     /// Metadata
@@ -53,8 +55,9 @@ impl Resolver {
             stack: ResolutionStack::new(),
             type_variables: Vec::new(),
             names: HashSet::new(),
-            types: HashSet::new(),
+            types: HashMap::new(),
             modules: HashMap::new(),
+            import_alls: HashMap::new(),
             current_module_path: None,
             metadata,
         }
@@ -274,7 +277,7 @@ impl Resolver {
             Some(id) => Ok(Bound::Local(id)),
             None => {
                 let path = self.absolute_path(identifier);
-                if !self.types.contains(&path) {
+                if !self.types.contains_key(&path) {
                     self.error(
                         ResolutionError::UnboundPath(Path::from_parts(vec![*identifier])),
                         Some(span),
@@ -294,7 +297,7 @@ impl Resolver {
                 let mut path = self.absolute_path(base);
                 path.push(rest);
 
-                let true = self.types.contains(&path) else {
+                let true = self.types.contains_key(&path) else {
                     return self.error(ResolutionError::UnboundPath(path), Some(span));
                 };
 
@@ -333,6 +336,7 @@ impl Resolver {
 
         for (module, module_path) in program.modules.iter().zip(module_paths) {
             self.current_module_path = Some(module_path);
+            self.import_import_alls();
             self.module(module)?;
         }
 
@@ -385,12 +389,14 @@ impl Resolver {
             if let Definition::Structure(structure) = definition {
                 let structure_path = self.append_current_path(structure.name.data);
 
+                let mut constructor_names = HashSet::new();
                 for constructor in &structure.constructors {
                     let name = constructor.data.name.data;
+                    constructor_names.insert(name);
                     self.names.insert(structure_path.append([name]));
                 }
 
-                self.types.insert(structure_path);
+                self.types.insert(structure_path, constructor_names);
 
                 // TODO: Check for duplicate definitions
                 let constructors = structure
@@ -462,6 +468,26 @@ impl Resolver {
                     }
                 }
             }
+            definition::Subimport::All(span) => {
+                match self
+                    .import_alls
+                    .get_mut(self.current_module_path.as_ref().unwrap())
+                {
+                    Some(import_alls) => import_alls.push(Located {
+                        data: base.clone(),
+                        span: *span,
+                    }),
+                    None => {
+                        self.import_alls.insert(
+                            self.current_module_path.as_ref().unwrap().clone(),
+                            vec![Located {
+                                data: base.clone(),
+                                span: *span,
+                            }],
+                        );
+                    }
+                }
+            }
         }
 
         Ok(())
@@ -471,7 +497,7 @@ impl Resolver {
         for module in self.modules.values() {
             for import in module.imports().values() {
                 if !(self.names.contains(&import.data)
-                    || self.types.contains(&import.data)
+                    || self.types.contains_key(&import.data)
                     || self.modules.contains_key(&import.data))
                 {
                     let error = ReportableError {
@@ -485,7 +511,54 @@ impl Resolver {
             }
         }
 
+        for (module_path, import_alls) in &self.import_alls {
+            for import_all in import_alls {
+                if !(self.modules.contains_key(&import_all.data)
+                    || self.types.contains_key(&import_all.data))
+                {
+                    let error = ReportableError {
+                        error: ResolutionError::UnresolvedImport(import_all.data.clone()).into(),
+                        source_name: self.modules[module_path].source_name().to_string(),
+                        span: Some(import_all.span),
+                    };
+
+                    return Err(Box::new(error));
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    fn import_import_alls(&mut self) {
+        for (module_path, import_alls) in &self.import_alls {
+            for import_all in import_alls {
+                let names = if let Some(from) = self.modules.get(&import_all.data) {
+                    from.names().iter()
+                } else if let Some(constructors) = self.types.get(&import_all.data) {
+                    constructors.iter()
+                } else {
+                    unreachable!()
+                };
+
+                let names = names
+                    .map(|name| {
+                        let located = Located {
+                            data: import_all.data.append([name]),
+                            span: import_all.span,
+                        };
+
+                        (*name, located)
+                    })
+                    .collect::<Vec<_>>();
+
+                self.modules
+                    .get_mut(module_path)
+                    .unwrap()
+                    .imports_mut()
+                    .extend(names);
+            }
+        }
     }
 
     fn definition(&mut self, definiton: &Definition) -> Result<()> {

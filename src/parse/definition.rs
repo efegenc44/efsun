@@ -2,7 +2,7 @@ use std::fmt::Display;
 
 use crate::{
     interner::{InternId, Interner},
-    location::Located,
+    location::{Located, Span},
     metadata::PathMetadataId,
     parse::{expression::Expression, type_expression::TypeExpression},
 };
@@ -26,6 +26,7 @@ pub struct Import {
 pub enum Subimport {
     As(Located<InternId>),
     Import(Vec<Import>),
+    All(Span),
 }
 
 pub struct Name {

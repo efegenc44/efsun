@@ -24,14 +24,8 @@ fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
         } => {
             format!(
                 "Encountered unexpected token `{}`, expected {}.",
-                WithInterner {
-                    data: unexpected,
-                    interner
-                },
-                WithInterner {
-                    data: expected,
-                    interner
-                },
+                unexpected.kind_string(),
+                expected.kind_string()
             )
         }
         ParseError::UnexpectedTokenStart {

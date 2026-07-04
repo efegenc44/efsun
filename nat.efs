@@ -7,13 +7,13 @@ let main = \a
 structure Pair[a b]
     | Pair a b
 
-import Main.Pair.Pair
+import Main.Pair in
 
 structure Nat
     | Zero
     | Succ Nat
 
-import Main.Nat (Zero Succ)
+import Main.Nat in
 
 let add = \n \m match Pair n m
     | Pair ~a Zero      = a
