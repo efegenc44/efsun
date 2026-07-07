@@ -100,29 +100,7 @@ metadata! {
 }
 
 pub struct StructurePattern {
-    type_path: Path,
-    constructor_name: InternId,
-    tag: usize,
-}
-
-impl StructurePattern {
-    pub fn new(type_path: Path, constructor_name: InternId, tag: usize) -> Self {
-        Self {
-            type_path,
-            constructor_name,
-            tag,
-        }
-    }
-
-    pub fn type_path(&self) -> &Path {
-        &self.type_path
-    }
-
-    pub fn constructor_name(&self) -> InternId {
-        self.constructor_name
-    }
-
-    pub fn tag(&self) -> usize {
-        self.tag
-    }
+    pub type_path: Path,
+    pub constructor_name: InternId,
+    pub tag: usize,
 }

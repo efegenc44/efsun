@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use crate::{interner::WithInterner, resolution::bound::Path};
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Type {
     Mono(MonoType),
     Poly(Vec<usize>, MonoType),

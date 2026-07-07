@@ -8,6 +8,9 @@ import Main.A (A B)
 
 let main = \x
     match A "merhaba"
-    | A ~x = match B "deneme"
+    | A ~x = (match B "deneme"
         | B ~x = x
+        | A "" = ""
+        | A ~ü = ü)
+    | B ~b = b
 

@@ -39,6 +39,8 @@ where
     names: HashMap<&'metadata Path, Type>,
     /// Map from path of the structure definition to its corresponding type
     types: HashMap<&'metadata Path, Type>,
+    /// Constructor count of a structure type
+    constructor_count: HashMap<&'metadata Path, usize>,
     /// Counter for generating fresh type variables
     newvar_counter: usize,
     /// Map from type variable id (usize) to its substitution (MonoType)
@@ -61,6 +63,7 @@ where
             name_expressions: ExpressionMap::new(),
             names: HashMap::new(),
             types: HashMap::new(),
+            constructor_count: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default(),
             current_source_name: None,
@@ -169,7 +172,7 @@ where
             Expression::Application(application) => self.application(application, expression.span),
             Expression::Lambda(lambda) => self.lambda(lambda),
             Expression::LetIn(letin) => self.letin(letin),
-            Expression::MatchAs(matchlet) => self.matchlet(matchlet),
+            Expression::MatchAs(matchlet) => self.matchas(matchlet),
         }
     }
 
@@ -324,7 +327,7 @@ where
         Ok(self.substitute(return_type))
     }
 
-    fn matchlet(&mut self, matchas: &expression::MatchAs) -> Result<MonoType> {
+    fn matchas(&mut self, matchas: &expression::MatchAs) -> Result<MonoType> {
         let t = self.infer(&matchas.expression)?;
         let return_type = self.newvar();
 
@@ -336,7 +339,79 @@ where
             }
         }
 
+        let branches = matchas.branches.iter().map(|branch| &branch.data.pattern.data).collect();
+        self.check_branch_exhaustiveness(&t, &branches, matchas.expression.span)?;
+
         Ok(self.substitute(return_type))
+    }
+
+    fn check_branch_exhaustiveness(&mut self, t: &MonoType, patterns: &Vec<&Pattern>, span: Span) -> Result<()> {
+        if patterns.iter().any(|pattern| matches!(pattern, Pattern::Any(_))) {
+            return Ok(())
+        }
+
+        let MonoType::Structure(structure) = self.substitute(t.clone()) else {
+            return self.error(TypeCheckError::UnexhaustivePatternMatching, span);
+        };
+
+        let count = self.constructor_count[&structure.path];
+        let mut patts = vec![vec![]; count];
+
+        for pattern in patterns {
+            let Pattern::Structure(pattern) = pattern else {
+                unreachable!()
+            };
+
+            let structure_pattern = &self.metadata[pattern.structure_pattern_id];
+            patts[structure_pattern.tag].push((&pattern.arguments, pattern.structure_pattern_id));
+        }
+
+        if patts.iter().any(|vec| vec.is_empty()) {
+            return self.error(TypeCheckError::UnexhaustivePatternMatching, span);
+        }
+
+        for patt in &patts {
+            for i in 0..patt[0].0.len() {
+                let mut patterns = vec![];
+                for branch in patt.iter().map(|a| a.0) {
+                    patterns.push(&branch[i].data);
+                }
+
+                let structure_pattern = &self.metadata[patt[0].1];
+                let constructor_path = structure_pattern
+                    .type_path
+                    .append([structure_pattern.constructor_name]);
+                let constructor_type = self.names[&constructor_path].clone();
+
+                let variables = t.variables();
+                let arguments = variables.iter().copied().map(MonoType::Variable);
+
+                let m = match constructor_type {
+                    Type::Mono(m) => m,
+                    Type::Poly(variables, m) => {
+                        let table = variables.into_iter().zip(arguments).collect();
+                        m.substitute(&table)
+                    }
+                };
+
+                let t = if let MonoType::Arrow(constructor) = m {
+                    let mut t = &constructor;
+                    for _ in 0..i {
+                        if let MonoType::Arrow(arrow) = t.to.as_ref() {
+                            t = arrow;
+                        }
+                    }
+
+                    *t.from.clone()
+                } else {
+                    m
+                };
+
+                self.check_branch_exhaustiveness(&self.substitute(t), &patterns, span)?
+            }
+        }
+
+        Ok(())
     }
 
     fn match_branch(&mut self, t: &MonoType, branch: &expression::Branch) -> Result<MonoType> {
@@ -366,15 +441,15 @@ where
                 let structure_pattern = &self.metadata[structure.structure_pattern_id];
 
                 let structure_type =
-                    self.instantiate(self.types[structure_pattern.type_path()].clone());
+                    self.instantiate(self.types[&structure_pattern.type_path].clone());
 
                 if let Err((t1, t2)) = self.unify(t, &structure_type) {
                     return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span);
                 };
 
                 let constructor_path = structure_pattern
-                    .type_path()
-                    .append([structure_pattern.constructor_name()]);
+                    .type_path
+                    .append([structure_pattern.constructor_name]);
                 let constructor_type = self.names[&constructor_path].clone();
 
                 let variables = structure_type.variables();
@@ -451,6 +526,7 @@ where
                     let t = self.initialize_structure_type(path.clone(), structure.variables.len());
 
                     self.types.insert(path, t);
+                    self.constructor_count.insert(path, structure.constructors.len());
                 }
                 _ => (),
             }
@@ -563,4 +639,5 @@ pub enum TypeCheckError {
     CyclicDefinition(Path),
     ExpectedStructure(MonoType),
     TypeArityMismatch { expected: usize, found: usize },
+    UnexhaustivePatternMatching
 }

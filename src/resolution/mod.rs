@@ -246,7 +246,7 @@ impl Resolver {
             }
         };
 
-        let structure_pattern = metadata::StructurePattern::new(type_path, constructor_name, tag);
+        let structure_pattern = metadata::StructurePattern { type_path, constructor_name, tag };
         self.metadata
             .set(structure.structure_pattern_id, structure_pattern);
 

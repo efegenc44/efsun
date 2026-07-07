@@ -350,7 +350,7 @@ where
             Pattern::Structure(structure) => {
                 self.extend(matched.iter().cloned());
 
-                let tag = self.metadata[structure.structure_pattern_id].tag();
+                let tag = self.metadata[structure.structure_pattern_id].tag;
 
                 self.emit(Instruction::TagEquals(tag).into());
 

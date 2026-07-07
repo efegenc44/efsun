@@ -114,6 +114,9 @@ fn type_check_error_description(error: &TypeCheckError, interner: &Interner) -> 
         TypeCheckError::TypeArityMismatch { expected, found } => {
             format!("Expected {expected} number of type parameters but found {found}")
         }
+        TypeCheckError::UnexhaustivePatternMatching => {
+            "Not all possible pattern are covered, unexhaustive pattern matching".to_string()
+        }
     }
 }
 

@@ -6,17 +6,20 @@ use crate::{
     metadata::{StructurePatternMetadataId, UniqueNameMetadataId},
 };
 
+#[derive(Clone)]
 pub enum Pattern {
     Any(Any),
     Structure(Structure),
     String(InternId),
 }
 
+#[derive(Clone)]
 pub struct Any {
     pub identifier: InternId,
     pub unique_name_id: UniqueNameMetadataId,
 }
 
+#[derive(Clone)]
 pub struct Structure {
     pub parts: Located<Vec<InternId>>,
     pub arguments: Vec<Located<Pattern>>,

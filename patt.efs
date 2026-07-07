@@ -1,0 +1,27 @@
+module Main
+
+structure A | A | B
+
+structure Günler
+    | Pazartesi
+    | Salı
+    | Çarşamba A A
+    | Perşembe
+    | Cuma
+    | Cumartesi
+    | Pazar
+
+import Main.Günler in
+
+let main = \ğ
+    match Pazartesi
+    | Pazartesi = "Pazartesi"
+    | Salı = "Salı"
+    | Çarşamba A.A A.A = "Çarşamba"
+    | Çarşamba A.B A.B = "Çarşamba"
+    | Çarşamba A.B A.A = "Çarşamba"
+    | Çarşamba A.A A.B = "Çarşamba"
+    | Perşembe ~f = "Perşembe"
+    | Cuma = "Cuma"
+    | Cumartesi = "Cumartesi"
+    | Pazar = "Pazar"
