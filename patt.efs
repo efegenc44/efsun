@@ -1,28 +1,36 @@
 module Main
 
+let main = \ğ
+    match Test (A (B G)) (A (B K))
+    | Test (A ~b) (A (B ~o)) = "Test"
+    | Test (A ~b) (A (A (B ~p))) = "Test"
+    | Test (A ~b) (A (A (A ~u))) = "Test"
+    | Test (B K) (B ~j) = "Test"
+    | Test (B G) (A ~ğ) = "Test"
+    | Test (B (L H)) (A ~ğ) = "Test"
+    | Test (A ~ü) (B ~h) = "Test"
+
 structure A
     | A A
     | B V
+
+import Main.A in
+
+structure Test
+    | Test A A
+
+import Main.Test in
+
+let a = \x x
+
+structure H
+    | H
+
+import Main.H in
 
 structure V
     | G
     | K
     | L H
 
-structure H
-    | H
-
-structure Test
-    | Test A A
-
-import Main.Günler in
-
-let main = \ğ
-    match Test (A.A (A.B V.G)) (A.A (A.B V.K))
-    | Test (A.A ~b) (A.A (A.B ~o)) = "Test"
-    | Test (A.A ~b) (A.A (A.A (A.B ~p))) = "Test"
-    | Test (A.A ~b) (A.A (A.A (A.A ~u))) = "Test"
-    | Test (A.B V.K) (A.B ~j) = "Test"
-    | Test (A.B V.G) (A.A ~ğ) = "Test"
-    | Test (A.B (V.L H.H)) (A.A ~ğ) = "Test"
-    | Test (A.A ~ü) (A.B ~h) = "Test"
+import Main.V in

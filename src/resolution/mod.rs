@@ -25,6 +25,17 @@ use crate::{
 use bound::{Bound, BoundId, Module as ModuleBound, Path};
 use frame::ResolutionStack;
 
+/// Indicates which namespace to lookup for a name
+///   `Scope` is first look up `Type` then `Module` and
+///   the name is meant to indicate an opening of a new
+///   _namespace scope_.
+enum Namespace {
+    Name,
+    Type,
+    Module,
+    Scope,
+}
+
 /// Proof of resolution step
 ///   Can only be constructed from here
 pub struct Resolved(());
@@ -41,8 +52,6 @@ pub struct Resolver {
     types: HashMap<Path, HashSet<InternId>>,
     /// Modules of the program and their bound information
     modules: HashMap<Path, ModuleBound>,
-    /// Map from modules paths to thier import all-ed paths
-    import_alls: HashMap<Path, Vec<Located<Path>>>,
     /// Path of the current module
     current_module_path: Option<Path>,
     /// Metadata
@@ -57,7 +66,6 @@ impl Resolver {
             names: HashSet::new(),
             types: HashMap::new(),
             modules: HashMap::new(),
-            import_alls: HashMap::new(),
             current_module_path: None,
             metadata,
         }
@@ -106,8 +114,25 @@ impl Resolver {
         Ok(())
     }
 
-    fn absolute_path(&self, base: &InternId) -> Path {
-        if let Some(import_path) = self.current_module().imports().get(base) {
+    fn absolute_path(&self, base: &InternId, namespace: Namespace) -> Path {
+        let module = self.current_module();
+
+        let imports = match namespace {
+            Namespace::Name => module.name_imports(),
+            Namespace::Type => module.type_imports(),
+            Namespace::Module => module.module_imports(),
+            Namespace::Scope => {
+                return if let Some(import_path) = module.type_imports().get(base) {
+                    import_path.data.clone()
+                } else if let Some(import_path) = module.module_imports().get(base) {
+                    import_path.data.clone()
+                } else {
+                    self.append_current_path(*base)
+                };
+            }
+        };
+
+        if let Some(import_path) = imports.get(base) {
             import_path.data.clone()
         } else {
             self.append_current_path(*base)
@@ -118,7 +143,7 @@ impl Resolver {
         match self.stack.locally_resolve(identifier) {
             Some(bound) => Ok(bound),
             None => {
-                let path = self.absolute_path(&identifier);
+                let path = self.absolute_path(&identifier, Namespace::Name);
                 if !self.names.contains(&path) {
                     self.error(
                         ResolutionError::UnboundPath(Path::from_parts(vec![identifier])),
@@ -136,8 +161,13 @@ impl Resolver {
             [] => unreachable!(),
             [identifier] => self.identifier(*identifier, span)?,
             [base, rest @ ..] => {
-                let mut path = self.absolute_path(base);
-                path.push(rest);
+                let path = if rest.is_empty() {
+                    self.absolute_path(base, Namespace::Name)
+                } else {
+                    let mut path = self.absolute_path(base, Namespace::Scope);
+                    path.push(rest);
+                    path
+                };
 
                 let true = self.names.contains(&path) else {
                     return self.error(ResolutionError::UnboundPath(path), Some(span));
@@ -225,8 +255,13 @@ impl Resolver {
         let (type_path, tag) = match &structure.parts.data.as_slice() {
             [] => unreachable!(),
             [base, rest @ ..] => {
-                let mut path = self.absolute_path(base);
-                path.push(rest);
+                let mut path = if rest.is_empty() {
+                    self.absolute_path(base, Namespace::Name)
+                } else {
+                    let mut path = self.absolute_path(base, Namespace::Scope);
+                    path.push(rest);
+                    path
+                };
 
                 let true = self.names.contains(&path) else {
                     return self.error(ResolutionError::UnboundPath(path), Some(span));
@@ -235,7 +270,17 @@ impl Resolver {
                 let constructor_name = path.pop();
                 let type_name = path.pop();
 
-                let constructors = &self.modules[&path].types()[&type_name];
+                // TODO: Can get empty module path when non-constructor name is used because
+                //   it doesn't haveto have a type in its path, not nesesarilly it has
+                //   at least 3 parts but 2 parts. This is problematic for error reporting
+                let Some(module) = &self.modules.get(&path) else {
+                    return self.error(ResolutionError::UnboundPath(path), Some(span));
+                };
+
+                let Some(constructors) = module.types().get(&type_name) else {
+                    return self.error(ResolutionError::UnboundPath(path), Some(span));
+                };
+
                 let tag = constructors
                     .iter()
                     .position(|cs| cs == &constructor_name)
@@ -276,7 +321,7 @@ impl Resolver {
         match id {
             Some(id) => Ok(Bound::Local(id)),
             None => {
-                let path = self.absolute_path(identifier);
+                let path = self.absolute_path(identifier, Namespace::Type);
                 if !self.types.contains_key(&path) {
                     self.error(
                         ResolutionError::UnboundPath(Path::from_parts(vec![*identifier])),
@@ -294,8 +339,13 @@ impl Resolver {
             [] => unreachable!(),
             [identifier] => self.type_identifier(identifier, span)?,
             [base, rest @ ..] => {
-                let mut path = self.absolute_path(base);
-                path.push(rest);
+                let path = if rest.is_empty() {
+                    self.absolute_path(base, Namespace::Type)
+                } else {
+                    let mut path = self.absolute_path(base, Namespace::Module);
+                    path.push(rest);
+                    path
+                };
 
                 let true = self.types.contains_key(&path) else {
                     return self.error(ResolutionError::UnboundPath(path), Some(span));
@@ -332,11 +382,9 @@ impl Resolver {
             })
             .collect::<Result<Vec<_>>>()?;
 
-        self.check_if_imports_exist()?;
-
         for (module, module_path) in program.modules.iter().zip(module_paths) {
             self.current_module_path = Some(module_path);
-            self.import_import_alls();
+            self.register_imports(module)?;
             self.module(module)?;
         }
 
@@ -409,22 +457,41 @@ impl Resolver {
                     .types_mut()
                     .insert(structure.name.data, constructors);
             }
+        }
 
+        Ok(())
+    }
+
+    fn register_import(&mut self, name: InternId, path: Path, span: Span) -> Result<()> {
+        // TODO: When importing allow relative paths from the current module
+        let imports = if self.modules.contains_key(&path) {
+            self.current_module_mut().module_imports_mut()
+        } else if self.types.contains_key(&path) {
+            self.current_module_mut().type_imports_mut()
+        } else if self.names.contains(&path) {
+            self.current_module_mut().name_imports_mut()
+        } else {
+            return self.error(ResolutionError::UnresolvedImport(path.clone()), Some(span));
+        };
+
+        imports.insert(name, Located { data: path, span });
+
+        Ok(())
+    }
+
+    // TODO: Import `Main` module automatically
+    fn register_imports(&mut self, module: &Module) -> Result<()> {
+        for definition in &module.definitions {
             if let Definition::Import(import) = definition {
                 let base = Path::from_parts(import.module_path.data.to_vec());
 
                 match &import.subimport {
                     Some(import_name) => {
-                        self.collect_subimport(import_name, &base)?;
+                        self.register_subimport(import_name, base)?;
                     }
                     None => {
-                        self.current_module_mut().imports_mut().insert(
-                            *import.module_path.data.last().unwrap(),
-                            Located {
-                                data: base,
-                                span: import.module_path.span,
-                            },
-                        );
+                        let identifier = *import.module_path.data.last().unwrap();
+                        self.register_import(identifier, base, import.module_path.span)?;
                     }
                 }
             }
@@ -433,20 +500,14 @@ impl Resolver {
         Ok(())
     }
 
-    fn collect_subimport(
+    fn register_subimport(
         &mut self,
         import_name: &definition::Subimport,
-        base: &Path,
+        base: Path,
     ) -> Result<()> {
         match import_name {
             definition::Subimport::As(as_name) => {
-                self.current_module_mut().imports_mut().insert(
-                    as_name.data,
-                    Located {
-                        data: base.clone(),
-                        span: as_name.span,
-                    },
-                );
+                self.register_import(as_name.data, base, as_name.span)?;
             }
             definition::Subimport::Import(imports) => {
                 for import in imports {
@@ -454,111 +515,66 @@ impl Resolver {
 
                     match &import.subimport {
                         Some(subimport) => {
-                            self.collect_subimport(subimport, &base)?;
+                            self.register_subimport(subimport, base)?;
                         }
                         None => {
-                            self.current_module_mut().imports_mut().insert(
-                                *import.module_path.data.last().unwrap(),
-                                Located {
-                                    data: base,
-                                    span: import.module_path.span,
-                                },
-                            );
+                            let identifier = *import.module_path.data.last().unwrap();
+                            self.register_import(identifier, base, import.module_path.span)?;
                         }
                     }
                 }
             }
             definition::Subimport::All(span) => {
-                match self
-                    .import_alls
-                    .get_mut(self.current_module_path.as_ref().unwrap())
-                {
-                    Some(import_alls) => import_alls.push(Located {
-                        data: base.clone(),
-                        span: *span,
-                    }),
-                    None => {
-                        self.import_alls.insert(
-                            self.current_module_path.as_ref().unwrap().clone(),
-                            vec![Located {
-                                data: base.clone(),
-                                span: *span,
-                            }],
-                        );
-                    }
-                }
+                self.register_import_all(base, *span)?;
             }
         }
 
         Ok(())
     }
 
-    fn check_if_imports_exist(&self) -> Result<()> {
-        for module in self.modules.values() {
-            for import in module.imports().values() {
-                if !(self.names.contains(&import.data)
-                    || self.types.contains_key(&import.data)
-                    || self.modules.contains_key(&import.data))
-                {
-                    let error = ReportableError {
-                        error: ResolutionError::UnresolvedImport(import.data.clone()).into(),
-                        source_name: module.source_name().to_string(),
-                        span: Some(import.span),
-                    };
+    fn register_import_all(&mut self, path: Path, span: Span) -> Result<()> {
+        let (names, types) = if let Some(from) = self.modules.get(&path) {
+            (from.names().iter(), Some(from.types().keys()))
+        } else if let Some(constructors) = self.types.get(&path) {
+            (constructors.iter(), None)
+        } else {
+            return self.error(ResolutionError::UnresolvedImport(path), Some(span));
+        };
 
-                    return Err(Box::new(error));
-                }
-            }
-        }
-
-        for (module_path, import_alls) in &self.import_alls {
-            for import_all in import_alls {
-                if !(self.modules.contains_key(&import_all.data)
-                    || self.types.contains_key(&import_all.data))
-                {
-                    let error = ReportableError {
-                        error: ResolutionError::UnresolvedImport(import_all.data.clone()).into(),
-                        source_name: self.modules[module_path].source_name().to_string(),
-                        span: Some(import_all.span),
-                    };
-
-                    return Err(Box::new(error));
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    fn import_import_alls(&mut self) {
-        for (module_path, import_alls) in &self.import_alls {
-            for import_all in import_alls {
-                let names = if let Some(from) = self.modules.get(&import_all.data) {
-                    from.names().iter()
-                } else if let Some(constructors) = self.types.get(&import_all.data) {
-                    constructors.iter()
-                } else {
-                    unreachable!()
+        let names = names
+            .map(|name| {
+                let located = Located {
+                    data: path.append([name]),
+                    span,
                 };
 
-                let names = names
-                    .map(|name| {
-                        let located = Located {
-                            data: import_all.data.append([name]),
-                            span: import_all.span,
-                        };
+                (*name, located)
+            })
+            .collect::<Vec<_>>();
 
-                        (*name, located)
-                    })
-                    .collect::<Vec<_>>();
+        let types = if let Some(types) = types {
+            let types = types
+                .map(|t| {
+                    let located = Located {
+                        data: path.append([t]),
+                        span,
+                    };
 
-                self.modules
-                    .get_mut(module_path)
-                    .unwrap()
-                    .imports_mut()
-                    .extend(names);
-            }
+                    (*t, located)
+                })
+                .collect::<Vec<_>>();
+
+            Some(types)
+        } else {
+            None
+        };
+
+        self.current_module_mut().name_imports_mut().extend(names);
+        if let Some(types) = types {
+            self.current_module_mut().type_imports_mut().extend(types);
         }
+
+        Ok(())
     }
 
     fn definition(&mut self, definiton: &Definition) -> Result<()> {

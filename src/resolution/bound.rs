@@ -116,7 +116,9 @@ impl<'interner> Display for WithInterner<'interner, &Path> {
 pub struct Module {
     names: HashSet<InternId>,
     types: HashMap<InternId, Vec<InternId>>,
-    imports: HashMap<InternId, Located<Path>>,
+    name_imports: HashMap<InternId, Located<Path>>,
+    type_imports: HashMap<InternId, Located<Path>>,
+    module_imports: HashMap<InternId, Located<Path>>,
     source_name: String,
 }
 
@@ -125,7 +127,9 @@ impl Module {
         Self {
             names: HashSet::new(),
             types: HashMap::new(),
-            imports: HashMap::new(),
+            name_imports: HashMap::new(),
+            type_imports: HashMap::new(),
+            module_imports: HashMap::new(),
             source_name,
         }
     }
@@ -146,12 +150,28 @@ impl Module {
         &mut self.types
     }
 
-    pub fn imports(&self) -> &HashMap<InternId, Located<Path>> {
-        &self.imports
+    pub fn name_imports(&self) -> &HashMap<InternId, Located<Path>> {
+        &self.name_imports
     }
 
-    pub fn imports_mut(&mut self) -> &mut HashMap<InternId, Located<Path>> {
-        &mut self.imports
+    pub fn name_imports_mut(&mut self) -> &mut HashMap<InternId, Located<Path>> {
+        &mut self.name_imports
+    }
+
+    pub fn type_imports(&self) -> &HashMap<InternId, Located<Path>> {
+        &self.type_imports
+    }
+
+    pub fn type_imports_mut(&mut self) -> &mut HashMap<InternId, Located<Path>> {
+        &mut self.type_imports
+    }
+
+    pub fn module_imports(&self) -> &HashMap<InternId, Located<Path>> {
+        &self.module_imports
+    }
+
+    pub fn module_imports_mut(&mut self) -> &mut HashMap<InternId, Located<Path>> {
+        &mut self.module_imports
     }
 
     pub fn source_name(&self) -> &str {
