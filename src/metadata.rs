@@ -1,11 +1,8 @@
 use std::{collections::HashMap, marker::PhantomData, ops::Index};
 
-use crate::{
-    interner::InternId,
-    resolution::{
-        bound::{Bound, Capture, Path},
-        renamer::UniqueName,
-    },
+use crate::resolution::{
+    bound::{Bound, Capture, Path},
+    renamer::UniqueName,
 };
 
 /// Proof of construction
@@ -24,7 +21,7 @@ pub trait Generator<T> {
 macro_rules! metadata {
     ( $($i:ident -> $t:ty),* ) => {
         $(
-            #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+            #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
             pub struct $i(usize);
         )*
 
@@ -101,6 +98,5 @@ metadata! {
 
 pub struct StructurePattern {
     pub type_path: Path,
-    pub constructor_name: InternId,
     pub tag: usize,
 }

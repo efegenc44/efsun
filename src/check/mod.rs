@@ -39,8 +39,9 @@ where
     names: HashMap<&'metadata Path, Type>,
     /// Map from path of the structure definition to its corresponding type
     types: HashMap<&'metadata Path, Type>,
-    /// Constructor count of a structure type
-    constructor_count: HashMap<&'metadata Path, usize>,
+    /// Map from structure types to their constructors paths' and
+    ///     constructurs argument counts'
+    constructors: HashMap<&'metadata Path, Vec<(&'metadata Path, usize)>>,
     /// Counter for generating fresh type variables
     newvar_counter: usize,
     /// Map from type variable id (usize) to its substitution (MonoType)
@@ -63,7 +64,7 @@ where
             name_expressions: ExpressionMap::new(),
             names: HashMap::new(),
             types: HashMap::new(),
-            constructor_count: HashMap::new(),
+            constructors: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default(),
             current_source_name: None,
@@ -339,76 +340,101 @@ where
             }
         }
 
-        let branches = matchas.branches.iter().map(|branch| &branch.data.pattern.data).collect();
-        self.check_branch_exhaustiveness(&t, &branches, matchas.expression.span)?;
+        let branches = matchas
+            .branches
+            .iter()
+            .map(|branch| &branch.data.pattern)
+            .collect();
+
+        self.check_branch_exhaustiveness(&self.substitute(t), branches, matchas.expression.span)?;
 
         Ok(self.substitute(return_type))
     }
 
-    fn check_branch_exhaustiveness(&mut self, t: &MonoType, patterns: &Vec<&Pattern>, span: Span) -> Result<()> {
-        if patterns.iter().any(|pattern| matches!(pattern, Pattern::Any(_))) {
-            return Ok(())
+    fn check_branch_exhaustiveness(
+        &self,
+        t: &MonoType,
+        patterns: Vec<&Located<Pattern>>,
+        span: Span,
+    ) -> Result<()> {
+        if patterns
+            .iter()
+            .any(|pattern| matches!(pattern.data, Pattern::Any(_)))
+        {
+            return Ok(());
         }
 
-        let MonoType::Structure(structure) = self.substitute(t.clone()) else {
+        // Other than a structure type needs an `Any` pattern to be exhaustive
+        let MonoType::Structure(structure) = &t else {
             return self.error(TypeCheckError::UnexhaustivePatternMatching, span);
         };
 
-        let count = self.constructor_count[&structure.path];
-        let mut patts = vec![vec![]; count];
+        let constructor_count = self.constructors[&structure.path].len();
+        let mut constructor_branches = vec![vec![]; constructor_count];
 
         for pattern in patterns {
-            let Pattern::Structure(pattern) = pattern else {
-                unreachable!()
+            let Pattern::Structure(pattern) = &pattern.data else {
+                unreachable!("Type checking guarantees only-all structure patterns a this point");
             };
 
             let structure_pattern = &self.metadata[pattern.structure_pattern_id];
-            patts[structure_pattern.tag].push((&pattern.arguments, pattern.structure_pattern_id));
+            constructor_branches[structure_pattern.tag].push(&pattern.arguments);
         }
 
-        if patts.iter().any(|vec| vec.is_empty()) {
+        if constructor_branches
+            .iter()
+            .any(|constructor| constructor.is_empty())
+        {
             return self.error(TypeCheckError::UnexhaustivePatternMatching, span);
         }
 
-        for patt in &patts {
-            for i in 0..patt[0].0.len() {
-                let mut patterns = vec![];
-                for branch in patt.iter().map(|a| a.0) {
-                    patterns.push(&branch[i].data);
-                }
+        for (tag, constructors) in constructor_branches.into_iter().enumerate() {
+            let (path, _) = self.constructors[&structure.path][tag];
+            let m = self.instantiate_structure_pattern(path, structure.arguments.iter().cloned());
 
-                let structure_pattern = &self.metadata[patt[0].1];
-                let constructor_path = structure_pattern
-                    .type_path
-                    .append([structure_pattern.constructor_name]);
-                let constructor_type = self.names[&constructor_path].clone();
+            self.structure_argument_exhaustiveness(&m, HashMap::from([(tag, constructors)]), span)?;
+        }
 
-                let variables = t.variables();
-                let arguments = variables.iter().copied().map(MonoType::Variable);
+        Ok(())
+    }
 
-                let m = match constructor_type {
-                    Type::Mono(m) => m,
-                    Type::Poly(variables, m) => {
-                        let table = variables.into_iter().zip(arguments).collect();
-                        m.substitute(&table)
-                    }
-                };
+    fn structure_argument_exhaustiveness<A>(
+        &self,
+        m: &MonoType,
+        branches: HashMap<usize, Vec<A>>,
+        span: Span,
+    ) -> Result<()>
+    where
+        A: AsRef<[Located<Pattern>]>,
+    {
+        let MonoType::Arrow(arrow) = m else {
+            return Ok(());
+        };
 
-                let t = if let MonoType::Arrow(constructor) = m {
-                    let mut t = &constructor;
-                    for _ in 0..i {
-                        if let MonoType::Arrow(arrow) = t.to.as_ref() {
-                            t = arrow;
-                        }
-                    }
+        for arguments in branches.values() {
+            let first_arguments = arguments
+                .iter()
+                .map(|arguments| &arguments.as_ref()[0])
+                .collect();
 
-                    *t.from.clone()
+            self.check_branch_exhaustiveness(&arrow.from, first_arguments, span)?;
+
+            let branches = arguments.iter().fold(HashMap::new(), |mut acc, arguments| {
+                let branch = if let Pattern::Structure(structure) = &arguments.as_ref()[0].data {
+                    self.metadata[structure.structure_pattern_id].tag
                 } else {
-                    m
+                    // NOTE: Other patterns cannot nest so this value is not
+                    //  important for them
+                    0
                 };
 
-                self.check_branch_exhaustiveness(&self.substitute(t), &patterns, span)?
-            }
+                acc.entry(branch)
+                    .or_insert(vec![])
+                    .push(&arguments.as_ref()[1..]);
+                acc
+            });
+
+            self.structure_argument_exhaustiveness(&arrow.to, branches, span)?;
         }
 
         Ok(())
@@ -447,21 +473,27 @@ where
                     return self.error(TypeCheckError::TypeMismatch { t1, t2 }, pattern.span);
                 };
 
-                let constructor_path = structure_pattern
-                    .type_path
-                    .append([structure_pattern.constructor_name]);
-                let constructor_type = self.names[&constructor_path].clone();
+                let (path, argument_count) =
+                    self.constructors[&structure_pattern.type_path][structure_pattern.tag];
 
-                let variables = structure_type.variables();
-                let arguments = variables.iter().copied().map(MonoType::Variable);
+                let m = self.instantiate_structure_pattern(
+                    path,
+                    structure_type
+                        .variables()
+                        .iter()
+                        .copied()
+                        .map(MonoType::Variable),
+                );
 
-                let m = match constructor_type {
-                    Type::Mono(m) => m,
-                    Type::Poly(variables, m) => {
-                        let table = variables.into_iter().zip(arguments).collect();
-                        m.substitute(&table)
-                    }
-                };
+                if argument_count != structure.arguments.len() {
+                    return self.error(
+                        TypeCheckError::StructurePatternArityMismatch {
+                            expected: argument_count,
+                            found: structure.arguments.len(),
+                        },
+                        pattern.span,
+                    );
+                }
 
                 if let MonoType::Arrow(constructor) = m {
                     let mut t = &constructor;
@@ -479,6 +511,21 @@ where
         }
 
         Ok(())
+    }
+
+    fn instantiate_structure_pattern<I>(&self, constructor_path: &Path, arguments: I) -> MonoType
+    where
+        I: Iterator<Item = MonoType>,
+    {
+        let constructor_type = self.names[constructor_path].clone();
+
+        match constructor_type {
+            Type::Mono(m) => m,
+            Type::Poly(variables, m) => {
+                let table = variables.into_iter().zip(arguments).collect();
+                m.substitute(&table)
+            }
+        }
     }
 
     pub fn program(&mut self, program: &'ast Program, interner: &Interner) -> Result<Type> {
@@ -526,7 +573,19 @@ where
                     let t = self.initialize_structure_type(path.clone(), structure.variables.len());
 
                     self.types.insert(path, t);
-                    self.constructor_count.insert(path, structure.constructors.len());
+
+                    let constructors = structure
+                        .constructors
+                        .iter()
+                        .map(|constructor| {
+                            (
+                                &self.metadata[constructor.data.path_id],
+                                constructor.data.arguments.len(),
+                            )
+                        })
+                        .collect();
+
+                    self.constructors.insert(path, constructors);
                 }
                 _ => (),
             }
@@ -639,5 +698,6 @@ pub enum TypeCheckError {
     CyclicDefinition(Path),
     ExpectedStructure(MonoType),
     TypeArityMismatch { expected: usize, found: usize },
-    UnexhaustivePatternMatching
+    UnexhaustivePatternMatching,
+    StructurePatternArityMismatch { expected: usize, found: usize },
 }

@@ -222,7 +222,7 @@ impl Resolver {
             self.pattern_define_locals(&argument.data, span)?;
         }
 
-        let (type_path, constructor_name, tag) = match &structure.parts.data.as_slice() {
+        let (type_path, tag) = match &structure.parts.data.as_slice() {
             [] => unreachable!(),
             [base, rest @ ..] => {
                 let mut path = self.absolute_path(base);
@@ -242,11 +242,11 @@ impl Resolver {
                     .unwrap();
 
                 path.push([type_name]);
-                (path, constructor_name, tag)
+                (path, tag)
             }
         };
 
-        let structure_pattern = metadata::StructurePattern { type_path, constructor_name, tag };
+        let structure_pattern = metadata::StructurePattern { type_path, tag };
         self.metadata
             .set(structure.structure_pattern_id, structure_pattern);
 

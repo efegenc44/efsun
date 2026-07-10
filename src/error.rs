@@ -45,8 +45,9 @@ fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
                     message.push_str(token.kind_string());
                 }
                 [tail @ .., head] => {
+                    message.push_str("either ");
                     for token in tail {
-                        message.push_str(&format!("either {}, ", token.kind_string()));
+                        message.push_str(&format!("{}, ", token.kind_string()));
                     }
                     message.push_str(&format!("or {}", head.kind_string()));
                 }
@@ -116,6 +117,9 @@ fn type_check_error_description(error: &TypeCheckError, interner: &Interner) -> 
         }
         TypeCheckError::UnexhaustivePatternMatching => {
             "Not all possible pattern are covered, unexhaustive pattern matching".to_string()
+        }
+        TypeCheckError::StructurePatternArityMismatch { expected, found } => {
+            format!("Expected {expected} number of pattern arguments but found {found}")
         }
     }
 }

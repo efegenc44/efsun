@@ -117,7 +117,6 @@ pub struct Module {
     names: HashSet<InternId>,
     types: HashMap<InternId, Vec<InternId>>,
     imports: HashMap<InternId, Located<Path>>,
-    // import_alls: HashMap<Path, Located<HashSet<InternId>>>,
     source_name: String,
 }
 
@@ -127,7 +126,6 @@ impl Module {
             names: HashSet::new(),
             types: HashMap::new(),
             imports: HashMap::new(),
-            // import_alls: HashMap::new(),
             source_name,
         }
     }
@@ -159,12 +157,4 @@ impl Module {
     pub fn source_name(&self) -> &str {
         &self.source_name
     }
-
-    // pub fn import_alls(&self) -> &HashMap<Path, Located<HashSet<InternId>>> {
-    //     &self.import_alls
-    // }
-
-    // pub fn import_alls_mut(&mut self) -> &mut HashMap<Path, Located<HashSet<InternId>>> {
-    //     &mut self.import_alls
-    // }
 }

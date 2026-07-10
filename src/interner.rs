@@ -62,17 +62,3 @@ pub struct WithInterner<'interner, T> {
     pub data: T,
     pub interner: &'interner Interner,
 }
-
-// impl<'interner, T> WithInterner<'interner, T> {
-//     pub fn new(data: T, interner: &'interner Interner) -> Self {
-//         Self { data, interner }
-//     }
-
-//     pub fn data(&self) -> &T {
-//         &self.data
-//     }
-
-//     pub fn interner(&self) -> &Interner {
-//         self.interner
-//     }
-// }
