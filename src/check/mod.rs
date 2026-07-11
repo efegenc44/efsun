@@ -421,10 +421,14 @@ where
 
             let branches = arguments.iter().fold(HashMap::new(), |mut acc, arguments| {
                 let branch = if let Pattern::Structure(structure) = &arguments.as_ref()[0].data {
-                    self.metadata[structure.structure_pattern_id].tag
+                    // 0 is reserved for `Any` paths
+                    self.metadata[structure.structure_pattern_id].tag + 1
                 } else {
                     // NOTE: Other patterns cannot nest so this value is not
-                    //  important for them
+                    //  important for them except for `Any` pattern. An `Any` and
+                    //  structure pattern can share the same spot unlike any other
+                    //  two patterns and therefore needs to distinguished. So 0 is
+                    //  reserved for `Any` paths
                     0
                 };
 

@@ -288,9 +288,18 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         let token = self.peek_some()?;
 
         match &token.data {
+            Token::Identifier(_) => self.pattern_structure(false),
+            _ => self.pattern_primary(),
+        }
+    }
+
+    fn pattern_primary(&mut self) -> Result<Located<Pattern>> {
+        let token = self.peek_some()?;
+
+        match &token.data {
             Token::String(string) => self.pattern_literal(Pattern::String(*string)),
             Token::Tilde => self.pattern_any(),
-            Token::Identifier(_) => self.pattern_structure(),
+            Token::Identifier(_) => self.pattern_structure(true),
             Token::LeftParenthesis => self.pattern_grouping(),
             unexpected => self.error(
                 ParseError::UnexpectedTokenStart {
@@ -325,13 +334,13 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         })
     }
 
-    fn pattern_structure(&mut self) -> Result<Located<Pattern>> {
+    fn pattern_structure(&mut self, simple: bool) -> Result<Located<Pattern>> {
         let parts = self.path_parts()?;
         let start = parts.span.start;
         let mut end = parts.span.end;
         let mut arguments = Vec::new();
-        while self.peek_is_one_of(PATTERN_START)? {
-            let pattern = self.pattern()?;
+        while self.peek_is_one_of(PATTERN_START)? && !simple {
+            let pattern = self.pattern_primary()?;
             end = pattern.span.end;
             arguments.push(pattern);
         }
