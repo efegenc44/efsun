@@ -38,7 +38,7 @@ pub enum Instruction {
     Bool(bool),
     Constructor(usize, usize, usize),
     Structure(usize, usize),
-    MakeLambda(usize, Vec<Capture>),
+    MakeLambda(usize, usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
     GetAbsolute(usize),
@@ -49,7 +49,7 @@ pub enum Instruction {
     PopScope(usize),
     PushBase,
     SetBase(usize),
-    Call,
+    Call(usize),
     Return,
     Jump(usize),
     JumpIfFalse(usize),
@@ -73,8 +73,8 @@ impl Display for Instruction {
             Self::SetBase(n) => {
                 write!(f, "SET_BASE {n}")
             }
-            Self::MakeLambda(address, captures) => {
-                write!(f, "MAKE_LAMBDA {address}")?;
+            Self::MakeLambda(address, arity, captures) => {
+                write!(f, "MAKE_LAMBDA {address} {arity}")?;
                 for capture in captures {
                     write!(f, "\n            CAPTURE_")?;
                     match capture {
@@ -95,7 +95,7 @@ impl Display for Instruction {
             Self::Jump(address) => write!(f, "JUMP {address:X}"),
             Self::JumpIfFalse(address) => write!(f, "JUMP_IF_FALSE {address:X}"),
             Self::PopScope(n) => write!(f, "POP_SCOPE {n}"),
-            Self::Call => write!(f, "CALL"),
+            Self::Call(n) => write!(f, "CALL {n}"),
             Self::Return => write!(f, "RETURN"),
         }
     }

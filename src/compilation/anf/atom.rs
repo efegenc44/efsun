@@ -20,7 +20,7 @@ pub struct Path {
 }
 
 pub struct Lambda {
-    pub variable: UniqueName,
+    pub variables: Vec<UniqueName>,
     pub expression: Box<anf::Expression>,
     pub anf_capture_id: CaptureMetadataId,
 }
@@ -66,7 +66,9 @@ impl Atom {
                 // if let Some(captures) = captures {
                 //     indent(captures, depth + 1);
                 // }
-                indent(lambda.variable, depth + 1);
+                for variable in &lambda.variables {
+                    indent(variable, depth + 1);
+                }
                 lambda.expression.print(depth + 1, interner);
             }
         }

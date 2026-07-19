@@ -4,6 +4,7 @@ use std::rc::Rc;
 pub enum Value {
     Unit,
     Lambda(LambdaValue),
+    PartialApplication(PartialApplicationValue),
     Constructor(ConstructorValue),
     Structure(StructureValue),
     String(usize),
@@ -18,6 +19,7 @@ impl Value {
         match self {
             Self::Unit => "Unit".to_string(),
             Self::Lambda(lambda) => format!("<lambda {}>", lambda.address),
+            Self::PartialApplication(lambda) => format!("<lambda {}>", lambda.address),
             Self::Constructor(constructor) => {
                 format!(
                     "<{} {}>",
@@ -115,69 +117,33 @@ impl Value {
         closure
     }
 }
+
 #[derive(Clone)]
 pub struct LambdaValue {
-    address: usize,
-    captures: Rc<Vec<Value>>,
+    pub address: usize,
+    pub arity: usize,
+    pub captures: Rc<Vec<Value>>,
 }
 
-impl LambdaValue {
-    pub fn new(address: usize, captures: Vec<Value>) -> Self {
-        Self {
-            address,
-            captures: Rc::new(captures),
-        }
-    }
-
-    pub fn destruct(self) -> (usize, Rc<Vec<Value>>) {
-        (self.address, self.captures)
-    }
+#[derive(Clone)]
+pub struct PartialApplicationValue {
+    pub address: usize,
+    pub remaining: usize,
+    pub parital: Rc<Vec<Value>>,
+    pub captures: Rc<Vec<Value>>,
 }
 
 #[derive(Clone)]
 pub struct ConstructorValue {
-    name_offset: usize,
-    order: usize,
-    arity: usize,
-    captures: Rc<Vec<Value>>,
-}
-
-impl ConstructorValue {
-    pub fn new(name_offset: usize, order: usize, arity: usize, captures: Vec<Value>) -> Self {
-        Self {
-            name_offset,
-            order,
-            arity,
-            captures: Rc::new(captures),
-        }
-    }
-
-    pub fn destruct(self) -> (usize, usize, usize, Rc<Vec<Value>>) {
-        (self.name_offset, self.order, self.arity, self.captures)
-    }
+    pub name_offset: usize,
+    pub order: usize,
+    pub arity: usize,
+    pub captures: Rc<Vec<Value>>,
 }
 
 #[derive(Clone)]
 pub struct StructureValue {
-    name_offset: usize,
-    order: usize,
-    values: Option<Rc<Vec<Value>>>,
-}
-
-impl StructureValue {
-    pub fn new(name_offset: usize, order: usize, values: Option<Vec<Value>>) -> Self {
-        Self {
-            name_offset,
-            order,
-            values: values.map(Rc::new),
-        }
-    }
-
-    pub fn order(&self) -> usize {
-        self.order
-    }
-
-    pub fn values(&self) -> &Vec<Value> {
-        self.values.as_ref().unwrap()
-    }
+    pub name_offset: usize,
+    pub order: usize,
+    pub values: Option<Rc<Vec<Value>>>,
 }

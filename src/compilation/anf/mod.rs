@@ -5,6 +5,7 @@ pub mod expression;
 use std::{
     cell::{Cell, RefCell},
     fmt::Display,
+    rc::Rc,
 };
 
 use definition::{self as anf_definition};
@@ -241,22 +242,48 @@ impl<'metadata> Transformer<'metadata> {
     }
 
     fn application(&self, application: ast_expression::Application, k: Continuation) -> Expression {
-        let ast_expression::Application { function, argument } = application;
+        let ast_expression::Application {
+            mut function,
+            argument,
+        } = application;
+
+        let mut arguments = vec![argument.data];
+        while let ASTExpression::Application(successive) = function.data {
+            arguments.push(successive.argument.data);
+            function = successive.function;
+        }
 
         #[rustfmt::skip]
-        let result = self.expression(argument.data, Box::new(|argument| {
-            self.expression(function.data, Box::new(|function| {
-                let (variable, path) = self.new_anf_local();
+        let result = self.expression(function.data, Box::new(|function| {
+            let (variable, path) = self.new_anf_local();
 
-                let application = anf_expression::Application {
+            type Accumulation<'a> = Box<dyn FnOnce(Rc<RefCell<Vec<Atom>>>) -> Expression + 'a>;
+
+            let mut application: Accumulation = Box::new(|arguments| {
+                let arguments = Rc::into_inner(arguments).unwrap().into_inner();
+
+                Expression::Application(anf_expression::Application {
                     variable,
                     function,
-                    argument,
+                    arguments,
                     expression: Box::new(k(Atom::Path(path))),
-                };
+                })
+            });
 
-                Expression::Application(application)
-            }))
+            let atom_arguments = Rc::new(RefCell::new(vec![]));
+            for argument in arguments {
+                let bar = atom_arguments.clone();
+                application = Box::new(move |arguments| self.expression(argument, Box::new(|argument| {
+                    bar.borrow_mut().push(argument);
+                    // NOTE: This drop is needed otherwise Rc::into_inner runs before dropping references
+                    //  at the end of the scope and consequently Rc::into_inner fails as reference count != 1.
+                    //  So it is safely droped before Rust does.
+                    drop(bar);
+                    application(arguments)
+                })));
+            }
+
+            application(atom_arguments)
         }));
 
         result
@@ -264,14 +291,19 @@ impl<'metadata> Transformer<'metadata> {
 
     fn lambda(&self, lambda: ast_expression::Lambda, k: Continuation) -> Expression {
         let ast_expression::Lambda {
-            expression,
+            mut expression,
             unique_name_id,
             ..
         } = lambda;
 
-        let variable = self.metadata[unique_name_id].unwrap();
+        let mut variables = vec![self.metadata[unique_name_id].unwrap()];
+        while let ASTExpression::Lambda(successive) = expression.data {
+            variables.push(self.metadata[successive.unique_name_id].unwrap());
+            expression = successive.expression;
+        }
+
         let lambda = atom::Lambda {
-            variable,
+            variables,
             expression: Box::new(self.transform(expression.data)),
             anf_capture_id: self.indicies.borrow_mut().get(),
         };

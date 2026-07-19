@@ -709,7 +709,11 @@ impl ANFResolver {
 
     fn lambda(&mut self, lambda: &anf::atom::Lambda) {
         self.stack.push_frame();
-        self.stack.push_local(Local::Standard(lambda.variable));
+        // NOTE: Reverse is to preserve left associative application
+        //   semantics that is forced by previous phases
+        for variable in lambda.variables.iter().rev() {
+            self.stack.push_local(Local::Standard(*variable));
+        }
         self.expression(&lambda.expression);
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
@@ -725,8 +729,12 @@ impl ANFResolver {
     }
 
     fn application(&mut self, application: &anf::expression::Application) {
+        // NOTE: Reverse is to preserve left associative application
+        //   semantics that is forced by previous phases
+        for argument in application.arguments.iter().rev() {
+            self.atom(argument);
+        }
         self.atom(&application.function);
-        self.atom(&application.argument);
         self.stack.push_local(application.variable);
         self.expression(&application.expression);
         self.stack.pop_local();

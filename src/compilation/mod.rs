@@ -161,7 +161,7 @@ where
         instructions.push(Instruction::GetAbsolute(id));
         instructions.push(Instruction::SetBase(2));
         // TODO: Enforce main symbol to have an arrow type
-        instructions.push(Instruction::Call);
+        instructions.push(Instruction::Call(1));
 
         (instructions, ConstantPool::new(self.strings, lambdas))
     }
@@ -316,10 +316,14 @@ where
 
     fn application(&mut self, application: &'anf anf::expression::Application) {
         self.emit(Instruction::PushBase.into());
-        self.atom(&application.argument);
+        // NOTE: Reverse is to preserve left associative application
+        //   semantics that is forced by previous pipline steps
+        for argument in application.arguments.iter().rev() {
+            self.atom(argument);
+        }
         self.atom(&application.function);
-        self.emit(Instruction::SetBase(2).into());
-        self.emit(Instruction::Call.into());
+        self.emit(Instruction::SetBase(application.arguments.len() + 1).into());
+        self.emit(Instruction::Call(application.arguments.len()).into());
         scoped_expression!(1, self, &application.expression);
     }
 
@@ -418,9 +422,10 @@ where
         let id = self.lambdas.len();
         self.lambdas.push(lambda_code);
 
+        let artiy = lambda.variables.len();
         let capture = &self.metadata[lambda.anf_capture_id];
 
-        self.emit(Instruction::MakeLambda(id, capture.to_vec()).into())
+        self.emit(Instruction::MakeLambda(id, artiy, capture.to_vec()).into())
     }
 
     fn letin(&mut self, letin: &'anf anf::expression::LetIn) {

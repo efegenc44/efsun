@@ -5,6 +5,7 @@ use std::{io::Write, rc::Rc};
 use crate::{
     compilation::{ConstantPool, instruction::Instruction},
     resolution::bound::Capture,
+    vm::value::PartialApplicationValue,
 };
 
 use value::{ConstructorValue, LambdaValue, StructureValue, Value};
@@ -55,21 +56,21 @@ impl VM {
                     self.push(Value::String(offset));
                 }
                 Instruction::Constructor(name_offset, order, arity) => {
-                    self.push(Value::Constructor(ConstructorValue::new(
+                    self.push(Value::Constructor(ConstructorValue {
                         name_offset,
                         order,
                         arity,
-                        Vec::with_capacity(arity),
-                    )));
+                        captures: Rc::new(Vec::with_capacity(arity)),
+                    }));
                 }
                 Instruction::Structure(name_offset, order) => {
-                    self.push(Value::Structure(StructureValue::new(
+                    self.push(Value::Structure(StructureValue {
                         name_offset,
                         order,
-                        None,
-                    )));
+                        values: None,
+                    }));
                 }
-                Instruction::MakeLambda(address, captures) => {
+                Instruction::MakeLambda(address, arity, captures) => {
                     let mut closure = Vec::with_capacity(captures.len());
 
                     for capture in captures {
@@ -81,7 +82,11 @@ impl VM {
                         closure.push(value);
                     }
 
-                    self.push(Value::Lambda(LambdaValue::new(address, closure)));
+                    self.push(Value::Lambda(LambdaValue {
+                        address,
+                        arity,
+                        captures: Rc::new(closure),
+                    }));
                 }
                 Instruction::GetCapture(id) => {
                     let value = self.closure.as_ref()[id].clone();
@@ -122,39 +127,54 @@ impl VM {
                     self.push(Value::StackPointer(self.base));
                     self.push(Value::Closure(self.closure.clone()));
                 }
-                Instruction::Call => {
+                Instruction::Call(n) => {
                     let operand = self.pop();
 
                     match operand {
                         Value::Lambda(lambda) => {
-                            let (address, captures) = lambda.destruct();
+                            if lambda.arity != n {
+                                let mut arguments = vec![];
+                                for _ in 0..n {
+                                    arguments.push(self.pop())
+                                }
 
-                            self.closure = captures;
+                                let value = PartialApplicationValue {
+                                    address: lambda.address,
+                                    remaining: lambda.arity - n,
+                                    parital: Rc::new(arguments),
+                                    captures: lambda.captures,
+                                };
 
-                            let value = self.run(&pool.lambdas()[address], pool, debug);
-                            self.push(value);
+                                self.push(Value::PartialApplication(value));
+                            } else {
+                                self.closure = lambda.captures;
+
+                                let value = self.run(&pool.lambdas()[lambda.address], pool, debug);
+                                self.push(value);
+                            }
                         }
                         Value::Constructor(constructor) => {
-                            let (name_offset, order, arity, captures) = constructor.destruct();
-                            let argument = self.pop();
+                            let mut arguments = vec![];
+                            for _ in 0..n {
+                                arguments.push(self.pop())
+                            }
 
-                            let value = if arity <= 1 {
-                                let mut values = (*captures).clone();
-                                values.push(argument);
-                                Value::Structure(StructureValue::new(
-                                    name_offset,
-                                    order,
-                                    Some(values),
-                                ))
+                            let mut values = (*constructor.captures).clone();
+                            values.extend(arguments);
+
+                            let value = if constructor.arity == n {
+                                Value::Structure(StructureValue {
+                                    name_offset: constructor.name_offset,
+                                    order: constructor.order,
+                                    values: Some(Rc::new(values)),
+                                })
                             } else {
-                                let mut values = (*captures).clone();
-                                values.push(argument);
-                                Value::Constructor(ConstructorValue::new(
-                                    name_offset,
-                                    order,
-                                    arity - 1,
-                                    values,
-                                ))
+                                Value::Constructor(ConstructorValue {
+                                    name_offset: constructor.name_offset,
+                                    order: constructor.order,
+                                    arity: constructor.arity - n,
+                                    captures: Rc::new(values),
+                                })
                             };
 
                             // TODO: Infer constructor application and lambda application
@@ -162,6 +182,31 @@ impl VM {
                             self.stack.truncate(self.base);
                             self.closure = self.pop().into_closure();
                             self.base = self.pop().into_stack_pointer();
+
+                            self.push(value);
+                        }
+                        Value::PartialApplication(lambda) => {
+                            let mut arguments = vec![];
+                            for _ in 0..n {
+                                arguments.push(self.pop())
+                            }
+
+                            let mut values = (*lambda.parital).clone();
+                            values.extend(arguments);
+
+                            let value = if lambda.remaining == n {
+                                self.stack.extend(values);
+                                self.closure = lambda.captures;
+
+                                self.run(&pool.lambdas()[lambda.address], pool, debug)
+                            } else {
+                                Value::PartialApplication(PartialApplicationValue {
+                                    address: lambda.address,
+                                    remaining: lambda.remaining - n,
+                                    parital: Rc::new(values),
+                                    captures: lambda.captures,
+                                })
+                            };
 
                             self.push(value);
                         }
@@ -177,11 +222,11 @@ impl VM {
                 }
                 Instruction::TagEquals(tag) => {
                     let structure = self.pop().into_structure();
-                    self.push(Value::Bool(structure.order() == tag));
+                    self.push(Value::Bool(structure.order == tag));
                 }
                 Instruction::GetArgument(nth) => {
                     let structure = self.pop().into_structure();
-                    self.push(structure.values()[nth].clone())
+                    self.push(structure.values.unwrap()[nth].clone())
                 }
                 Instruction::LogicalAnd => {
                     let b = self.pop().into_bool();

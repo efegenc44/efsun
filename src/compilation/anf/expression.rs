@@ -19,7 +19,7 @@ pub enum Expression {
 pub struct Application {
     pub variable: anf::Local,
     pub function: anf::Atom,
-    pub argument: anf::Atom,
+    pub arguments: Vec<anf::Atom>,
     pub expression: Box<anf::Expression>,
 }
 
@@ -77,7 +77,9 @@ impl Expression {
                     depth,
                 );
                 application.function.print(depth + 1, interner);
-                application.argument.print(depth + 1, interner);
+                for argument in &application.arguments {
+                    argument.print(depth + 1, interner);
+                }
                 indent("in", depth);
                 application.expression.print(depth, interner);
             }
