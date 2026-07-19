@@ -212,9 +212,16 @@ where
                     let name_offset = self.string_offset(constructor.name);
 
                     let instruction = if constructor.arity == 0 {
-                        Instruction::Structure(name_offset, order)
+                        Instruction::MakeStructure(name_offset, order, constructor.arity)
                     } else {
-                        Instruction::Constructor(name_offset, order, constructor.arity)
+                        let id = self.lambdas.len();
+                        self.lambdas.push(vec![
+                            Instruction::MakeStructure(name_offset, order, constructor.arity)
+                                .into(),
+                            Instruction::Return.into(),
+                        ]);
+
+                        Instruction::MakeLambda(id, constructor.arity, vec![])
                     };
 
                     let path = &self.metadata[constructor.path_id];

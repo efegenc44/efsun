@@ -8,7 +8,7 @@ use crate::{
     vm::value::PartialApplicationValue,
 };
 
-use value::{ConstructorValue, LambdaValue, StructureValue, Value};
+use value::{LambdaValue, StructureValue, Value};
 
 /// Stack-Based Virtual Machine
 pub struct VM {
@@ -55,19 +55,16 @@ impl VM {
                 Instruction::String(offset) => {
                     self.push(Value::String(offset));
                 }
-                Instruction::Constructor(name_offset, order, arity) => {
-                    self.push(Value::Constructor(ConstructorValue {
-                        name_offset,
-                        order,
-                        arity,
-                        captures: Rc::new(Vec::with_capacity(arity)),
-                    }));
-                }
-                Instruction::Structure(name_offset, order) => {
+                Instruction::MakeStructure(name_offset, order, arity) => {
+                    let mut values = Vec::with_capacity(arity);
+                    for _ in 0..arity {
+                        values.push(self.pop());
+                    }
+
                     self.push(Value::Structure(StructureValue {
                         name_offset,
                         order,
-                        values: None,
+                        values: Rc::new(values),
                     }));
                 }
                 Instruction::MakeLambda(address, arity, captures) => {
@@ -153,38 +150,6 @@ impl VM {
                                 self.push(value);
                             }
                         }
-                        Value::Constructor(constructor) => {
-                            let mut arguments = vec![];
-                            for _ in 0..n {
-                                arguments.push(self.pop())
-                            }
-
-                            let mut values = (*constructor.captures).clone();
-                            values.extend(arguments);
-
-                            let value = if constructor.arity == n {
-                                Value::Structure(StructureValue {
-                                    name_offset: constructor.name_offset,
-                                    order: constructor.order,
-                                    values: Some(Rc::new(values)),
-                                })
-                            } else {
-                                Value::Constructor(ConstructorValue {
-                                    name_offset: constructor.name_offset,
-                                    order: constructor.order,
-                                    arity: constructor.arity - n,
-                                    captures: Rc::new(values),
-                                })
-                            };
-
-                            // TODO: Infer constructor application and lambda application
-                            //   then handle them seperately
-                            self.stack.truncate(self.base);
-                            self.closure = self.pop().into_closure();
-                            self.base = self.pop().into_stack_pointer();
-
-                            self.push(value);
-                        }
                         Value::PartialApplication(lambda) => {
                             let mut arguments = vec![];
                             for _ in 0..n {
@@ -226,7 +191,7 @@ impl VM {
                 }
                 Instruction::GetArgument(nth) => {
                     let structure = self.pop().into_structure();
-                    self.push(structure.values.unwrap()[nth].clone())
+                    self.push(structure.values[nth].clone())
                 }
                 Instruction::LogicalAnd => {
                     let b = self.pop().into_bool();

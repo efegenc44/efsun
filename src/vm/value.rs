@@ -5,7 +5,6 @@ pub enum Value {
     Unit,
     Lambda(LambdaValue),
     PartialApplication(PartialApplicationValue),
-    Constructor(ConstructorValue),
     Structure(StructureValue),
     String(usize),
     Bool(bool),
@@ -20,20 +19,13 @@ impl Value {
             Self::Unit => "Unit".to_string(),
             Self::Lambda(lambda) => format!("<lambda {}>", lambda.address),
             Self::PartialApplication(lambda) => format!("<lambda {}>", lambda.address),
-            Self::Constructor(constructor) => {
-                format!(
-                    "<{} {}>",
-                    &strings[constructor.name_offset],
-                    constructor.captures.len()
-                )
-            }
             Self::Structure(structure) => {
-                let Some(values) = &structure.values else {
+                if structure.values.is_empty() {
                     return strings[structure.name_offset].to_string();
                 };
 
                 let mut string = format!("({}", &strings[structure.name_offset]);
-                match values.as_ref().as_slice() {
+                match structure.values.as_slice() {
                     [] => (),
                     [x, xs @ ..] => {
                         string.push(' ');
@@ -65,15 +57,6 @@ impl Value {
         };
 
         lambda
-    }
-
-    #[allow(unused)]
-    pub fn into_constructor(self) -> ConstructorValue {
-        let Self::Constructor(constructor) = self else {
-            panic!("Expected constructor");
-        };
-
-        constructor
     }
 
     #[allow(unused)]
@@ -125,6 +108,7 @@ pub struct LambdaValue {
     pub captures: Rc<Vec<Value>>,
 }
 
+// TODO: Implement PartialApplicationValue as LambdaValue * partial: Rc<Vec<Value>>
 #[derive(Clone)]
 pub struct PartialApplicationValue {
     pub address: usize,
@@ -134,16 +118,8 @@ pub struct PartialApplicationValue {
 }
 
 #[derive(Clone)]
-pub struct ConstructorValue {
-    pub name_offset: usize,
-    pub order: usize,
-    pub arity: usize,
-    pub captures: Rc<Vec<Value>>,
-}
-
-#[derive(Clone)]
 pub struct StructureValue {
     pub name_offset: usize,
     pub order: usize,
-    pub values: Option<Rc<Vec<Value>>>,
+    pub values: Rc<Vec<Value>>,
 }

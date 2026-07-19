@@ -36,8 +36,7 @@ pub enum Instruction {
     Unit,
     String(usize),
     Bool(bool),
-    Constructor(usize, usize, usize),
-    Structure(usize, usize),
+    MakeStructure(usize, usize, usize),
     MakeLambda(usize, usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
@@ -61,11 +60,8 @@ impl Display for Instruction {
             Self::Unit => write!(f, "UNIT"),
             Self::String(offset) => write!(f, "STRING {offset}"),
             Self::Bool(bool) => write!(f, "BOOL {bool}"),
-            Self::Constructor(name_offset, order, arity) => {
-                write!(f, "CONSTRUCTOR {name_offset} {order} {arity}")
-            }
-            Self::Structure(name_offset, tag) => {
-                write!(f, "MAKE_STRUCTURE {name_offset} {tag}")
+            Self::MakeStructure(name_offset, tag, arity) => {
+                write!(f, "MAKE_STRUCTURE {name_offset} {tag} {arity}")
             }
             Self::PushBase => {
                 write!(f, "PUSH_BASE")
