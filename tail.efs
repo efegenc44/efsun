@@ -1,0 +1,6 @@
+module Main
+
+let main = \ğ
+    bar ""
+
+let bar = \x x

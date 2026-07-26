@@ -3,6 +3,7 @@ use std::fmt::Display;
 use crate::{
     compilation::anf::{self, atom},
     interner::{Interner, WithInterner},
+    metadata::TailCallMetadataId,
     parse::pattern::Pattern,
     resolution::renamer::UniqueName,
 };
@@ -20,6 +21,7 @@ pub struct Application {
     pub variable: anf::Local,
     pub function: anf::Atom,
     pub arguments: Vec<anf::Atom>,
+    pub tail_call_id: TailCallMetadataId,
     pub expression: Box<anf::Expression>,
 }
 

@@ -12,7 +12,7 @@ use crate::{
     error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
-    metadata::{self, Metadata, Setter, Unresolved},
+    metadata::{self, Metadata, Setter, SetterFlag, Unresolved},
     parse::{
         definition::{self, Definition, Module, Program},
         expression::{self, Expression},
@@ -183,6 +183,8 @@ impl Resolver {
     }
 
     fn lambda(&mut self, lambda: &expression::Lambda) -> Result<()> {
+        self.resolve_tail_call(&lambda.expression.data);
+
         self.stack.push_frame();
         self.stack.push_local(lambda.variable.data);
         self.expression(&lambda.expression)?;
@@ -192,6 +194,21 @@ impl Resolver {
         self.metadata.set(lambda.capture_id, capture);
 
         Ok(())
+    }
+
+    fn resolve_tail_call(&mut self, expression: &Expression) {
+        match expression {
+            Expression::Application(application) => {
+                self.metadata.set_flag(application.tail_call_id);
+            }
+            Expression::LetIn(letin) => self.resolve_tail_call(&letin.return_expression.data),
+            Expression::MatchAs(matchas) => {
+                for branch in &matchas.branches {
+                    self.resolve_tail_call(&branch.data.expression.data);
+                }
+            }
+            Expression::String(_) | Expression::Lambda(_) | Expression::Path(_) => (),
+        }
     }
 
     fn application(&mut self, application: &expression::Application) -> Result<()> {

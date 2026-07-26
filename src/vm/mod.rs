@@ -1,6 +1,6 @@
 pub mod value;
 
-use std::{io::Write, rc::Rc};
+use std::{io::Write, println, rc::Rc};
 
 use crate::{
     compilation::{ConstantPool, instruction::Instruction},
@@ -48,7 +48,7 @@ impl VM {
             let instruction = instructions[ip].clone();
             ip += 1;
 
-            match instruction {
+            match instruction.clone() {
                 Instruction::Unit => {
                     self.push(Value::Unit);
                 }
@@ -93,6 +93,12 @@ impl VM {
                     let value = self.stack[self.base + id].clone();
                     self.push(value);
                 }
+                Instruction::SetLocal(id) => {
+                    self.stack[self.base + id] = self.stack.last().unwrap().clone();
+                }
+                Instruction::SetSpByBase(n) => {
+                    self.stack.truncate(self.base + n);
+                }
                 Instruction::GetAbsolute(id) => {
                     let value = self.stack[id].clone();
                     self.push(value);
@@ -124,6 +130,9 @@ impl VM {
                     self.push(Value::StackPointer(self.base));
                     self.push(Value::Closure(self.closure.clone()));
                 }
+                Instruction::PushInstructionPointer(n) => {
+                    self.push(Value::InstructionPointer(ip + n));
+                }
                 Instruction::Call(n) => {
                     let operand = self.pop();
 
@@ -145,9 +154,7 @@ impl VM {
                                 self.push(Value::PartialApplication(value));
                             } else {
                                 self.closure = lambda.captures;
-
-                                let value = self.run(&pool.lambdas()[lambda.address], pool, debug);
-                                self.push(value);
+                                ip = lambda.address;
                             }
                         }
                         Value::PartialApplication(lambda) => {
@@ -159,21 +166,18 @@ impl VM {
                             let mut values = (*lambda.parital).clone();
                             values.extend(arguments);
 
-                            let value = if lambda.remaining == n {
+                            if lambda.remaining == n {
                                 self.stack.extend(values);
                                 self.closure = lambda.captures;
-
-                                self.run(&pool.lambdas()[lambda.address], pool, debug)
+                                ip = lambda.address;
                             } else {
-                                Value::PartialApplication(PartialApplicationValue {
+                                self.push(Value::PartialApplication(PartialApplicationValue {
                                     address: lambda.address,
                                     remaining: lambda.remaining - n,
                                     parital: Rc::new(values),
                                     captures: lambda.captures,
-                                })
+                                }))
                             };
-
-                            self.push(value);
                         }
                         _ => unreachable!(),
                     }
@@ -181,6 +185,7 @@ impl VM {
                 Instruction::Return => {
                     let return_value = self.pop();
                     self.stack.truncate(self.base);
+                    ip = self.pop().into_instruction_pointer();
                     self.closure = self.pop().into_closure();
                     self.base = self.pop().into_stack_pointer();
                     self.push(return_value);
@@ -202,9 +207,13 @@ impl VM {
                 Instruction::Bool(bool) => {
                     self.push(Value::Bool(bool));
                 }
+                Instruction::Halt => {
+                    break;
+                }
             }
 
             if debug {
+                print!("{instruction} ");
                 print!("| ");
                 for v in &self.stack {
                     print!("{} ", v.display(pool.strings()));

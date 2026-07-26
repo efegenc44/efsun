@@ -245,8 +245,12 @@ impl<'metadata> Transformer<'metadata> {
         let ast_expression::Application {
             mut function,
             argument,
+            tail_call_id,
         } = application;
 
+        // NOTE: Multiple argument lambdas does not pose a problem for `tail_call_id`s
+        //  since if there is a tail call then it is the most outer (first one) (by left-association)
+        //  so the first `tail_call_id` is used as the multiple argument lambda's `tail_call_id`
         let mut arguments = vec![argument.data];
         while let ASTExpression::Application(successive) = function.data {
             arguments.push(successive.argument.data);
@@ -266,6 +270,7 @@ impl<'metadata> Transformer<'metadata> {
                     variable,
                     function,
                     arguments,
+                    tail_call_id,
                     expression: Box::new(k(Atom::Path(path))),
                 })
             });

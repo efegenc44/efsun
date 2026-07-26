@@ -9,6 +9,7 @@ pub enum Value {
     String(usize),
     Bool(bool),
 
+    InstructionPointer(usize),
     StackPointer(usize),
     Closure(Rc<Vec<Value>>),
 }
@@ -17,8 +18,8 @@ impl Value {
     pub fn display(&self, strings: &[String]) -> String {
         match self {
             Self::Unit => "Unit".to_string(),
-            Self::Lambda(lambda) => format!("<lambda {}>", lambda.address),
-            Self::PartialApplication(lambda) => format!("<lambda {}>", lambda.address),
+            Self::Lambda(lambda) => format!("<lambda {:#x}>", lambda.address),
+            Self::PartialApplication(lambda) => format!("<lambda {:#x}>", lambda.address),
             Self::Structure(structure) => {
                 if structure.values.is_empty() {
                     return strings[structure.name_offset].to_string();
@@ -45,7 +46,8 @@ impl Value {
             }
             Self::Bool(bool) => bool.to_string(),
 
-            Self::StackPointer(sp) => format!("<sp {sp}>"),
+            Self::InstructionPointer(ip) => format!("<ip {ip:#x}>"),
+            Self::StackPointer(sp) => format!("<sp {sp:#x}>"),
             Self::Closure(_) => "<closure>".to_string(),
         }
     }
@@ -82,6 +84,14 @@ impl Value {
         };
 
         bool
+    }
+
+    pub fn into_instruction_pointer(self) -> usize {
+        let Self::InstructionPointer(ip) = self else {
+            panic!("Expected instruction pointer")
+        };
+
+        ip
     }
 
     pub fn into_stack_pointer(self) -> usize {

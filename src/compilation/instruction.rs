@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, write};
 
 use crate::{
     compilation::ConstantPool,
@@ -29,6 +29,7 @@ pub enum Placeholder {
     SkipIfFalse(usize),
     Skip(usize),
     Jump(usize),
+    MakeLambda(usize, usize, Vec<Capture>),
 }
 
 #[derive(Clone)]
@@ -40,6 +41,7 @@ pub enum Instruction {
     MakeLambda(usize, usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
+    SetLocal(usize),
     GetAbsolute(usize),
     GetArgument(usize),
     StringEquals,
@@ -47,11 +49,14 @@ pub enum Instruction {
     LogicalAnd,
     PopScope(usize),
     PushBase,
+    PushInstructionPointer(usize),
+    SetSpByBase(usize),
     SetBase(usize),
     Call(usize),
     Return,
     Jump(usize),
     JumpIfFalse(usize),
+    Halt,
 }
 
 impl Display for Instruction {
@@ -63,14 +68,12 @@ impl Display for Instruction {
             Self::MakeStructure(name_offset, tag, arity) => {
                 write!(f, "MAKE_STRUCTURE {name_offset} {tag} {arity}")
             }
-            Self::PushBase => {
-                write!(f, "PUSH_BASE")
-            }
-            Self::SetBase(n) => {
-                write!(f, "SET_BASE {n}")
-            }
+            Self::PushBase => write!(f, "PUSH_BASE"),
+            Self::PushInstructionPointer(n) => write!(f, "PUSH_IP {n}"),
+            Self::SetSpByBase(n) => write!(f, "SET_IP {n}"),
+            Self::SetBase(n) => write!(f, "SET_BASE {n}"),
             Self::MakeLambda(address, arity, captures) => {
-                write!(f, "MAKE_LAMBDA {address} {arity}")?;
+                write!(f, "MAKE_LAMBDA {address:#>05x} {arity}")?;
                 for capture in captures {
                     write!(f, "\n            CAPTURE_")?;
                     match capture {
@@ -83,6 +86,7 @@ impl Display for Instruction {
             }
             Self::GetCapture(id) => write!(f, "GET_CAPTURE {id}"),
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
+            Self::SetLocal(id) => write!(f, "SET_LOCAL {id}"),
             Self::GetAbsolute(id) => write!(f, "GET_ABSOLUTE {id}"),
             Self::GetArgument(nth) => write!(f, "GET_ARGUMENT {nth}"),
             Self::StringEquals => write!(f, "STRING_EQUALS"),
@@ -93,6 +97,7 @@ impl Display for Instruction {
             Self::PopScope(n) => write!(f, "POP_SCOPE {n}"),
             Self::Call(n) => write!(f, "CALL {n}"),
             Self::Return => write!(f, "RETURN"),
+            Self::Halt => write!(f, "HALT"),
         }
     }
 }
@@ -108,16 +113,6 @@ pub fn display_instructions(instructions: &[Instruction], pool: &ConstantPool) {
         println!("  ====== STRINGS ======");
         for (index, string) in pool.strings.iter().enumerate() {
             println!("    {index:#>05x} | \"{string}\"");
-        }
-    }
-
-    if !pool.lambdas.is_empty() {
-        println!("  ====== LAMBDAS ======");
-        for (index, lambda) in pool.lambdas.iter().enumerate() {
-            println!("    <lambda {index}>:");
-            for (index, instruction) in lambda.iter().enumerate() {
-                println!("    {index:#>05x} | {instruction}");
-            }
         }
     }
 }

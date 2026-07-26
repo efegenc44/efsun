@@ -3,7 +3,7 @@ use std::fmt::Display;
 use crate::{
     interner::{InternId, Interner},
     location::Located,
-    metadata::{BoundMetadataId, CaptureMetadataId, UniqueNameMetadataId},
+    metadata::{BoundMetadataId, CaptureMetadataId, TailCallMetadataId, UniqueNameMetadataId},
     parse::pattern::Pattern,
 };
 
@@ -25,6 +25,7 @@ pub struct Path {
 pub struct Application {
     pub function: Box<Located<Expression>>,
     pub argument: Box<Located<Expression>>,
+    pub tail_call_id: TailCallMetadataId,
 }
 
 pub struct Lambda {

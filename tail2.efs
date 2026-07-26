@@ -1,0 +1,33 @@
+module Main
+
+let main = \ğ
+    let one   = Succ Zero in
+    let two   = Succ one  in
+    let three = Succ two  in
+    let list = Cons three (Cons two Empty) in
+        foldl Zero add list
+
+let foldl = \acc \op \l match l
+    | Empty       = acc
+    | Cons ~x ~xs = foldl (op acc x) op xs
+
+structure Pair[a b]
+    | Pair a b
+
+import Main.Pair in
+
+structure Nat
+    | Zero
+    | Succ Nat
+
+import Main.Nat in
+
+let add = \n \m match Pair n m
+    | Pair ~a Zero      = a
+    | Pair ~a (Succ ~b) = Succ (add a b)
+
+structure List[a]
+    | Empty
+    | Cons a List[a]
+
+import Main.List in

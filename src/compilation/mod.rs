@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::{
     compilation::instruction::{Placeholder, PreInstruction},
     interner::{InternId, Interner},
-    metadata::Metadata,
+    metadata::{CheckFlag, Metadata},
     parse::pattern::Pattern,
     resolution::{
         ANFResolved,
@@ -142,32 +142,46 @@ where
 
         let id = self.globals.order(&path);
 
-        let pre_instructions = self
+        let mut pre_instructions = self
             .globals
             .iter()
             .flat_map(|path| self.names.remove(path).unwrap())
             .collect::<Vec<_>>();
 
-        let mut instructions = Self::patch_instructions(&self.globals, pre_instructions);
-
-        let lambdas = self
-            .lambdas
-            .into_iter()
-            .map(|lambda| Self::patch_instructions(&self.globals, lambda))
-            .collect::<Vec<_>>();
-
-        instructions.push(Instruction::PushBase);
-        instructions.push(Instruction::Unit);
-        instructions.push(Instruction::GetAbsolute(id));
-        instructions.push(Instruction::SetBase(2));
+        pre_instructions.push(Instruction::PushBase.into());
+        pre_instructions.push(Instruction::PushInstructionPointer(4).into());
+        pre_instructions.push(Instruction::Unit.into());
+        pre_instructions.push(Instruction::GetAbsolute(id).into());
+        pre_instructions.push(Instruction::SetBase(2).into());
         // TODO: Enforce main symbol to have an arrow type
-        instructions.push(Instruction::Call(1));
+        pre_instructions.push(Instruction::Call(1).into());
+        pre_instructions.push(Instruction::Halt.into());
 
-        (instructions, ConstantPool::new(self.strings, lambdas))
+        let (pre_instructions, lambda_addresses) =
+            Self::merge_lambdas(pre_instructions, self.lambdas);
+
+        let instructions =
+            Self::patch_instructions(&self.globals, &lambda_addresses, pre_instructions);
+
+        (instructions, ConstantPool::new(self.strings))
+    }
+
+    fn merge_lambdas(
+        mut pre_instructions: Vec<PreInstruction>,
+        lambdas: Vec<Vec<PreInstruction>>,
+    ) -> (Vec<PreInstruction>, Vec<usize>) {
+        let mut lambda_addresses = Vec::with_capacity(lambdas.len());
+        for lambda in lambdas {
+            lambda_addresses.push(pre_instructions.len());
+            pre_instructions.extend(lambda);
+        }
+
+        (pre_instructions, lambda_addresses)
     }
 
     fn patch_instructions(
         globals: &Globals<'anf>,
+        lambda_addresses: &[usize],
         pre_instructions: Vec<PreInstruction>,
     ) -> Vec<Instruction> {
         let mut instructions = Vec::with_capacity(pre_instructions.capacity());
@@ -191,6 +205,9 @@ where
                     //   unnecessary since right now there is only Jump
                     unreachable!("This case should be handeld at join()");
                 }
+                PreInstruction::Placeholder(Placeholder::MakeLambda(id, arity, captures)) => {
+                    Instruction::MakeLambda(lambda_addresses[id], arity, captures)
+                }
                 PreInstruction::Instruction(instruction) => instruction,
             };
 
@@ -212,7 +229,7 @@ where
                     let name_offset = self.string_offset(constructor.name);
 
                     let instruction = if constructor.arity == 0 {
-                        Instruction::MakeStructure(name_offset, order, constructor.arity)
+                        Instruction::MakeStructure(name_offset, order, constructor.arity).into()
                     } else {
                         let id = self.lambdas.len();
                         self.lambdas.push(vec![
@@ -221,12 +238,12 @@ where
                             Instruction::Return.into(),
                         ]);
 
-                        Instruction::MakeLambda(id, constructor.arity, vec![])
+                        Placeholder::MakeLambda(id, constructor.arity, vec![]).into()
                     };
 
                     let path = &self.metadata[constructor.path_id];
 
-                    self.names.insert(path, vec![instruction.into()]);
+                    self.names.insert(path, vec![instruction]);
                     self.globals.push(path);
                 }
             }
@@ -251,16 +268,11 @@ where
         expression: &'anf anf::Expression,
     ) -> (Vec<Instruction>, ConstantPool) {
         let code = seperate!(self, self.expression(expression));
-
-        let lambdas = self
-            .lambdas
-            .into_iter()
-            .map(|lambda| Self::patch_instructions(&self.globals, lambda))
-            .collect::<Vec<_>>();
+        let (code, lambda_addresses) = Self::merge_lambdas(code, self.lambdas);
 
         (
-            Self::patch_instructions(&self.globals, code),
-            ConstantPool::new(self.strings, lambdas),
+            Self::patch_instructions(&self.globals, &lambda_addresses, code),
+            ConstantPool::new(self.strings),
         )
     }
 
@@ -322,16 +334,39 @@ where
     }
 
     fn application(&mut self, application: &'anf anf::expression::Application) {
-        self.emit(Instruction::PushBase.into());
-        // NOTE: Reverse is to preserve left associative application
-        //   semantics that is forced by previous pipline steps
-        for argument in application.arguments.iter().rev() {
-            self.atom(argument);
+        let is_tail_call = self.metadata.check(application.tail_call_id);
+
+        let code = seperate!(self, {
+            // NOTE: Reverse is to preserve left associative application
+            //   semantics that is forced by previous pipline steps
+            for (i, argument) in application.arguments.iter().rev().enumerate() {
+                self.atom(argument);
+                if is_tail_call {
+                    self.emit(Instruction::SetLocal(i).into());
+                }
+            }
+
+            if is_tail_call {
+                self.emit(Instruction::SetSpByBase(application.arguments.len()).into());
+            }
+
+            self.atom(&application.function);
+            if !is_tail_call {
+                self.emit(Instruction::SetBase(application.arguments.len() + 1).into());
+            }
+            self.emit(Instruction::Call(application.arguments.len()).into());
+        });
+
+        if !is_tail_call {
+            self.emit(Instruction::PushBase.into());
+            self.emit(Instruction::PushInstructionPointer(code.len()).into());
         }
-        self.atom(&application.function);
-        self.emit(Instruction::SetBase(application.arguments.len() + 1).into());
-        self.emit(Instruction::Call(application.arguments.len()).into());
-        scoped_expression!(1, self, &application.expression);
+
+        self.extend(code.into_iter());
+
+        if !is_tail_call {
+            scoped_expression!(1, self, &application.expression);
+        }
     }
 
     fn matchas(&mut self, matchas: &'anf anf::expression::MatchAs) {
@@ -432,7 +467,7 @@ where
         let artiy = lambda.variables.len();
         let capture = &self.metadata[lambda.anf_capture_id];
 
-        self.emit(Instruction::MakeLambda(id, artiy, capture.to_vec()).into())
+        self.emit(Placeholder::MakeLambda(id, artiy, capture.to_vec()).into())
     }
 
     fn letin(&mut self, letin: &'anf anf::expression::LetIn) {
@@ -443,20 +478,15 @@ where
 
 pub struct ConstantPool {
     strings: Vec<String>,
-    lambdas: Vec<Vec<Instruction>>,
 }
 
 impl ConstantPool {
-    fn new(strings: Vec<String>, lambdas: Vec<Vec<Instruction>>) -> Self {
-        Self { strings, lambdas }
+    fn new(strings: Vec<String>) -> Self {
+        Self { strings }
     }
 
     pub fn strings(&self) -> &[String] {
         &self.strings
-    }
-
-    pub fn lambdas(&self) -> &[Vec<Instruction>] {
-        &self.lambdas
     }
 }
 

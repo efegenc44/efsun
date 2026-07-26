@@ -435,6 +435,7 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             let application = expression::Application {
                 function: Box::new(function),
                 argument: Box::new(argument),
+                tail_call_id: self.indicies.get(),
             };
 
             let application = Expression::Application(application);
