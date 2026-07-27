@@ -30,6 +30,7 @@ pub enum Placeholder {
     Skip(usize),
     Jump(usize),
     MakeLambda(usize, usize, Vec<Capture>),
+    PushFrame(usize),
 }
 
 #[derive(Clone)]
@@ -41,16 +42,15 @@ pub enum Instruction {
     MakeLambda(usize, usize, Vec<Capture>),
     GetCapture(usize),
     GetLocal(usize),
-    SetLocal(usize),
+    CopyIntoLocal(usize),
     GetAbsolute(usize),
     GetArgument(usize),
     StringEquals,
     TagEquals(usize),
     LogicalAnd,
     PopScope(usize),
-    PushBase,
-    PushInstructionPointer(usize),
-    SetSpByBase(usize),
+    PushFrame(usize),
+    TruncateFrame(usize),
     SetBase(usize),
     Call(usize),
     Return,
@@ -68,9 +68,8 @@ impl Display for Instruction {
             Self::MakeStructure(name_offset, tag, arity) => {
                 write!(f, "MAKE_STRUCTURE {name_offset} {tag} {arity}")
             }
-            Self::PushBase => write!(f, "PUSH_BASE"),
-            Self::PushInstructionPointer(n) => write!(f, "PUSH_IP {n}"),
-            Self::SetSpByBase(n) => write!(f, "SET_IP {n}"),
+            Self::PushFrame(address) => write!(f, "PUSH_FRAME {address}"),
+            Self::TruncateFrame(n) => write!(f, "TRUNCATE_FRAME {n}"),
             Self::SetBase(n) => write!(f, "SET_BASE {n}"),
             Self::MakeLambda(address, arity, captures) => {
                 write!(f, "MAKE_LAMBDA {address:#>05x} {arity}")?;
@@ -86,7 +85,7 @@ impl Display for Instruction {
             }
             Self::GetCapture(id) => write!(f, "GET_CAPTURE {id}"),
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
-            Self::SetLocal(id) => write!(f, "SET_LOCAL {id}"),
+            Self::CopyIntoLocal(id) => write!(f, "COPY_INTO_LOCAL {id}"),
             Self::GetAbsolute(id) => write!(f, "GET_ABSOLUTE {id}"),
             Self::GetArgument(nth) => write!(f, "GET_ARGUMENT {nth}"),
             Self::StringEquals => write!(f, "STRING_EQUALS"),

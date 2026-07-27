@@ -148,8 +148,7 @@ where
             .flat_map(|path| self.names.remove(path).unwrap())
             .collect::<Vec<_>>();
 
-        pre_instructions.push(Instruction::PushBase.into());
-        pre_instructions.push(Instruction::PushInstructionPointer(4).into());
+        pre_instructions.push(Placeholder::PushFrame(4).into());
         pre_instructions.push(Instruction::Unit.into());
         pre_instructions.push(Instruction::GetAbsolute(id).into());
         pre_instructions.push(Instruction::SetBase(2).into());
@@ -207,6 +206,9 @@ where
                 }
                 PreInstruction::Placeholder(Placeholder::MakeLambda(id, arity, captures)) => {
                     Instruction::MakeLambda(lambda_addresses[id], arity, captures)
+                }
+                PreInstruction::Placeholder(Placeholder::PushFrame(offset)) => {
+                    Instruction::PushFrame(index + 1 + offset)
                 }
                 PreInstruction::Instruction(instruction) => instruction,
             };
@@ -342,12 +344,19 @@ where
             for (i, argument) in application.arguments.iter().rev().enumerate() {
                 self.atom(argument);
                 if is_tail_call {
-                    self.emit(Instruction::SetLocal(i).into());
+                    // NOTE: CopyIntoLocal does not pop so we will always have enough
+                    //   stack size if tail call needs larger frame
+                    self.emit(Instruction::CopyIntoLocal(i).into());
                 }
             }
 
             if is_tail_call {
-                self.emit(Instruction::SetSpByBase(application.arguments.len()).into());
+                // NOTE: General tail call elimitination may require adjusting the frame size
+                //   and by copying (not popping) new arguments into old frame, stack size
+                //   never becomes less but always _at least one_ more. This trick eliminates
+                //   the need for a runtime check to either allocate or truncate stack frame
+                //   because only truncation is possible
+                self.emit(Instruction::TruncateFrame(application.arguments.len()).into());
             }
 
             self.atom(&application.function);
@@ -358,12 +367,12 @@ where
         });
 
         if !is_tail_call {
-            self.emit(Instruction::PushBase.into());
-            self.emit(Instruction::PushInstructionPointer(code.len()).into());
+            self.emit(Placeholder::PushFrame(code.len()).into());
         }
 
         self.extend(code.into_iter());
 
+        // TODO: Generalize optimization for immediate return of last produced local
         if !is_tail_call {
             scoped_expression!(1, self, &application.expression);
         }

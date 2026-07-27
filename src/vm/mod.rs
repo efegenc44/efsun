@@ -93,10 +93,10 @@ impl VM {
                     let value = self.stack[self.base + id].clone();
                     self.push(value);
                 }
-                Instruction::SetLocal(id) => {
+                Instruction::CopyIntoLocal(id) => {
                     self.stack[self.base + id] = self.stack.last().unwrap().clone();
                 }
-                Instruction::SetSpByBase(n) => {
+                Instruction::TruncateFrame(n) => {
                     self.stack.truncate(self.base + n);
                 }
                 Instruction::GetAbsolute(id) => {
@@ -126,12 +126,10 @@ impl VM {
                 Instruction::SetBase(n) => {
                     self.base = self.stack.len() - n;
                 }
-                Instruction::PushBase => {
+                Instruction::PushFrame(address) => {
                     self.push(Value::StackPointer(self.base));
                     self.push(Value::Closure(self.closure.clone()));
-                }
-                Instruction::PushInstructionPointer(n) => {
-                    self.push(Value::InstructionPointer(ip + n));
+                    self.push(Value::InstructionPointer(address));
                 }
                 Instruction::Call(n) => {
                     let operand = self.pop();
