@@ -1,8 +1,6 @@
-use std::fmt::Display;
-
 use crate::{
     compilation::anf,
-    interner::{InternId, Interner},
+    interner::InternId,
     metadata::PathMetadataId,
 };
 
@@ -12,7 +10,6 @@ pub enum Definition {
 }
 
 pub struct Name {
-    pub identifier: InternId,
     pub expression: anf::Expression,
     pub path_id: PathMetadataId,
 }
@@ -25,30 +22,6 @@ pub struct Constructor {
     pub name: InternId,
     pub arity: usize,
     pub path_id: PathMetadataId,
-}
-
-impl Definition {
-    #[allow(unused)]
-    pub fn print(&self, depth: usize, interner: &Interner) {
-        fn indent(display: impl Display, depth: usize) {
-            println!("{:level$}{display}", "", level = depth * 2);
-        }
-
-        match self {
-            Self::Name(name) => {
-                indent("Name Definition:", depth);
-                indent(interner.lookup(&name.identifier), depth + 1);
-                name.expression.print(depth + 1, interner);
-            }
-            Self::Structure(structure) => {
-                indent("Structure Definition:", depth);
-                for constructor in &structure.constructors {
-                    indent(interner.lookup(&constructor.name), depth + 1);
-                    // indent(WithInterner::new(constructor.path(), interner), depth + 1);
-                }
-            }
-        }
-    }
 }
 
 pub struct Module {

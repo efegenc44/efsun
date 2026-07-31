@@ -164,13 +164,12 @@ impl<'metadata> Transformer<'metadata> {
 
     fn name_definition(&self, name: ast_definition::Name) -> Definition {
         let ast_definition::Name {
-            identifier,
             expression,
             path_id,
+            ..
         } = name;
 
         let name = anf_definition::Name {
-            identifier: identifier.data,
             expression: self.transform(expression.data),
             path_id,
         };
