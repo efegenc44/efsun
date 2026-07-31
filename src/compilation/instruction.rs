@@ -48,6 +48,7 @@ pub enum Instruction {
     StringEquals,
     TagEquals(usize),
     LogicalAnd,
+    PopBase,
     PopScope(usize),
     PushFrame(usize),
     TruncateFrame(usize),
@@ -68,6 +69,7 @@ impl Display for Instruction {
             Self::MakeStructure(name_offset, tag, arity) => {
                 write!(f, "MAKE_STRUCTURE {name_offset} {tag} {arity}")
             }
+            Self::PopBase => write!(f, "POP_BASE"),
             Self::PushFrame(address) => write!(f, "PUSH_FRAME {address}"),
             Self::TruncateFrame(n) => write!(f, "TRUNCATE_FRAME {n}"),
             Self::SetBase(n) => write!(f, "SET_BASE {n}"),

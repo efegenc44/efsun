@@ -256,8 +256,14 @@ where
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
                 let path = &self.metadata[name.path_id];
+
                 if !self.globals.pushed(path) {
-                    let code = seperate!(self, self.expression(&name.expression));
+                    let code = seperate!(self, {
+                        self.emit(Instruction::SetBase(0).into());
+                        self.expression(&name.expression);
+                        self.emit(Instruction::PopBase.into());
+                    });
+
                     self.names.insert(path, code);
                     self.globals.push(path);
                 }

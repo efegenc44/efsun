@@ -25,11 +25,11 @@ impl<'interner> Display for WithInterner<'interner, &Bound> {
             Bound::Absolute(path) => {
                 let path = WithInterner {
                     data: path,
-                    interner
+                    interner,
                 };
 
                 write!(f, "{}", path)
-            },
+            }
         }
     }
 }

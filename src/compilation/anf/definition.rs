@@ -1,8 +1,4 @@
-use crate::{
-    compilation::anf,
-    interner::InternId,
-    metadata::PathMetadataId,
-};
+use crate::{compilation::anf, interner::InternId, metadata::PathMetadataId};
 
 pub enum Definition {
     Name(Name),

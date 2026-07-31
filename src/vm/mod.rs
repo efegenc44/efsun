@@ -188,6 +188,11 @@ impl VM {
                     self.base = self.pop().into_stack_pointer();
                     self.push(return_value);
                 }
+                Instruction::PopBase => {
+                    let return_value = self.pop();
+                    self.stack.truncate(self.base);
+                    self.push(return_value);
+                }
                 Instruction::TagEquals(tag) => {
                     let structure = self.pop().into_structure();
                     self.push(Value::Bool(structure.order == tag));

@@ -80,13 +80,13 @@ pub fn repl() {
             Ok((result, t, pool)) => {
                 let t = WithInterner {
                     data: &t,
-                    interner: &interner
+                    interner: &interner,
                 };
 
                 let result = result.display(pool.strings());
 
                 println!("= {} : {}", result, t)
-            },
+            }
             Err(error) => {
                 vm.reset_state();
                 error.report(input, &interner)
@@ -110,13 +110,13 @@ pub fn from_file(file_paths: Vec<String>) {
         Ok((result, t, pool)) => {
             let t = WithInterner {
                 data: &t,
-                interner: &interner
+                interner: &interner,
             };
 
             let result = result.display(pool.strings());
 
             println!("= {} : {}", result, t)
-        },
+        }
         Err(error) => error.report(&sources[&error.source_name], &interner),
     }
 }

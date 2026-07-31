@@ -16,7 +16,7 @@ impl<'interner> Display for WithInterner<'interner, &Type> {
             Type::Mono(m) => {
                 let m = WithInterner { data: m, interner };
                 write!(f, "{}", m)
-            },
+            }
             Type::Poly(variables, m) => {
                 // TODO: Print type variables with more care (greek letters?)
                 if !variables.is_empty() {

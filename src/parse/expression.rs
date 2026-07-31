@@ -1,7 +1,10 @@
 use crate::{
     interner::InternId,
     location::Located,
-    metadata::{BoundMetadataId, CaptureMetadataId, PathUniqueNameMetadataId, TailCallMetadataId, UniqueNameMetadataId},
+    metadata::{
+        BoundMetadataId, CaptureMetadataId, PathUniqueNameMetadataId, TailCallMetadataId,
+        UniqueNameMetadataId,
+    },
     parse::pattern::Pattern,
 };
 

@@ -1,8 +1,4 @@
-use crate::{
-    interner::InternId,
-    location::Located,
-    metadata::BoundMetadataId,
-};
+use crate::{interner::InternId, location::Located, metadata::BoundMetadataId};
 
 pub enum TypeExpression {
     Path(Path),

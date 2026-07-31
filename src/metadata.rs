@@ -29,7 +29,6 @@ pub trait CheckFlag<I> {
     fn check(&self, id: I) -> bool;
 }
 
-
 macro_rules! metadata {
     ( $($i:ident -> $t:ty),* | $($j:ident),* ) => {
         $(

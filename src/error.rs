@@ -66,7 +66,7 @@ fn resolution_error_description(error: &ResolutionError, interner: &Interner) ->
         ResolutionError::UnboundPath(path) => {
             let path = WithInterner {
                 data: path,
-                interner
+                interner,
             };
 
             format!("`{}` is not bound.", path)
@@ -75,7 +75,7 @@ fn resolution_error_description(error: &ResolutionError, interner: &Interner) ->
         ResolutionError::UnresolvedImport(path) => {
             let path = WithInterner {
                 data: path,
-                interner
+                interner,
             };
 
             format!("Import `{}` could not be resolved.", path)
@@ -94,7 +94,7 @@ fn type_check_error_description(error: &TypeCheckError, interner: &Interner) -> 
         TypeCheckError::CyclicDefinition(path) => {
             let path = WithInterner {
                 data: path,
-                interner
+                interner,
             };
 
             format!("`{}` is defined cyclically", path)
@@ -102,7 +102,7 @@ fn type_check_error_description(error: &TypeCheckError, interner: &Interner) -> 
         TypeCheckError::ExpectedStructure(expected) => {
             let expected = WithInterner {
                 data: expected,
-                interner
+                interner,
             };
 
             format!("Can only apply to structures not `{}`", expected)
