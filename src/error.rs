@@ -32,13 +32,13 @@ fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
             unexpected,
             expected,
         } => {
-            let mut message = format!(
-                "Encountered unexpected token `{}`, expected ",
-                WithInterner {
-                    data: unexpected,
-                    interner
-                }
-            );
+            let unexpected = WithInterner {
+                data: unexpected,
+                interner,
+            };
+
+            let mut message = format!("Encountered unexpected token `{}`, expected ", unexpected);
+
             match expected {
                 [] => unreachable!(),
                 [token] => {
@@ -64,23 +64,21 @@ fn parse_error_description(error: &ParseError, interner: &Interner) -> String {
 fn resolution_error_description(error: &ResolutionError, interner: &Interner) -> String {
     match error {
         ResolutionError::UnboundPath(path) => {
-            format!(
-                "`{}` is not bound.",
-                WithInterner {
-                    data: path,
-                    interner
-                }
-            )
+            let path = WithInterner {
+                data: path,
+                interner
+            };
+
+            format!("`{}` is not bound.", path)
         }
         ResolutionError::MissingModuleDefinition => "Module definiton is missing.".to_string(),
         ResolutionError::UnresolvedImport(path) => {
-            format!(
-                "Import `{}` could not be resolved.",
-                WithInterner {
-                    data: path,
-                    interner
-                }
-            )
+            let path = WithInterner {
+                data: path,
+                interner
+            };
+
+            format!("Import `{}` could not be resolved.", path)
         }
     }
 }
@@ -88,29 +86,26 @@ fn resolution_error_description(error: &ResolutionError, interner: &Interner) ->
 fn type_check_error_description(error: &TypeCheckError, interner: &Interner) -> String {
     match error {
         TypeCheckError::TypeMismatch { t1, t2 } => {
-            format!(
-                "Couldn't match type `{}` with `{}`",
-                WithInterner { data: t1, interner },
-                WithInterner { data: t2, interner },
-            )
+            let t1 = WithInterner { data: t1, interner };
+            let t2 = WithInterner { data: t2, interner };
+
+            format!("Couldn't match type `{}` with `{}`", t1, t2)
         }
         TypeCheckError::CyclicDefinition(path) => {
-            format!(
-                "`{}` is defined cyclically",
-                WithInterner {
-                    data: path,
-                    interner
-                }
-            )
+            let path = WithInterner {
+                data: path,
+                interner
+            };
+
+            format!("`{}` is defined cyclically", path)
         }
         TypeCheckError::ExpectedStructure(expected) => {
-            format!(
-                "Can only apply to structures not `{}`",
-                WithInterner {
-                    data: expected,
-                    interner
-                }
-            )
+            let expected = WithInterner {
+                data: expected,
+                interner
+            };
+
+            format!("Can only apply to structures not `{}`", expected)
         }
         TypeCheckError::TypeArityMismatch { expected, found } => {
             format!("Expected {expected} number of type parameters but found {found}")

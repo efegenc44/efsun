@@ -13,7 +13,10 @@ impl<'interner> Display for WithInterner<'interner, &Type> {
         let interner = self.interner;
 
         match &self.data {
-            Type::Mono(m) => write!(f, "{}", WithInterner { data: m, interner }),
+            Type::Mono(m) => {
+                let m = WithInterner { data: m, interner };
+                write!(f, "{}", m)
+            },
             Type::Poly(variables, m) => {
                 // TODO: Print type variables with more care (greek letters?)
                 if !variables.is_empty() {
@@ -29,7 +32,8 @@ impl<'interner> Display for WithInterner<'interner, &Type> {
                     }
                     write!(f, " ")?;
                 }
-                write!(f, "{}", WithInterner { data: m, interner })
+                let m = WithInterner { data: m, interner };
+                write!(f, "{}", m)
             }
         }
     }
@@ -127,59 +131,40 @@ impl<'interner> Display for WithInterner<'interner, &MonoType> {
         match &self.data {
             MonoType::Variable(id) => write!(f, "a{id}"),
             MonoType::Arrow(arrow) => {
-                if let MonoType::Arrow(_) = *arrow.from {
-                    write!(
-                        f,
-                        "({})",
-                        WithInterner {
-                            data: arrow.from.as_ref(),
-                            interner
-                        }
-                    )?;
+                let from = WithInterner {
+                    data: arrow.from.as_ref(),
+                    interner,
+                };
+
+                if let MonoType::Arrow(_) = arrow.from.as_ref() {
+                    write!(f, "({})", from)?;
                 } else {
-                    write!(
-                        f,
-                        "{}",
-                        WithInterner {
-                            data: arrow.from.as_ref(),
-                            interner
-                        }
-                    )?;
+                    write!(f, "{}", from)?;
                 }
-                write!(
-                    f,
-                    " -> {}",
-                    WithInterner {
-                        data: arrow.to.as_ref(),
-                        interner
-                    }
-                )
+
+                let to = WithInterner {
+                    data: arrow.to.as_ref(),
+                    interner,
+                };
+
+                write!(f, " -> {}", to)
             }
             MonoType::Structure(structure) => {
-                write!(
-                    f,
-                    "{}",
-                    WithInterner {
-                        data: &structure.path,
-                        interner
-                    }
-                )?;
+                let path = WithInterner {
+                    data: &structure.path,
+                    interner,
+                };
+
+                write!(f, "{}", path)?;
+
                 match structure.arguments.as_slice() {
                     [] => Ok(()),
-                    [argument] => {
-                        write!(
-                            f,
-                            "[{}]",
-                            WithInterner {
-                                data: argument,
-                                interner
-                            }
-                        )
-                    }
                     [x, xs @ ..] => {
-                        write!(f, "[{}", WithInterner { data: x, interner })?;
+                        let x = WithInterner { data: x, interner };
+                        write!(f, "[{}", x)?;
                         for x in xs {
-                            write!(f, " {}", WithInterner { data: x, interner })?;
+                            let x = WithInterner { data: x, interner };
+                            write!(f, " {}", x)?;
                         }
                         write!(f, "]")
                     }

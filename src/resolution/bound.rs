@@ -22,14 +22,14 @@ impl<'interner> Display for WithInterner<'interner, &Bound> {
         match &self.data {
             Bound::Local(id) => write!(f, "{}", id.0),
             Bound::Capture(id) => write!(f, "captured({})", id.0),
-            Bound::Absolute(path) => write!(
-                f,
-                "{}",
-                WithInterner {
+            Bound::Absolute(path) => {
+                let path = WithInterner {
                     data: path,
                     interner
-                }
-            ),
+                };
+
+                write!(f, "{}", path)
+            },
         }
     }
 }

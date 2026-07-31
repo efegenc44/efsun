@@ -68,20 +68,18 @@ impl Expression {
                 letin.return_expression.print(depth, interner);
             }
             Self::Application(application) => {
-                indent(
-                    format!(
-                        "let application {} =",
-                        WithInterner {
-                            data: &application.variable,
-                            interner
-                        }
-                    ),
-                    depth,
-                );
+                let variable = WithInterner {
+                    data: &application.variable,
+                    interner
+                };
+
+                indent(format!("let application {} =", variable), depth);
                 application.function.print(depth + 1, interner);
+
                 for argument in &application.arguments {
                     argument.print(depth + 1, interner);
                 }
+
                 indent("in", depth);
                 application.expression.print(depth, interner);
             }
@@ -95,17 +93,12 @@ impl Expression {
                 }
             }
             Self::Join(join) => {
-                indent(
-                    format!(
-                        "let join({}) {} =",
-                        join.label,
-                        WithInterner {
-                            data: &join.variable,
-                            interner
-                        }
-                    ),
-                    depth,
-                );
+                let variable = WithInterner {
+                    data: &join.variable,
+                    interner
+                };
+
+                indent(format!("let join({}) {} =", join.label, variable), depth);
                 join.expression.print(depth + 1, interner);
                 indent("in", depth);
                 join.join.print(depth, interner);
