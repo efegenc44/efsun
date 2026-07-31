@@ -1,6 +1,6 @@
 module Main
 
-let main = \ğ
+let main =
     bar ""
 
 let bar = \x x

@@ -1,6 +1,6 @@
 module Main
 
-let main = \ğ
+let main =
     match Test (A (B G)) (A (B K))
     | Test (A ~b) (A (B ~o)) = "Test"
     | Test (A ~b) (A (A (B ~p))) = "Test"

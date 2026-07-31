@@ -1,6 +1,6 @@
 module Main
 
-let main = \a
+let main =
     List.Empty
 
 structure List[a]

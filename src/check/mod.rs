@@ -1,6 +1,9 @@
 pub mod typ;
 
-use std::{collections::HashMap, result};
+use std::{
+    collections::{HashMap, HashSet},
+    result, vec,
+};
 
 use crate::{
     error::{ReportableError, Result},
@@ -14,7 +17,7 @@ use crate::{
         type_expression::{self, TypeExpression},
     },
     resolution::{
-        Resolved,
+        Edge, Graph, Resolved,
         bound::{Bound, Path},
         frame::CheckStack,
     },
@@ -30,11 +33,8 @@ where
     stack: CheckStack<Type>,
     /// Stack for type variables in structure definitions
     type_variables: Vec<MonoType>,
-    /// True if currently type checking a lambda expression.
-    ///     Its purpose is to check for cyclic definitions
-    in_lambda: bool,
-    /// Map for accesing expressions of let definitions and keeping track of cylic definitions
-    name_expressions: ExpressionMap<'metadata, 'ast>,
+    /// Map for accesing name definitions and keeping track of cylic definitions
+    name_definitions: NameDefinitionMap<'metadata, 'ast>,
     /// Map from path of the let definition to its type
     names: HashMap<&'metadata Path, Type>,
     /// Map from path of the structure definition to its corresponding type
@@ -48,6 +48,10 @@ where
     unification_table: HashMap<usize, MonoType>,
     /// Source file name of the current module for error reporting
     current_source_name: Option<&'metadata str>,
+    /// Dependency graph
+    dependencies: &'ast Graph<Path>,
+    /// Allowed cycles in dependency graph due to lambdas
+    allowed_cycles: HashSet<Edge<Path>>,
     /// Metadata
     metadata: &'metadata Metadata<Resolved>,
 }
@@ -56,18 +60,19 @@ impl<'ast, 'metadata> TypeChecker<'metadata, 'ast>
 where
     'ast: 'metadata,
 {
-    pub fn new(metadata: &'metadata Metadata<Resolved>) -> Self {
+    pub fn new(metadata: &'metadata Metadata<Resolved>, dependencies: &'ast Graph<Path>) -> Self {
         Self {
             stack: CheckStack::new(),
             type_variables: Vec::new(),
-            in_lambda: false,
-            name_expressions: ExpressionMap::new(),
+            name_definitions: NameDefinitionMap::new(),
             names: HashMap::new(),
             types: HashMap::new(),
             constructors: HashMap::new(),
             newvar_counter: 0,
             unification_table: HashMap::default(),
             current_source_name: None,
+            dependencies,
+            allowed_cycles: HashSet::new(),
             metadata,
         }
     }
@@ -90,12 +95,6 @@ where
                 mono.substitute(&table)
             }
         }
-    }
-
-    fn replace_in_lambda(&mut self, value: bool) -> bool {
-        let before = self.in_lambda;
-        self.in_lambda = value;
-        before
     }
 
     fn initialize_structure_type(&mut self, path: Path, argument_count: usize) -> Type {
@@ -169,7 +168,7 @@ where
     pub fn infer(&mut self, expression: &Located<Expression>) -> Result<MonoType> {
         match &expression.data {
             Expression::String(_) => Ok(MonoType::String),
-            Expression::Path(path) => self.path(path, expression.span),
+            Expression::Path(path) => self.path(path),
             Expression::Application(application) => self.application(application, expression.span),
             Expression::Lambda(lambda) => self.lambda(lambda),
             Expression::LetIn(letin) => self.letin(letin),
@@ -234,42 +233,11 @@ where
         }
     }
 
-    fn path(&mut self, path: &expression::Path, span: Span) -> Result<MonoType> {
+    fn path(&mut self, path: &expression::Path) -> Result<MonoType> {
         let t = match &self.metadata[path.bound_id] {
             Bound::Local(id) => self.stack.get_local(*id),
             Bound::Capture(id) => self.stack.get_capture(*id),
-            Bound::Absolute(path) => {
-                if let Type::Mono(MonoType::Variable(variable)) = self.names[path].clone() {
-                    if self.name_expressions.is_currently_visiting(path) {
-                        if !self.in_lambda {
-                            return self
-                                .error(TypeCheckError::CyclicDefinition(path.clone()), span);
-                        }
-
-                        return Ok(MonoType::Variable(variable));
-                    }
-
-                    self.name_expressions.visiting(path);
-                    let before = self.replace_in_lambda(false);
-                    let m = self.infer(self.name_expressions.get(path))?;
-                    self.replace_in_lambda(before);
-                    self.name_expressions.leaving(path);
-
-                    let t = MonoType::Variable(variable);
-                    if let Err((t1, t2)) = self.unify(&m, &t) {
-                        return self.error(
-                            TypeCheckError::TypeMismatch { t1, t2 },
-                            self.name_expressions.get(path).span,
-                        );
-                    };
-
-                    let t = m.generalize();
-                    self.names.insert(path, t.clone());
-                    t
-                } else {
-                    self.names[path].clone()
-                }
-            }
+            Bound::Absolute(path) => self.names[path].clone(),
         };
 
         Ok(self.instantiate(t))
@@ -303,9 +271,7 @@ where
 
         self.stack.push_frame(captures.to_vec());
         self.stack.push_local(Type::Mono(argument.clone()));
-        let before = self.replace_in_lambda(true);
         let return_type = self.infer(&lambda.expression)?;
-        self.replace_in_lambda(before);
         self.stack.pop_local();
         self.stack.pop_frame();
 
@@ -569,7 +535,7 @@ where
 
                     let newvar = self.newvar();
                     self.names.insert(path, Type::Mono(newvar));
-                    self.name_expressions.add(path, &name.expression);
+                    self.name_definitions.add(path, name);
                 }
                 Definition::Structure(structure) => {
                     let path = &self.metadata[structure.path_id];
@@ -634,7 +600,31 @@ where
     fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
         let path = &self.metadata[name_definition.path_id];
 
-        self.name_expressions.visiting(path);
+        self.name_definitions.visiting(path);
+
+        for (dependency, in_lambda) in &self.dependencies[path] {
+            match (
+                self.name_definitions.is_currently_visiting(dependency),
+                in_lambda,
+            ) {
+                (true, false) => {
+                    return self.error(
+                        TypeCheckError::CyclicDefinition(path.clone()),
+                        name_definition.identifier.span,
+                    );
+                }
+                (false, _) => self.name_definition(self.name_definitions.get(dependency))?,
+                (true, true) => {
+                    let already_crossed = !self
+                        .allowed_cycles
+                        .insert((path.clone(), dependency.clone()));
+                    if !already_crossed {
+                        self.name_definition(self.name_definitions.get(dependency))?
+                    }
+                }
+            }
+        }
+
         let m = self.infer(&name_definition.expression)?;
 
         let t = self.instantiate(self.names[path].clone());
@@ -647,9 +637,13 @@ where
 
         let t = m.generalize();
         self.names.insert(path, t);
-        self.name_expressions.leaving(path);
+        self.name_definitions.leaving(path);
 
         Ok(())
+    }
+
+    pub fn into_allowed_cycles(self) -> HashSet<Edge<Path>> {
+        self.allowed_cycles
     }
 
     fn error<T>(&self, error: TypeCheckError, span: Span) -> Result<T> {
@@ -661,25 +655,25 @@ where
     }
 }
 
-pub struct ExpressionMap<'path, 'ast>
+pub struct NameDefinitionMap<'path, 'ast>
 where
     'ast: 'path,
 {
-    map: HashMap<&'path Path, (&'ast Located<Expression>, bool)>,
+    map: HashMap<&'path Path, (&'ast definition::Name, bool)>,
 }
 
-impl<'path, 'ast> ExpressionMap<'path, 'ast> {
+impl<'path, 'ast> NameDefinitionMap<'path, 'ast> {
     fn new() -> Self {
         Self {
             map: HashMap::new(),
         }
     }
 
-    fn add(&mut self, path: &'ast Path, expression: &'ast Located<Expression>) {
-        self.map.insert(path, (expression, false));
+    fn add(&mut self, path: &'ast Path, name: &'ast definition::Name) {
+        self.map.insert(path, (name, false));
     }
 
-    fn get(&self, path: &Path) -> &'ast Located<Expression> {
+    fn get(&self, path: &Path) -> &'ast definition::Name {
         self.map.get(path).unwrap().0
     }
 

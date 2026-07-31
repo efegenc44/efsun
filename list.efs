@@ -1,6 +1,6 @@
 module Main
 
-let main = \a
+let main =
     map (\x "mapped") (Cons "AA" (Cons "BB" Empty))
 
 let map = \f \l match l

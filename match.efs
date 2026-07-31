@@ -6,7 +6,7 @@ structure A[x]
 
 import Main.A (A B)
 
-let main = \x
+let main =
     match A "merhaba"
     | A ~x = (match B "deneme"
         | B ~x = x

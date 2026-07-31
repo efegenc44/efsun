@@ -1,7 +1,7 @@
 module Main
 
 
-let main = \a
+let main =
     mul (Succ (Succ Zero)) (Succ (Succ (Succ Zero)))
 
 structure Pair[a b]

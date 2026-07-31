@@ -35,6 +35,7 @@ pub enum Placeholder {
 
 #[derive(Clone)]
 pub enum Instruction {
+    #[allow(unused)]
     Unit,
     String(usize),
     Bool(bool),

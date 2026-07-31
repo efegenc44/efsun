@@ -1,6 +1,6 @@
 module Main
 
-let main = \a
+let main =
     test2 "AAAA" "HMMM"
 
 import Test2 (test2 Test3 in)

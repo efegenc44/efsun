@@ -2,7 +2,7 @@ pub mod anf;
 pub mod instruction;
 
 use core::slice;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     compilation::instruction::{Placeholder, PreInstruction},
@@ -10,7 +10,7 @@ use crate::{
     metadata::{CheckFlag, Metadata},
     parse::pattern::Pattern,
     resolution::{
-        ANFResolved,
+        ANFResolved, Edge, Graph,
         bound::{Bound, Path},
     },
 };
@@ -46,15 +46,13 @@ pub struct Compiler<'interner, 'anf, 'metadata> {
     lambdas: Vec<Vec<PreInstruction>>,
     /// Map from global names to their ANF expression
     ///   Used for compiling cyclic references
-    name_anfs: HashMap<&'metadata Path, &'anf anf::Expression>,
+    name_definition_anfs: HashMap<&'metadata Path, &'anf anf::definition::Name>,
     /// Global names and their instructions
     names: HashMap<&'metadata Path, Vec<PreInstruction>>,
     /// Compilation order for global names
     ///   Order is determined at compile time because language
     ///   does not require strict lexical definition order
     globals: Globals<'metadata>,
-    /// True if currently compiling a lambda
-    in_lambda: bool,
     /// Current output to emit into
     out: Option<Vec<PreInstruction>>,
     /// Interner to retrieve strings
@@ -63,6 +61,12 @@ pub struct Compiler<'interner, 'anf, 'metadata> {
     ///   Used for popping the scope of the branching path when jumping
     ///   to a join point
     local_count: usize,
+    /// Dependency graph
+    dependencies: &'anf Graph<Path>,
+    /// Allowed cycles due to lambdas
+    allowed_cycles: &'metadata HashSet<Edge<Path>>,
+    /// Crossed allowed cycles
+    crossed_cycles: HashSet<Edge<Path>>,
     /// Metadata
     metadata: &'metadata Metadata<ANFResolved>,
 }
@@ -71,26 +75,27 @@ impl<'interner, 'anf, 'metadata> Compiler<'interner, 'anf, 'metadata>
 where
     'metadata: 'anf,
 {
-    pub fn new(interner: &'interner Interner, metadata: &'metadata Metadata<ANFResolved>) -> Self {
+    pub fn new(
+        interner: &'interner Interner,
+        metadata: &'metadata Metadata<ANFResolved>,
+        dependencies: &'anf Graph<Path>,
+        allowed_cycles: &'metadata HashSet<Edge<Path>>,
+    ) -> Self {
         Self {
             interns: Vec::new(),
             strings: Vec::new(),
             lambdas: Vec::new(),
-            name_anfs: HashMap::new(),
+            name_definition_anfs: HashMap::new(),
             names: HashMap::new(),
             globals: Globals::new(),
-            in_lambda: false,
             out: None,
             interner,
             local_count: 0,
+            dependencies,
+            allowed_cycles,
+            crossed_cycles: HashSet::new(),
             metadata,
         }
-    }
-
-    fn replace_in_lambda(&mut self, value: bool) -> bool {
-        let old = self.in_lambda;
-        self.in_lambda = value;
-        old
     }
 
     fn reset_local_counter(&mut self) -> usize {
@@ -148,12 +153,8 @@ where
             .flat_map(|path| self.names.remove(path).unwrap())
             .collect::<Vec<_>>();
 
-        pre_instructions.push(Placeholder::PushFrame(4).into());
-        pre_instructions.push(Instruction::Unit.into());
+        // Return the `main` symbol
         pre_instructions.push(Instruction::GetAbsolute(id).into());
-        pre_instructions.push(Instruction::SetBase(2).into());
-        // TODO: Enforce main symbol to have an arrow type
-        pre_instructions.push(Instruction::Call(1).into());
         pre_instructions.push(Instruction::Halt.into());
 
         let (pre_instructions, lambda_addresses) =
@@ -223,7 +224,7 @@ where
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
                 let path = &self.metadata[name.path_id];
-                self.name_anfs.insert(path, &name.expression);
+                self.name_definition_anfs.insert(path, name);
             }
 
             if let anf::Definition::Structure(structure) = definition {
@@ -255,19 +256,43 @@ where
     pub fn module(&mut self, module: &'anf anf::Module) {
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
-                let path = &self.metadata[name.path_id];
-
-                if !self.globals.pushed(path) {
-                    let code = seperate!(self, {
-                        self.emit(Instruction::SetBase(0).into());
-                        self.expression(&name.expression);
-                        self.emit(Instruction::PopBase.into());
-                    });
-
-                    self.names.insert(path, code);
-                    self.globals.push(path);
-                }
+                self.name_definition(name);
             }
+        }
+    }
+
+    fn name_definition(&mut self, name_definition: &'anf anf::definition::Name) {
+        let path = &self.metadata[name_definition.path_id];
+
+        for (dependency, in_lambda) in &self.dependencies[path] {
+            if *in_lambda {
+                if self
+                    .allowed_cycles
+                    .contains(&(path.clone(), dependency.clone()))
+                {
+                    let already_crossed = !self
+                        .crossed_cycles
+                        .insert((path.clone(), dependency.clone()));
+                    if !already_crossed {
+                        self.name_definition(self.name_definition_anfs[dependency]);
+                    }
+                } else {
+                    self.name_definition(self.name_definition_anfs[dependency]);
+                }
+            } else {
+                self.name_definition(self.name_definition_anfs[dependency]);
+            }
+        }
+
+        if !self.globals.pushed(path) {
+            let code = seperate!(self, {
+                self.emit(Instruction::SetBase(0).into());
+                self.expression(&name_definition.expression);
+                self.emit(Instruction::PopBase.into());
+            });
+
+            self.names.insert(path, code);
+            self.globals.push(path);
         }
     }
 
@@ -327,15 +352,7 @@ where
         let instruction = match bound {
             Bound::Local(id) => Instruction::GetLocal(id.value()).into(),
             Bound::Capture(id) => Instruction::GetCapture(id.value()).into(),
-            Bound::Absolute(path) => {
-                if !self.in_lambda && !self.globals.pushed(path) {
-                    let code = seperate!(self, self.expression(self.name_anfs[path]));
-                    self.names.insert(path, code);
-                    self.globals.push(path);
-                }
-
-                Placeholder::GetAbsolute(path.clone()).into()
-            }
+            Bound::Absolute(path) => Placeholder::GetAbsolute(path.clone()).into(),
         };
 
         self.emit(instruction)
@@ -469,12 +486,10 @@ where
     }
 
     fn lambda(&mut self, lambda: &'anf anf::atom::Lambda) {
-        let old = self.replace_in_lambda(true);
         let lambda_code = seperate!(self, {
             self.expression(&lambda.expression);
             self.emit(Instruction::Return.into());
         });
-        self.replace_in_lambda(old);
 
         let id = self.lambdas.len();
         self.lambdas.push(lambda_code);

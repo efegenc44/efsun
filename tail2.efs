@@ -1,6 +1,6 @@
 module Main
 
-let main = \ğ
+let main =
     let one   = Succ Zero in
     let two   = Succ one  in
     let three = Succ two  in

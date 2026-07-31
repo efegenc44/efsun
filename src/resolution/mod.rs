@@ -40,6 +40,9 @@ enum Namespace {
 ///   Can only be constructed from here
 pub struct Resolved(());
 
+pub type Graph<N> = HashMap<N, Vec<(N, bool)>>;
+pub type Edge<N> = (N, N);
+
 /// AST Name Resolver
 pub struct Resolver {
     /// Stack for local variables
@@ -54,6 +57,13 @@ pub struct Resolver {
     modules: HashMap<Path, ModuleBound>,
     /// Path of the current module
     current_module_path: Option<Path>,
+    /// Dependency graph
+    dependencies: Graph<Path>,
+    /// Current node in the dependency graph
+    current_name_definition: Option<Path>,
+    /// True if currently resolving a lambda expression.
+    ///     Its purpose is to check for cyclic definitions
+    in_lambda: bool,
     /// Metadata
     metadata: Metadata<Unresolved>,
 }
@@ -67,6 +77,9 @@ impl Resolver {
             types: HashMap::new(),
             modules: HashMap::new(),
             current_module_path: None,
+            dependencies: HashMap::new(),
+            current_name_definition: None,
+            in_lambda: false,
             metadata,
         }
     }
@@ -80,6 +93,12 @@ impl Resolver {
         self.current_module_path = Some(path);
 
         self
+    }
+
+    fn replace_in_lambda(&mut self, value: bool) -> bool {
+        let before = self.in_lambda;
+        self.in_lambda = value;
+        before
     }
 
     fn current_module(&self) -> &ModuleBound {
@@ -143,13 +162,24 @@ impl Resolver {
         match self.stack.locally_resolve(identifier) {
             Some(bound) => Ok(bound),
             None => {
-                let path = self.absolute_path(&identifier, Namespace::Name);
+                let mut path = self.absolute_path(&identifier, Namespace::Name);
                 if !self.names.contains(&path) {
                     self.error(
                         ResolutionError::UnboundPath(Path::from_parts(vec![identifier])),
                         Some(span),
                     )
                 } else {
+                    let name = path.pop();
+                    let is_constructor = self.types.contains_key(&path);
+                    path.push([name]);
+
+                    if &path != self.current_name_definition.as_ref().unwrap() && !is_constructor {
+                        self.dependencies
+                            .get_mut(self.current_name_definition.as_ref().unwrap())
+                            .unwrap()
+                            .push((path.clone(), self.in_lambda));
+                    }
+
                     Ok(Bound::Absolute(path))
                 }
             }
@@ -161,7 +191,7 @@ impl Resolver {
             [] => unreachable!(),
             [identifier] => self.identifier(*identifier, span)?,
             [base, rest @ ..] => {
-                let path = if rest.is_empty() {
+                let mut path = if rest.is_empty() {
                     self.absolute_path(base, Namespace::Name)
                 } else {
                     let mut path = self.absolute_path(base, Namespace::Scope);
@@ -172,6 +202,17 @@ impl Resolver {
                 let true = self.names.contains(&path) else {
                     return self.error(ResolutionError::UnboundPath(path), Some(span));
                 };
+
+                let name = path.pop();
+                let is_constructor = self.types.contains_key(&path);
+                path.push([name]);
+
+                if &path != self.current_name_definition.as_ref().unwrap() && !is_constructor {
+                    self.dependencies
+                        .get_mut(self.current_name_definition.as_ref().unwrap())
+                        .unwrap()
+                        .push((path.clone(), self.in_lambda));
+                }
 
                 Bound::Absolute(path)
             }
@@ -187,7 +228,9 @@ impl Resolver {
 
         self.stack.push_frame();
         self.stack.push_local(lambda.variable.data);
+        let before = self.replace_in_lambda(true);
         self.expression(&lambda.expression)?;
+        self.replace_in_lambda(before);
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
@@ -447,8 +490,9 @@ impl Resolver {
                     .names_mut()
                     .insert(name.identifier.data);
 
-                self.names
-                    .insert(self.append_current_path(name.identifier.data));
+                let path = self.append_current_path(name.identifier.data);
+                self.names.insert(path.clone());
+                self.dependencies.insert(path, vec![]);
             }
 
             if let Definition::Structure(structure) = definition {
@@ -606,8 +650,11 @@ impl Resolver {
     }
 
     fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
-        self.expression(&name_definition.expression)?;
         let path = self.append_current_path(name_definition.identifier.data);
+
+        self.current_name_definition = Some(path);
+        self.expression(&name_definition.expression)?;
+        let path = self.current_name_definition.take().unwrap();
 
         self.metadata.set(name_definition.path_id, path);
 
@@ -659,9 +706,11 @@ impl Resolver {
         mut self,
         f: fn(&mut Self, T) -> Result<()>,
         argument: T,
-    ) -> Result<Metadata<Resolved>> {
+    ) -> Result<(Metadata<Resolved>, Graph<Path>)> {
         f(&mut self, argument)?;
-        Ok(self.metadata.transition(Resolved(())))
+        let metadata = self.metadata.transition(Resolved(()));
+        let dependencies = self.dependencies;
+        Ok((metadata, dependencies))
     }
 }
 
