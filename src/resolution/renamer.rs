@@ -89,7 +89,7 @@ impl Renamer {
         self.stack.pop_frame();
 
         self.metadata
-            .set(lambda.unique_name_id, Some(unique_variable));
+            .set(lambda.unique_name_id, unique_variable);
     }
 
     fn letin(&mut self, letin: &expression::LetIn) {
@@ -102,7 +102,7 @@ impl Renamer {
         self.stack.pop_local();
 
         self.metadata
-            .set(letin.unique_name_id, Some(unique_variable));
+            .set(letin.unique_name_id, unique_variable);
     }
 
     fn matchas(&mut self, matchas: &expression::MatchAs) {
@@ -132,7 +132,7 @@ impl Renamer {
         let unique_name = self.unique_name();
         self.stack.push_local(unique_name);
 
-        self.metadata.set(any.unique_name_id, Some(unique_name));
+        self.metadata.set(any.unique_name_id, unique_name);
     }
 
     fn structure_pattern(&mut self, structure: &pattern::Structure) {

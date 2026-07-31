@@ -12,7 +12,7 @@ use crate::resolution::{
 /// Proof of construction
 pub struct Unresolved(());
 
-/// Utility trait for indice polymorphism
+/// Utility traits for indice polymorphism
 pub trait Setter<I, V> {
     fn set(&mut self, id: I, value: V);
 }
@@ -21,14 +21,14 @@ pub trait SetterFlag<I> {
     fn set_flag(&mut self, id: I);
 }
 
+pub trait Generator<T> {
+    fn get(&mut self) -> T;
+}
+
 pub trait CheckFlag<I> {
     fn check(&self, id: I) -> bool;
 }
 
-/// Utility trait for indice polymorphism
-pub trait Generator<T> {
-    fn get(&mut self) -> T;
-}
 
 macro_rules! metadata {
     ( $($i:ident -> $t:ty),* | $($j:ident),* ) => {
@@ -138,7 +138,8 @@ metadata! {
     CaptureMetadataId -> Vec<Capture>,
     StructurePatternMetadataId -> StructurePattern,
     PathMetadataId -> Path,
-    UniqueNameMetadataId -> Option<UniqueName>
+    UniqueNameMetadataId -> UniqueName,
+    PathUniqueNameMetadataId -> Option<UniqueName>
     |
     TailCallMetadataId
 }

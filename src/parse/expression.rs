@@ -1,7 +1,7 @@
 use crate::{
     interner::InternId,
     location::Located,
-    metadata::{BoundMetadataId, CaptureMetadataId, TailCallMetadataId, UniqueNameMetadataId},
+    metadata::{BoundMetadataId, CaptureMetadataId, PathUniqueNameMetadataId, TailCallMetadataId, UniqueNameMetadataId},
     parse::pattern::Pattern,
 };
 
@@ -17,7 +17,7 @@ pub enum Expression {
 pub struct Path {
     pub parts: Located<Vec<InternId>>,
     pub bound_id: BoundMetadataId,
-    pub unique_name_id: UniqueNameMetadataId,
+    pub unique_name_id: PathUniqueNameMetadataId,
 }
 
 pub struct Application {

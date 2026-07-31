@@ -776,7 +776,7 @@ impl ANFResolver {
         match pattern {
             Pattern::Any(any) => {
                 let unique_name = &self.metadata[any.unique_name_id];
-                self.stack.push_local(Local::Standard(unique_name.unwrap()));
+                self.stack.push_local(Local::Standard(*unique_name));
             }
             pattern::Pattern::String(_) => (),
             pattern::Pattern::Structure(structure) => {

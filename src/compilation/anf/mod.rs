@@ -300,9 +300,9 @@ impl<'metadata> Transformer<'metadata> {
             ..
         } = lambda;
 
-        let mut variables = vec![self.metadata[unique_name_id].unwrap()];
+        let mut variables = vec![self.metadata[unique_name_id]];
         while let ASTExpression::Lambda(successive) = expression.data {
-            variables.push(self.metadata[successive.unique_name_id].unwrap());
+            variables.push(self.metadata[successive.unique_name_id]);
             expression = successive.expression;
         }
 
@@ -326,7 +326,7 @@ impl<'metadata> Transformer<'metadata> {
         #[rustfmt::skip]
         let result = self.expression(variable_expression.data, Box::new(|variable_expression| {
             let letin = anf_expression::LetIn {
-                variable: self.metadata[unique_name_id].unwrap(),
+                variable: self.metadata[unique_name_id],
                 variable_expression,
                 return_expression: Box::new(self.expression(return_expression.data, k)),
             };
