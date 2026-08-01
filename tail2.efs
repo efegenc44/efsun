@@ -5,11 +5,11 @@ let main =
     let two   = Succ one  in
     let three = Succ two  in
     let list = Cons three (Cons two Empty) in
-        foldl Zero add list
+        foldl add Zero list
 
-let foldl = \acc \op \l match l
+let foldl = \op \acc \l match l
     | Empty       = acc
-    | Cons ~x ~xs = foldl (op acc x) op xs
+    | Cons ~x ~xs = foldl op (op acc x) xs
 
 structure Pair[a b]
     | Pair a b

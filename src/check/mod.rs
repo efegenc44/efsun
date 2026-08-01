@@ -385,24 +385,24 @@ where
 
             self.check_branch_exhaustiveness(&arrow.from, first_arguments, span)?;
 
-            let branches = arguments.iter().fold(HashMap::new(), |mut acc, arguments| {
-                let branch = if let Pattern::Structure(structure) = &arguments.as_ref()[0].data {
-                    // 0 is reserved for `Any` paths
-                    self.metadata[structure.structure_pattern_id].tag + 1
+            let (mut branches, anys) = arguments.iter().fold((HashMap::new(), Vec::new()), |(mut branches, mut anys), arguments| {
+                if let Pattern::Structure(structure) = &arguments.as_ref()[0].data {
+                    let branch = self.metadata[structure.structure_pattern_id].tag;
+                    branches.entry(branch)
+                        .or_insert(vec![])
+                        .push(&arguments.as_ref()[1..]);
                 } else {
-                    // NOTE: Other patterns cannot nest so this value is not
-                    //  important for them except for `Any` pattern. An `Any` and
-                    //  structure pattern can share the same spot unlike any other
-                    //  two patterns and therefore needs to distinguished. So 0 is
-                    //  reserved for `Any` paths
-                    0
+                    anys.push(&arguments.as_ref()[1..]);
                 };
 
-                acc.entry(branch)
-                    .or_insert(vec![])
-                    .push(&arguments.as_ref()[1..]);
-                acc
+                (branches, anys)
             });
+
+            // NOTE: Any patterns can contribute to the other branches
+            //   Not the best implementation
+            for branch in branches.values_mut() {
+                branch.extend(anys.clone());
+            }
 
             self.structure_argument_exhaustiveness(&arrow.to, branches, span)?;
         }
@@ -635,7 +635,7 @@ where
             );
         };
 
-        let t = m.generalize();
+        let t = self.substitute(m).generalize();
         self.names.insert(path, t);
         self.name_definitions.leaving(path);
 

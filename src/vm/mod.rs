@@ -149,7 +149,12 @@ impl VM {
                                     captures: lambda.captures,
                                 };
 
-                                self.push(Value::PartialApplication(value));
+                                let return_value = Value::PartialApplication(value);
+                                self.stack.truncate(self.base);
+                                ip = self.pop().into_instruction_pointer();
+                                self.closure = self.pop().into_closure();
+                                self.base = self.pop().into_stack_pointer();
+                                self.push(return_value);
                             } else {
                                 self.closure = lambda.captures;
                                 ip = lambda.address;
@@ -174,7 +179,14 @@ impl VM {
                                     remaining: lambda.remaining - n,
                                     parital: Rc::new(values),
                                     captures: lambda.captures,
-                                }))
+                                }));
+
+                                let return_value = self.pop();
+                                self.stack.truncate(self.base);
+                                ip = self.pop().into_instruction_pointer();
+                                self.closure = self.pop().into_closure();
+                                self.base = self.pop().into_stack_pointer();
+                                self.push(return_value);
                             };
                         }
                         _ => unreachable!(),
