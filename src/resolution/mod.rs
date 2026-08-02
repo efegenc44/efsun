@@ -19,7 +19,7 @@ use crate::{
         pattern::{self, Pattern},
         type_expression::{self, TypeExpression},
     },
-    resolution::renamer::Renamed,
+    resolution::{bound::Capture, renamer::Renamed},
 };
 
 use bound::{Bound, BoundId, Module as ModuleBound, Path};
@@ -34,6 +34,17 @@ enum Namespace {
     Type,
     Module,
     Scope,
+}
+
+/// State for whether an expression can reference the let in
+///   expression's variable. It is `Allowed` when the right side
+///   of the let in is a lambda and `Rejected` if it's different.
+///   When not resolving a let in expression, it is `Irrelevant`.
+#[derive(Copy, Clone, Debug)]
+enum LetInVariableReference {
+    Allowed,
+    Rejected,
+    Irrelevant,
 }
 
 /// Proof of resolution step
@@ -64,6 +75,8 @@ pub struct Resolver {
     /// True if currently resolving a lambda expression.
     ///     Its purpose is to check for cyclic definitions
     in_lambda: bool,
+    /// State of allowance for referencing let in expression's variable
+    letin_reference: LetInVariableReference,
     /// Metadata
     metadata: Metadata<Unresolved>,
 }
@@ -80,6 +93,7 @@ impl Resolver {
             dependencies: HashMap::new(),
             current_name_definition: None,
             in_lambda: false,
+            letin_reference: LetInVariableReference::Irrelevant,
             metadata,
         }
     }
@@ -98,6 +112,12 @@ impl Resolver {
     fn replace_in_lambda(&mut self, value: bool) -> bool {
         let before = self.in_lambda;
         self.in_lambda = value;
+        before
+    }
+
+    fn replace_letin_reference(&mut self, value: LetInVariableReference) -> LetInVariableReference {
+        let before = self.letin_reference;
+        self.letin_reference = value;
         before
     }
 
@@ -160,7 +180,21 @@ impl Resolver {
 
     fn identifier(&mut self, identifier: InternId, span: Span) -> Result<Bound> {
         match self.stack.locally_resolve(identifier) {
-            Some(bound) => Ok(bound),
+            Some(bound) => {
+                if let LetInVariableReference::Irrelevant = self.letin_reference {
+                    return Ok(bound);
+                }
+
+                // NOTE: It is guaranteed that the let in variable sits on top of the frame.
+                if let Bound::Local(id) = bound
+                    && id.value() == self.stack.len() - 1
+                    && let LetInVariableReference::Rejected = self.letin_reference
+                {
+                    return self.error(ResolutionError::RejectedLetInSelfReference, Some(span));
+                }
+
+                Ok(bound)
+            }
             None => {
                 let mut path = self.absolute_path(&identifier, Namespace::Name);
                 if !self.names.contains(&path) {
@@ -234,6 +268,18 @@ impl Resolver {
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
+        self.metadata.set(lambda.self_capture_id, None);
+        if let LetInVariableReference::Allowed = self.letin_reference {
+            for (index, capture) in capture.iter().enumerate() {
+                // NOTE: It is guaranteed that the let in variable sits on top of the frame.
+                if let Capture::Local(id) = capture
+                    && id.value() == self.stack.len() - 1
+                {
+                    self.metadata.set(lambda.self_capture_id, Some(index));
+                }
+            }
+        }
+
         self.metadata.set(lambda.capture_id, capture);
 
         Ok(())
@@ -261,11 +307,21 @@ impl Resolver {
         Ok(())
     }
 
+    // TODO: Maybe make recursive let in expressions optional with a keyword like `rec`
     fn letin(&mut self, letin: &expression::LetIn) -> Result<()> {
-        self.expression(&letin.variable_expression)?;
+        let allowance = if let Expression::Lambda(_) = &letin.variable_expression.data {
+            LetInVariableReference::Allowed
+        } else {
+            LetInVariableReference::Rejected
+        };
+
+        let old = self.replace_letin_reference(allowance);
         self.stack.push_local(letin.variable.data);
+        self.expression(&letin.variable_expression)?;
+        self.replace_letin_reference(LetInVariableReference::Allowed);
         self.expression(&letin.return_expression)?;
         self.stack.pop_local();
+        self.replace_letin_reference(old);
 
         Ok(())
     }
@@ -788,8 +844,8 @@ impl ANFResolver {
     }
 
     fn letin(&mut self, letin: &anf::expression::LetIn) {
-        self.atom(&letin.variable_expression);
         self.stack.push_local(Local::Standard(letin.variable));
+        self.atom(&letin.variable_expression);
         self.expression(&letin.return_expression);
         self.stack.pop_local();
     }
@@ -881,4 +937,5 @@ pub enum ResolutionError {
     UnboundPath(Path),
     MissingModuleDefinition,
     UnresolvedImport(Path),
+    RejectedLetInSelfReference,
 }

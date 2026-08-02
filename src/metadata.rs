@@ -138,7 +138,8 @@ metadata! {
     StructurePatternMetadataId -> StructurePattern,
     PathMetadataId -> Path,
     UniqueNameMetadataId -> UniqueName,
-    PathUniqueNameMetadataId -> Option<UniqueName>
+    PathUniqueNameMetadataId -> Option<UniqueName>,
+    SelfCaptureMetadataId -> Option<usize>
     |
     TailCallMetadataId
 }

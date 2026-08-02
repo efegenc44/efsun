@@ -21,4 +21,5 @@ pub struct Lambda {
     pub variables: Vec<UniqueName>,
     pub expression: Box<anf::Expression>,
     pub anf_capture_id: CaptureMetadataId,
+    pub self_capture: Option<usize>,
 }

@@ -39,7 +39,7 @@ impl<'interner> Display for WithInterner<'interner, &Type> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub enum MonoType {
     Variable(usize),
     Arrow(ArrowType),

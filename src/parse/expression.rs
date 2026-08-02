@@ -2,8 +2,8 @@ use crate::{
     interner::InternId,
     location::Located,
     metadata::{
-        BoundMetadataId, CaptureMetadataId, PathUniqueNameMetadataId, TailCallMetadataId,
-        UniqueNameMetadataId,
+        BoundMetadataId, CaptureMetadataId, PathUniqueNameMetadataId, SelfCaptureMetadataId,
+        TailCallMetadataId, UniqueNameMetadataId,
     },
     parse::pattern::Pattern,
 };
@@ -34,6 +34,7 @@ pub struct Lambda {
     pub expression: Box<Located<Expression>>,
     pub capture_id: CaptureMetadataId,
     pub unique_name_id: UniqueNameMetadataId,
+    pub self_capture_id: SelfCaptureMetadataId,
 }
 
 pub struct LetIn {

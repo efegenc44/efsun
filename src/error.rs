@@ -80,6 +80,9 @@ fn resolution_error_description(error: &ResolutionError, interner: &Interner) ->
 
             format!("Import `{}` could not be resolved.", path)
         }
+        ResolutionError::RejectedLetInSelfReference => {
+            "Let in expression can only self reference themself when the right hand side is a lambda.".to_string()
+        }
     }
 }
 

@@ -297,6 +297,7 @@ impl<'metadata> Transformer<'metadata> {
         let ast_expression::Lambda {
             mut expression,
             unique_name_id,
+            self_capture_id,
             ..
         } = lambda;
 
@@ -310,6 +311,7 @@ impl<'metadata> Transformer<'metadata> {
             variables,
             expression: Box::new(self.transform(expression.data)),
             anf_capture_id: self.indicies.borrow_mut().get(),
+            self_capture: self.metadata[self_capture_id],
         };
 
         k(Atom::Lambda(lambda))

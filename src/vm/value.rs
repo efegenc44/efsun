@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 #[derive(Clone)]
 pub enum Value {
@@ -11,7 +11,7 @@ pub enum Value {
 
     InstructionPointer(usize),
     StackPointer(usize),
-    Closure(Rc<Vec<Value>>),
+    Closure(ClosurePointer),
 }
 
 impl Value {
@@ -102,7 +102,7 @@ impl Value {
         sp
     }
 
-    pub fn into_closure(self) -> Rc<Vec<Value>> {
+    pub fn into_closure(self) -> ClosurePointer {
         let Self::Closure(closure) = self else {
             panic!("Expected closure")
         };
@@ -115,7 +115,7 @@ impl Value {
 pub struct LambdaValue {
     pub address: usize,
     pub arity: usize,
-    pub captures: Rc<Vec<Value>>,
+    pub captures: ClosurePointer,
 }
 
 // TODO: Implement PartialApplicationValue as LambdaValue * partial: Rc<Vec<Value>>
@@ -124,7 +124,7 @@ pub struct PartialApplicationValue {
     pub address: usize,
     pub remaining: usize,
     pub parital: Rc<Vec<Value>>,
-    pub captures: Rc<Vec<Value>>,
+    pub captures: ClosurePointer,
 }
 
 #[derive(Clone)]
@@ -133,3 +133,5 @@ pub struct StructureValue {
     pub order: usize,
     pub values: Rc<Vec<Value>>,
 }
+
+pub type ClosurePointer = Option<Rc<RefCell<Vec<Value>>>>;

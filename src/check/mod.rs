@@ -284,10 +284,22 @@ where
     }
 
     fn letin(&mut self, letin: &expression::LetIn) -> Result<MonoType> {
-        let variable_type = self.infer(&letin.variable_expression)?;
-        let variable_type = variable_type.generalize();
+        let variable_type = self.newvar();
+        let t = Type::Mono(variable_type);
 
-        self.stack.push_local(variable_type);
+        let local_position = self.stack.len();
+        self.stack.push_local(t.clone());
+
+        let variable_type = self.infer(&letin.variable_expression)?;
+
+        let t = self.instantiate(t);
+        if let Err((t1, t2)) = self.unify(&variable_type, &t) {
+            return self.error(TypeCheckError::TypeMismatch { t1, t2 }, letin.variable.span);
+        };
+
+        let t = self.substitute(variable_type).generalize();
+        self.stack.set_local(local_position, t);
+
         let return_type = self.infer(&letin.return_expression)?;
         self.stack.pop_local();
 
@@ -385,18 +397,22 @@ where
 
             self.check_branch_exhaustiveness(&arrow.from, first_arguments, span)?;
 
-            let (mut branches, anys) = arguments.iter().fold((HashMap::new(), Vec::new()), |(mut branches, mut anys), arguments| {
-                if let Pattern::Structure(structure) = &arguments.as_ref()[0].data {
-                    let branch = self.metadata[structure.structure_pattern_id].tag;
-                    branches.entry(branch)
-                        .or_insert(vec![])
-                        .push(&arguments.as_ref()[1..]);
-                } else {
-                    anys.push(&arguments.as_ref()[1..]);
-                };
+            let (mut branches, anys) = arguments.iter().fold(
+                (HashMap::new(), Vec::new()),
+                |(mut branches, mut anys), arguments| {
+                    if let Pattern::Structure(structure) = &arguments.as_ref()[0].data {
+                        let branch = self.metadata[structure.structure_pattern_id].tag;
+                        branches
+                            .entry(branch)
+                            .or_insert(vec![])
+                            .push(&arguments.as_ref()[1..]);
+                    } else {
+                        anys.push(&arguments.as_ref()[1..]);
+                    };
 
-                (branches, anys)
-            });
+                    (branches, anys)
+                },
+            );
 
             // NOTE: Any patterns can contribute to the other branches
             //   Not the best implementation
@@ -599,6 +615,10 @@ where
 
     fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
         let path = &self.metadata[name_definition.path_id];
+
+        if !matches!(&self.names[path], Type::Mono(MonoType::Variable(_))) {
+            return Ok(());
+        }
 
         self.name_definitions.visiting(path);
 

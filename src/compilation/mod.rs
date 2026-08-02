@@ -205,8 +205,8 @@ where
                     //   unnecessary since right now there is only Jump
                     unreachable!("This case should be handeld at join()");
                 }
-                PreInstruction::Placeholder(Placeholder::MakeLambda(id, arity, captures)) => {
-                    Instruction::MakeLambda(lambda_addresses[id], arity, captures)
+                PreInstruction::Placeholder(Placeholder::MakeLambda(id, arity)) => {
+                    Instruction::MakeLambda(lambda_addresses[id], arity)
                 }
                 PreInstruction::Placeholder(Placeholder::PushFrame(offset)) => {
                     Instruction::PushFrame(index + 1 + offset)
@@ -241,7 +241,7 @@ where
                             Instruction::Return.into(),
                         ]);
 
-                        Placeholder::MakeLambda(id, constructor.arity, vec![]).into()
+                        Placeholder::MakeLambda(id, constructor.arity).into()
                     };
 
                     let path = &self.metadata[constructor.path_id];
@@ -497,7 +497,11 @@ where
         let artiy = lambda.variables.len();
         let capture = &self.metadata[lambda.anf_capture_id];
 
-        self.emit(Placeholder::MakeLambda(id, artiy, capture.to_vec()).into())
+        self.emit(Placeholder::MakeLambda(id, artiy).into());
+
+        if !capture.is_empty() {
+            self.emit(Instruction::CaptureIntoLambda(capture.to_vec(), lambda.self_capture).into())
+        }
     }
 
     fn letin(&mut self, letin: &'anf anf::expression::LetIn) {

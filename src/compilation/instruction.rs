@@ -29,7 +29,7 @@ pub enum Placeholder {
     SkipIfFalse(usize),
     Skip(usize),
     Jump(usize),
-    MakeLambda(usize, usize, Vec<Capture>),
+    MakeLambda(usize, usize),
     PushFrame(usize),
 }
 
@@ -40,7 +40,8 @@ pub enum Instruction {
     String(usize),
     Bool(bool),
     MakeStructure(usize, usize, usize),
-    MakeLambda(usize, usize, Vec<Capture>),
+    MakeLambda(usize, usize),
+    CaptureIntoLambda(Vec<Capture>, Option<usize>),
     GetCapture(usize),
     GetLocal(usize),
     CopyIntoLocal(usize),
@@ -74,8 +75,9 @@ impl Display for Instruction {
             Self::PushFrame(address) => write!(f, "PUSH_FRAME {address}"),
             Self::TruncateFrame(n) => write!(f, "TRUNCATE_FRAME {n}"),
             Self::SetBase(n) => write!(f, "SET_BASE {n}"),
-            Self::MakeLambda(address, arity, captures) => {
-                write!(f, "MAKE_LAMBDA {address:#>05x} {arity}")?;
+            Self::MakeLambda(address, arity) => write!(f, "MAKE_LAMBDA {address:#>05x} {arity}"),
+            Self::CaptureIntoLambda(captures, _self_capture) => {
+                write!(f, "CAPTURE_INTO_LAMBDA")?;
                 for capture in captures {
                     write!(f, "\n            CAPTURE_")?;
                     match capture {

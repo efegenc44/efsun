@@ -1,11 +1,11 @@
 pub mod value;
 
-use std::{io::Write, println, rc::Rc};
+use std::{cell::RefCell, io::Write, println, rc::Rc};
 
 use crate::{
     compilation::{ConstantPool, instruction::Instruction},
     resolution::bound::Capture,
-    vm::value::PartialApplicationValue,
+    vm::value::{ClosurePointer, PartialApplicationValue},
 };
 
 use value::{LambdaValue, StructureValue, Value};
@@ -17,7 +17,7 @@ pub struct VM {
     /// Stack frame base register, points to a stack location
     base: usize,
     /// Stack frame closure register
-    closure: Rc<Vec<Value>>,
+    closure: ClosurePointer,
 }
 
 impl VM {
@@ -25,7 +25,7 @@ impl VM {
         Self {
             stack: Vec::new(),
             base: 0,
-            closure: Rc::new(Vec::new()),
+            closure: None,
         }
     }
 
@@ -67,26 +67,43 @@ impl VM {
                         values: Rc::new(values),
                     }));
                 }
-                Instruction::MakeLambda(address, arity, captures) => {
+                Instruction::MakeLambda(address, arity) => {
+                    self.push(Value::Lambda(LambdaValue {
+                        address,
+                        arity,
+                        captures: None,
+                    }));
+                }
+                Instruction::CaptureIntoLambda(captures, self_capture) => {
                     let mut closure = Vec::with_capacity(captures.len());
-
                     for capture in captures {
                         let value = match capture {
                             Capture::Local(id) => self.stack[self.base + id.value()].clone(),
-                            Capture::Outer(id) => self.closure.as_ref()[id.value()].clone(),
+                            Capture::Outer(id) => {
+                                self.closure.as_ref().unwrap().borrow()[id.value()].clone()
+                            }
                         };
 
                         closure.push(value);
                     }
 
-                    self.push(Value::Lambda(LambdaValue {
-                        address,
-                        arity,
-                        captures: Rc::new(closure),
-                    }));
+                    let closure = Rc::new(RefCell::new(closure));
+
+                    // Backpatching a capture loop in self-captured lambda's captures (if it's even captured)
+                    if let Some(self_capture) = self_capture {
+                        let Value::Lambda(capture) = &mut closure.borrow_mut()[self_capture] else {
+                            unreachable!();
+                        };
+
+                        capture.captures = Some(closure.clone());
+                    }
+
+                    let mut lambda = self.pop().into_lambda();
+                    lambda.captures = Some(closure.clone());
+                    self.push(Value::Lambda(lambda));
                 }
                 Instruction::GetCapture(id) => {
-                    let value = self.closure.as_ref()[id].clone();
+                    let value = self.closure.as_ref().unwrap().borrow()[id].clone();
                     self.push(value);
                 }
                 Instruction::GetLocal(id) => {

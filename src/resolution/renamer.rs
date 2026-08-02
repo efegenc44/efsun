@@ -92,11 +92,9 @@ impl Renamer {
     }
 
     fn letin(&mut self, letin: &expression::LetIn) {
-        self.expression(&letin.variable_expression);
-
         let unique_variable = self.unique_name();
-
         self.stack.push_local(unique_variable);
+        self.expression(&letin.variable_expression);
         self.expression(&letin.return_expression);
         self.stack.pop_local();
 

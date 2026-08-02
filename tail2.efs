@@ -1,15 +1,15 @@
 module Main
 
 let main =
+    let foldl = \op \acc \l match l
+        | Empty       = acc
+        | Cons ~x ~xs = foldl op (op acc x) xs
+    in
     let one   = Succ Zero in
     let two   = Succ one  in
     let three = Succ two  in
     let list = Cons three (Cons two Empty) in
         foldl add Zero list
-
-let foldl = \op \acc \l match l
-    | Empty       = acc
-    | Cons ~x ~xs = foldl op (op acc x) xs
 
 structure Pair[a b]
     | Pair a b

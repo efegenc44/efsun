@@ -1,0 +1,14 @@
+module Main
+
+structure Nat
+    | Zero
+    | Succ Nat
+
+import Main.Nat in
+
+let main =
+    let countDown = \n match n
+        | Zero    = Zero
+        | Succ ~m = countDown m
+    in
+        countDown (Succ (Succ (Succ Zero)))

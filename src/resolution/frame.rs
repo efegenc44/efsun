@@ -154,6 +154,11 @@ impl<T: Clone> CheckStack<T> {
         current_frame.locals[id.value()].clone()
     }
 
+    pub fn set_local(&mut self, index: usize, value: T) {
+        let current_frame = self.0.last_mut().unwrap();
+        current_frame.locals[index] = value;
+    }
+
     pub fn get_capture(&mut self, id: BoundId) -> T {
         let capture = self.0.last().unwrap().captures[id.value()];
 
