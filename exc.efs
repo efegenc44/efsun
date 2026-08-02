@@ -1,0 +1,13 @@
+module Main
+
+let main =
+    let foo = (\a
+               \b let a = "" in
+               \c
+               \t
+               \h
+                    a
+              )
+    in
+        let bar = foo "a" "b" "c" "t" in
+            bar "h"

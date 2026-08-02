@@ -39,7 +39,8 @@ enum Namespace {
 /// State for whether an expression can reference the let in
 ///   expression's variable. It is `Allowed` when the right side
 ///   of the let in is a lambda and `Rejected` if it's different.
-///   When not resolving a let in expression, it is `Irrelevant`.
+///   When not resolving a variable expression of a let in,
+///   it is `Irrelevant`.
 #[derive(Copy, Clone, Debug)]
 enum LetInVariableReference {
     Allowed,
@@ -76,6 +77,7 @@ pub struct Resolver {
     ///     Its purpose is to check for cyclic definitions
     in_lambda: bool,
     /// State of allowance for referencing let in expression's variable
+    ///   in variable expression of let in
     letin_reference: LetInVariableReference,
     /// Metadata
     metadata: Metadata<Unresolved>,
@@ -318,7 +320,7 @@ impl Resolver {
         let old = self.replace_letin_reference(allowance);
         self.stack.push_local(letin.variable.data);
         self.expression(&letin.variable_expression)?;
-        self.replace_letin_reference(LetInVariableReference::Allowed);
+        self.replace_letin_reference(LetInVariableReference::Irrelevant);
         self.expression(&letin.return_expression)?;
         self.stack.pop_local();
         self.replace_letin_reference(old);

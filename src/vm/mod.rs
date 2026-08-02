@@ -1,6 +1,6 @@
 pub mod value;
 
-use std::{cell::RefCell, io::Write, println, rc::Rc};
+use std::{cell::RefCell, cmp::Ordering, io::Write, println, rc::Rc};
 
 use crate::{
     compilation::{ConstantPool, instruction::Instruction},
@@ -18,6 +18,8 @@ pub struct VM {
     base: usize,
     /// Stack frame closure register
     closure: ClosurePointer,
+    /// Count of remaining arguments for higher order functions
+    remaining_arguments: usize,
 }
 
 impl VM {
@@ -26,6 +28,7 @@ impl VM {
             stack: Vec::new(),
             base: 0,
             closure: None,
+            remaining_arguments: 0,
         }
     }
 
@@ -148,33 +151,45 @@ impl VM {
                     self.push(Value::Closure(self.closure.clone()));
                     self.push(Value::InstructionPointer(address));
                 }
+                // TODO: Uniform lambda representation and less-doing instructions
                 Instruction::Call(n) => {
                     let operand = self.pop();
 
                     match operand {
                         Value::Lambda(lambda) => {
-                            if lambda.arity != n {
-                                let mut arguments = vec![];
-                                for _ in 0..n {
-                                    arguments.push(self.pop())
+                            match lambda.arity.cmp(&n) {
+                                Ordering::Equal => {
+                                    self.closure = lambda.captures;
+                                    ip = lambda.address;
                                 }
+                                Ordering::Greater => {
+                                    let mut arguments = vec![];
+                                    for _ in 0..n {
+                                        arguments.push(self.pop())
+                                    }
 
-                                let value = PartialApplicationValue {
-                                    address: lambda.address,
-                                    remaining: lambda.arity - n,
-                                    parital: Rc::new(arguments),
-                                    captures: lambda.captures,
-                                };
+                                    let value = PartialApplicationValue {
+                                        address: lambda.address,
+                                        remaining: lambda.arity - n,
+                                        parital: Rc::new(arguments),
+                                        captures: lambda.captures,
+                                    };
 
-                                let return_value = Value::PartialApplication(value);
-                                self.stack.truncate(self.base);
-                                ip = self.pop().into_instruction_pointer();
-                                self.closure = self.pop().into_closure();
-                                self.base = self.pop().into_stack_pointer();
-                                self.push(return_value);
-                            } else {
-                                self.closure = lambda.captures;
-                                ip = lambda.address;
+                                    let return_value = Value::PartialApplication(value);
+                                    self.stack.truncate(self.base);
+                                    ip = self.pop().into_instruction_pointer();
+                                    self.closure = self.pop().into_closure();
+                                    self.base = self.pop().into_stack_pointer();
+                                    self.push(return_value);
+                                }
+                                Ordering::Less => {
+                                    let step = n - lambda.arity;
+                                    self.base += step;
+                                    self.remaining_arguments = step;
+
+                                    self.closure = lambda.captures;
+                                    ip = lambda.address;
+                                }
                             }
                         }
                         Value::PartialApplication(lambda) => {
@@ -186,36 +201,99 @@ impl VM {
                             let mut values = (*lambda.parital).clone();
                             values.extend(arguments);
 
-                            if lambda.remaining == n {
-                                self.stack.extend(values);
-                                self.closure = lambda.captures;
-                                ip = lambda.address;
-                            } else {
-                                self.push(Value::PartialApplication(PartialApplicationValue {
-                                    address: lambda.address,
-                                    remaining: lambda.remaining - n,
-                                    parital: Rc::new(values),
-                                    captures: lambda.captures,
-                                }));
+                            match lambda.remaining.cmp(&n) {
+                                Ordering::Equal => {
+                                    self.stack.extend(values.into_iter().rev());
+                                    self.closure = lambda.captures;
+                                    ip = lambda.address;
+                                }
+                                Ordering::Greater => {
+                                    self.push(Value::PartialApplication(PartialApplicationValue {
+                                        address: lambda.address,
+                                        remaining: lambda.remaining - n,
+                                        parital: Rc::new(values),
+                                        captures: lambda.captures,
+                                    }));
 
-                                let return_value = self.pop();
-                                self.stack.truncate(self.base);
-                                ip = self.pop().into_instruction_pointer();
-                                self.closure = self.pop().into_closure();
-                                self.base = self.pop().into_stack_pointer();
-                                self.push(return_value);
-                            };
+                                    let return_value = self.pop();
+                                    self.stack.truncate(self.base);
+                                    ip = self.pop().into_instruction_pointer();
+                                    self.closure = self.pop().into_closure();
+                                    self.base = self.pop().into_stack_pointer();
+                                    self.push(return_value);
+                                }
+                                Ordering::Less => {
+                                    let step = n - lambda.remaining;
+                                    self.base += step;
+                                    self.remaining_arguments = step;
+
+                                    self.stack.extend(values.into_iter().rev());
+
+                                    self.closure = lambda.captures;
+                                    ip = lambda.address;
+                                }
+                            }
                         }
                         _ => unreachable!(),
                     }
                 }
                 Instruction::Return => {
-                    let return_value = self.pop();
-                    self.stack.truncate(self.base);
-                    ip = self.pop().into_instruction_pointer();
-                    self.closure = self.pop().into_closure();
-                    self.base = self.pop().into_stack_pointer();
-                    self.push(return_value);
+                    if self.remaining_arguments > 0 {
+                        let lambda = self.pop();
+
+                        self.stack.truncate(self.base);
+
+                        let (arity, captures, address) = match lambda {
+                            Value::Lambda(lambda) => {
+                                (lambda.arity, lambda.captures, lambda.address)
+                            }
+                            Value::PartialApplication(lambda) => {
+                                self.stack.extend((lambda.parital.iter().rev().cloned()).clone());
+                                (lambda.remaining, lambda.captures, lambda.address)
+                            }
+                            _ => unreachable!()
+                        };
+
+                        if arity > self.remaining_arguments {
+                            let remaining = arity - self.remaining_arguments;
+                            self.base -= self.remaining_arguments;
+
+                            let mut partial = vec![];
+                            for _ in 0..self.remaining_arguments {
+                                partial.push(self.pop());
+                            }
+
+                            self.remaining_arguments = 0;
+
+                            self.push(Value::PartialApplication(PartialApplicationValue {
+                                address,
+                                remaining,
+                                parital: Rc::new(partial),
+                                captures: captures,
+                            }));
+
+                            let return_value = self.pop();
+                            self.stack.truncate(self.base);
+                            ip = self.pop().into_instruction_pointer();
+                            self.closure = self.pop().into_closure();
+                            self.base = self.pop().into_stack_pointer();
+                            self.push(return_value);
+                        } else {
+                            self.base -= arity;
+                            self.remaining_arguments -= arity;
+
+                            self.closure = captures;
+                            ip = address;
+                        }
+                    } else {
+                        let return_value = self.pop();
+                        self.stack.truncate(self.base);
+                        let address = self.pop().into_instruction_pointer();
+                        ip = address;
+                        self.closure = self.pop().into_closure();
+                        self.base = self.pop().into_stack_pointer();
+                        self.push(return_value);
+                    }
                 }
                 Instruction::PopBase => {
                     let return_value = self.pop();
