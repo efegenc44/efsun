@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs,
     io::{self, Write},
 };
@@ -29,14 +29,12 @@ fn expression(
     let (metadata, dependencies) = Resolver::new(Metadata::new())
         .set_interactive_module(interner)
         .finish(Resolver::expression, &expression)?;
-    let mut type_checker = TypeChecker::new(&metadata, &dependencies);
-    let t = type_checker.infer(&expression)?;
-    let allowed_cycles = type_checker.into_allowed_cycles();
+    let t = TypeChecker::new(&metadata, &dependencies).infer(&expression)?;
     let metadata = Renamer::new(metadata).finish(Renamer::expression, &expression);
     let anf_expression = anf::Transformer::new(&metadata, indicies).transform(expression.data);
     let metadata = ANFResolver::new(metadata).finish(ANFResolver::expression, &anf_expression);
     let (code, pool) =
-        Compiler::new(interner, &metadata, &dependencies, &allowed_cycles).compile(&anf_expression);
+        Compiler::new(interner, &metadata, &dependencies, &HashSet::new()).compile(&anf_expression);
     let result = vm.run(&code, &pool, false);
 
     Ok((result, t, pool))
@@ -50,9 +48,8 @@ fn program(
     let (program, indicies) = ProgramParser::new(sources, interner, Indicies::default()).parse()?;
     let (metadata, dependencies) =
         Resolver::new(Metadata::new()).finish(Resolver::program, &program)?;
-    let mut type_checker = TypeChecker::new(&metadata, &dependencies);
-    let t = type_checker.program(&program, interner)?;
-    let allowed_cycles = type_checker.into_allowed_cycles();
+    let (t, allowed_cycles) =
+        TypeChecker::new(&metadata, &dependencies).program(&program, interner)?;
     let metadata = Renamer::new(metadata).finish(Renamer::program, &program);
     let anf_program = anf::Transformer::new(&metadata, indicies).program(program);
     let metadata = ANFResolver::new(metadata).finish(ANFResolver::program, &anf_program);

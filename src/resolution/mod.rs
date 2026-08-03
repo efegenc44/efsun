@@ -140,6 +140,23 @@ impl Resolver {
             .append([identifier])
     }
 
+    fn add_dependency(&mut self, mut path: Path) {
+        let (path, is_constructor) = {
+            let posssible_constructor_name = path.pop();
+            let is_constructor = self.types.contains_key(&path);
+            path.push([posssible_constructor_name]);
+            (path, is_constructor)
+        };
+
+        let current_name = self.current_name_definition.as_ref().unwrap();
+        if &path != current_name && !is_constructor {
+            self.dependencies
+                .get_mut(current_name)
+                .unwrap()
+                .push((path.clone(), self.in_lambda));
+        }
+    }
+
     pub fn expression(&mut self, expression: &Located<Expression>) -> Result<()> {
         let span = expression.span;
 
@@ -159,13 +176,13 @@ impl Resolver {
         let module = self.current_module();
 
         let imports = match namespace {
-            Namespace::Name => module.name_imports(),
-            Namespace::Type => module.type_imports(),
-            Namespace::Module => module.module_imports(),
+            Namespace::Name => &module.name_imports,
+            Namespace::Type => &module.type_imports,
+            Namespace::Module => &module.module_imports,
             Namespace::Scope => {
-                return if let Some(import_path) = module.type_imports().get(base) {
+                return if let Some(import_path) = module.type_imports.get(base) {
                     import_path.data.clone()
-                } else if let Some(import_path) = module.module_imports().get(base) {
+                } else if let Some(import_path) = module.module_imports.get(base) {
                     import_path.data.clone()
                 } else {
                     self.append_current_path(*base)
@@ -198,24 +215,14 @@ impl Resolver {
                 Ok(bound)
             }
             None => {
-                let mut path = self.absolute_path(&identifier, Namespace::Name);
+                let path = self.absolute_path(&identifier, Namespace::Name);
                 if !self.names.contains(&path) {
                     self.error(
                         ResolutionError::UnboundPath(Path::from_parts(vec![identifier])),
                         Some(span),
                     )
                 } else {
-                    let name = path.pop();
-                    let is_constructor = self.types.contains_key(&path);
-                    path.push([name]);
-
-                    if &path != self.current_name_definition.as_ref().unwrap() && !is_constructor {
-                        self.dependencies
-                            .get_mut(self.current_name_definition.as_ref().unwrap())
-                            .unwrap()
-                            .push((path.clone(), self.in_lambda));
-                    }
-
+                    self.add_dependency(path.clone());
                     Ok(Bound::Absolute(path))
                 }
             }
@@ -227,7 +234,7 @@ impl Resolver {
             [] => unreachable!(),
             [identifier] => self.identifier(*identifier, span)?,
             [base, rest @ ..] => {
-                let mut path = if rest.is_empty() {
+                let path = if rest.is_empty() {
                     self.absolute_path(base, Namespace::Name)
                 } else {
                     let mut path = self.absolute_path(base, Namespace::Scope);
@@ -239,17 +246,7 @@ impl Resolver {
                     return self.error(ResolutionError::UnboundPath(path), Some(span));
                 };
 
-                let name = path.pop();
-                let is_constructor = self.types.contains_key(&path);
-                path.push([name]);
-
-                if &path != self.current_name_definition.as_ref().unwrap() && !is_constructor {
-                    self.dependencies
-                        .get_mut(self.current_name_definition.as_ref().unwrap())
-                        .unwrap()
-                        .push((path.clone(), self.in_lambda));
-                }
-
+                self.add_dependency(path.clone());
                 Bound::Absolute(path)
             }
         };
@@ -395,7 +392,7 @@ impl Resolver {
                     return self.error(ResolutionError::UnboundPath(path), Some(span));
                 };
 
-                let Some(constructors) = module.types().get(&type_name) else {
+                let Some(constructors) = module.types.get(&type_name) else {
                     return self.error(ResolutionError::UnboundPath(path), Some(span));
                 };
 
@@ -544,9 +541,7 @@ impl Resolver {
         for definition in &module.definitions {
             if let Definition::Name(name) = definition {
                 // TODO: Check for duplicate definitions
-                self.current_module_mut()
-                    .names_mut()
-                    .insert(name.identifier.data);
+                self.current_module_mut().names.insert(name.identifier.data);
 
                 let path = self.append_current_path(name.identifier.data);
                 self.names.insert(path.clone());
@@ -573,7 +568,7 @@ impl Resolver {
                     .collect();
 
                 self.current_module_mut()
-                    .types_mut()
+                    .types
                     .insert(structure.name.data, constructors);
             }
         }
@@ -584,11 +579,11 @@ impl Resolver {
     fn register_import(&mut self, name: InternId, path: Path, span: Span) -> Result<()> {
         // TODO: When importing allow relative paths from the current module
         let imports = if self.modules.contains_key(&path) {
-            self.current_module_mut().module_imports_mut()
+            &mut self.current_module_mut().module_imports
         } else if self.types.contains_key(&path) {
-            self.current_module_mut().type_imports_mut()
+            &mut self.current_module_mut().type_imports
         } else if self.names.contains(&path) {
-            self.current_module_mut().name_imports_mut()
+            &mut self.current_module_mut().name_imports
         } else {
             return self.error(ResolutionError::UnresolvedImport(path.clone()), Some(span));
         };
@@ -653,7 +648,7 @@ impl Resolver {
 
     fn register_import_all(&mut self, path: Path, span: Span) -> Result<()> {
         let (names, types) = if let Some(from) = self.modules.get(&path) {
-            (from.names().iter(), Some(from.types().keys()))
+            (from.names.iter(), Some(from.types.keys()))
         } else if let Some(constructors) = self.types.get(&path) {
             (constructors.iter(), None)
         } else {
@@ -688,9 +683,9 @@ impl Resolver {
             None
         };
 
-        self.current_module_mut().name_imports_mut().extend(names);
+        self.current_module_mut().name_imports.extend(names);
         if let Some(types) = types {
-            self.current_module_mut().type_imports_mut().extend(types);
+            self.current_module_mut().type_imports.extend(types);
         }
 
         Ok(())
@@ -755,7 +750,7 @@ impl Resolver {
     fn error<T>(&self, error: ResolutionError, span: Option<Span>) -> Result<T> {
         Err(Box::new(ReportableError {
             error: error.into(),
-            source_name: self.current_module().source_name().to_string(),
+            source_name: self.current_module().source_name.to_string(),
             span,
         }))
     }

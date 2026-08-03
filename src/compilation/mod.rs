@@ -35,7 +35,7 @@ macro_rules! scoped_expression {
 }
 
 /// Compiles ANF to high-level VM instructions
-pub struct Compiler<'interner, 'anf, 'metadata> {
+pub struct Compiler<'interner, 'anf, 'metadata, 'dependencies, 'cycles> {
     /// Local interned string ordering because in the global
     ///   ordering strings does not have to be sequantial
     ///   because of identifiers
@@ -62,24 +62,26 @@ pub struct Compiler<'interner, 'anf, 'metadata> {
     ///   to a join point
     local_count: usize,
     /// Dependency graph
-    dependencies: &'anf Graph<Path>,
+    dependencies: &'dependencies Graph<Path>,
     /// Allowed cycles due to lambdas
-    allowed_cycles: &'metadata HashSet<Edge<Path>>,
+    allowed_cycles: &'cycles HashSet<Edge<Path>>,
     /// Crossed allowed cycles
-    crossed_cycles: HashSet<Edge<Path>>,
+    crossed_cycles: HashSet<Edge<&'dependencies Path>>,
     /// Metadata
     metadata: &'metadata Metadata<ANFResolved>,
 }
 
-impl<'interner, 'anf, 'metadata> Compiler<'interner, 'anf, 'metadata>
+impl<'interner, 'anf, 'metadata, 'dependencies, 'cycles>
+    Compiler<'interner, 'anf, 'metadata, 'dependencies, 'cycles>
 where
     'metadata: 'anf,
+    'metadata: 'dependencies,
 {
     pub fn new(
         interner: &'interner Interner,
         metadata: &'metadata Metadata<ANFResolved>,
-        dependencies: &'anf Graph<Path>,
-        allowed_cycles: &'metadata HashSet<Edge<Path>>,
+        dependencies: &'dependencies Graph<Path>,
+        allowed_cycles: &'cycles HashSet<Edge<Path>>,
     ) -> Self {
         Self {
             interns: Vec::new(),
@@ -264,25 +266,7 @@ where
     fn name_definition(&mut self, name_definition: &'anf anf::definition::Name) {
         let path = &self.metadata[name_definition.path_id];
 
-        for (dependency, in_lambda) in &self.dependencies[path] {
-            if *in_lambda {
-                if self
-                    .allowed_cycles
-                    .contains(&(path.clone(), dependency.clone()))
-                {
-                    let already_crossed = !self
-                        .crossed_cycles
-                        .insert((path.clone(), dependency.clone()));
-                    if !already_crossed {
-                        self.name_definition(self.name_definition_anfs[dependency]);
-                    }
-                } else {
-                    self.name_definition(self.name_definition_anfs[dependency]);
-                }
-            } else {
-                self.name_definition(self.name_definition_anfs[dependency]);
-            }
-        }
+        self.visit_dependencies(path);
 
         if !self.globals.pushed(path) {
             let code = seperate!(self, {
@@ -293,6 +277,23 @@ where
 
             self.names.insert(path, code);
             self.globals.push(path);
+        }
+    }
+
+    fn visit_dependencies(&mut self, path: &'metadata Path) {
+        for (dependency, _) in &self.dependencies[path] {
+            // TODO: Path interning
+            if self
+                .allowed_cycles
+                .contains(&(path.clone(), dependency.clone()))
+            {
+                let not_crossed = self.crossed_cycles.insert((path, dependency));
+                if not_crossed {
+                    self.name_definition(self.name_definition_anfs[dependency]);
+                }
+            } else {
+                self.name_definition(self.name_definition_anfs[dependency]);
+            }
         }
     }
 

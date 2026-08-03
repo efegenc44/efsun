@@ -25,9 +25,10 @@ use crate::{
 
 use typ::{ArrowType, MonoType, StructureType, Type};
 
-pub struct TypeChecker<'ast, 'metadata>
+pub struct TypeChecker<'ast, 'metadata, 'dependencies>
 where
     'ast: 'metadata,
+    'ast: 'dependencies,
 {
     /// Stack for local variables
     stack: CheckStack<Type>,
@@ -49,18 +50,21 @@ where
     /// Source file name of the current module for error reporting
     current_source_name: Option<&'metadata str>,
     /// Dependency graph
-    dependencies: &'ast Graph<Path>,
+    dependencies: &'dependencies Graph<Path>,
     /// Allowed cycles in dependency graph due to lambdas
     allowed_cycles: HashSet<Edge<Path>>,
     /// Metadata
     metadata: &'metadata Metadata<Resolved>,
 }
 
-impl<'ast, 'metadata> TypeChecker<'metadata, 'ast>
+impl<'ast, 'metadata, 'dependencies> TypeChecker<'metadata, 'ast, 'dependencies>
 where
     'ast: 'metadata,
 {
-    pub fn new(metadata: &'metadata Metadata<Resolved>, dependencies: &'ast Graph<Path>) -> Self {
+    pub fn new(
+        metadata: &'metadata Metadata<Resolved>,
+        dependencies: &'dependencies Graph<Path>,
+    ) -> Self {
         Self {
             stack: CheckStack::new(),
             type_variables: Vec::new(),
@@ -514,7 +518,11 @@ where
         }
     }
 
-    pub fn program(&mut self, program: &'ast Program, interner: &Interner) -> Result<Type> {
+    pub fn program(
+        mut self,
+        program: &'ast Program,
+        interner: &Interner,
+    ) -> Result<(Type, HashSet<Edge<Path>>)> {
         for module in &program.modules {
             self.collect_definitions(module)?;
         }
@@ -528,10 +536,13 @@ where
             .map(|s| interner.intern_id(s))
             .collect::<Vec<_>>();
 
-        Ok(self.names[&Path::from_parts(parts)].clone())
+        Ok((
+            self.names[&Path::from_parts(parts)].clone(),
+            self.allowed_cycles,
+        ))
     }
 
-    pub fn module(&mut self, module: &'ast Module) -> Result<()> {
+    fn module(&mut self, module: &'ast Module) -> Result<()> {
         self.current_source_name = Some(&module.source_name);
 
         for definition in &module.definitions {
@@ -616,34 +627,13 @@ where
     fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
         let path = &self.metadata[name_definition.path_id];
 
+        // If the type is not a variable then it is already type checked
         if !matches!(&self.names[path], Type::Mono(MonoType::Variable(_))) {
             return Ok(());
         }
 
         self.name_definitions.visiting(path);
-
-        for (dependency, in_lambda) in &self.dependencies[path] {
-            match (
-                self.name_definitions.is_currently_visiting(dependency),
-                in_lambda,
-            ) {
-                (true, false) => {
-                    return self.error(
-                        TypeCheckError::CyclicDefinition(path.clone()),
-                        name_definition.identifier.span,
-                    );
-                }
-                (false, _) => self.name_definition(self.name_definitions.get(dependency))?,
-                (true, true) => {
-                    let already_crossed = !self
-                        .allowed_cycles
-                        .insert((path.clone(), dependency.clone()));
-                    if !already_crossed {
-                        self.name_definition(self.name_definitions.get(dependency))?
-                    }
-                }
-            }
-        }
+        self.visit_dependencies(path, name_definition.identifier.span)?;
 
         let m = self.infer(&name_definition.expression)?;
 
@@ -662,8 +652,26 @@ where
         Ok(())
     }
 
-    pub fn into_allowed_cycles(self) -> HashSet<Edge<Path>> {
-        self.allowed_cycles
+    pub fn visit_dependencies(&mut self, path: &'metadata Path, span: Span) -> Result<()> {
+        for (dependency, in_lambda) in &self.dependencies[path] {
+            match (self.name_definitions.is_visiting(dependency), in_lambda) {
+                (true, false) => {
+                    return self.error(TypeCheckError::CyclicDefinition(path.clone()), span);
+                }
+                (false, _) => self.name_definition(self.name_definitions.get(dependency))?,
+                (true, true) => {
+                    // TODO: Path interning
+                    let not_crossed = self
+                        .allowed_cycles
+                        .insert((path.clone(), dependency.clone()));
+                    if not_crossed {
+                        self.name_definition(self.name_definitions.get(dependency))?
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn error<T>(&self, error: TypeCheckError, span: Span) -> Result<T> {
@@ -697,7 +705,7 @@ impl<'path, 'ast> NameDefinitionMap<'path, 'ast> {
         self.map.get(path).unwrap().0
     }
 
-    fn is_currently_visiting(&self, path: &Path) -> bool {
+    fn is_visiting(&self, path: &Path) -> bool {
         self.map.get(path).unwrap().1
     }
 

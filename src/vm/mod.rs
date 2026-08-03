@@ -156,42 +156,40 @@ impl VM {
                     let operand = self.pop();
 
                     match operand {
-                        Value::Lambda(lambda) => {
-                            match lambda.arity.cmp(&n) {
-                                Ordering::Equal => {
-                                    self.closure = lambda.captures;
-                                    ip = lambda.address;
-                                }
-                                Ordering::Greater => {
-                                    let mut arguments = vec![];
-                                    for _ in 0..n {
-                                        arguments.push(self.pop())
-                                    }
-
-                                    let value = PartialApplicationValue {
-                                        address: lambda.address,
-                                        remaining: lambda.arity - n,
-                                        parital: Rc::new(arguments),
-                                        captures: lambda.captures,
-                                    };
-
-                                    let return_value = Value::PartialApplication(value);
-                                    self.stack.truncate(self.base);
-                                    ip = self.pop().into_instruction_pointer();
-                                    self.closure = self.pop().into_closure();
-                                    self.base = self.pop().into_stack_pointer();
-                                    self.push(return_value);
-                                }
-                                Ordering::Less => {
-                                    let step = n - lambda.arity;
-                                    self.base += step;
-                                    self.remaining_arguments = step;
-
-                                    self.closure = lambda.captures;
-                                    ip = lambda.address;
-                                }
+                        Value::Lambda(lambda) => match lambda.arity.cmp(&n) {
+                            Ordering::Equal => {
+                                self.closure = lambda.captures;
+                                ip = lambda.address;
                             }
-                        }
+                            Ordering::Greater => {
+                                let mut arguments = vec![];
+                                for _ in 0..n {
+                                    arguments.push(self.pop())
+                                }
+
+                                let value = PartialApplicationValue {
+                                    address: lambda.address,
+                                    remaining: lambda.arity - n,
+                                    parital: Rc::new(arguments),
+                                    captures: lambda.captures,
+                                };
+
+                                let return_value = Value::PartialApplication(value);
+                                self.stack.truncate(self.base);
+                                ip = self.pop().into_instruction_pointer();
+                                self.closure = self.pop().into_closure();
+                                self.base = self.pop().into_stack_pointer();
+                                self.push(return_value);
+                            }
+                            Ordering::Less => {
+                                let step = n - lambda.arity;
+                                self.base += step;
+                                self.remaining_arguments = step;
+
+                                self.closure = lambda.captures;
+                                ip = lambda.address;
+                            }
+                        },
                         Value::PartialApplication(lambda) => {
                             let mut arguments = vec![];
                             for _ in 0..n {
@@ -248,10 +246,11 @@ impl VM {
                                 (lambda.arity, lambda.captures, lambda.address)
                             }
                             Value::PartialApplication(lambda) => {
-                                self.stack.extend((lambda.parital.iter().rev().cloned()).clone());
+                                self.stack
+                                    .extend((lambda.parital.iter().rev().cloned()).clone());
                                 (lambda.remaining, lambda.captures, lambda.address)
                             }
-                            _ => unreachable!()
+                            _ => unreachable!(),
                         };
 
                         if arity > self.remaining_arguments {
