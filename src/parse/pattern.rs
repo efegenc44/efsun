@@ -1,7 +1,7 @@
 use crate::{
+    data_table::{StructurePatternDataId, UniqueNameDataId},
     interner::InternId,
     location::Located,
-    metadata::{StructurePatternMetadataId, UniqueNameMetadataId},
 };
 
 #[derive(Clone, Debug)]
@@ -14,14 +14,14 @@ pub enum Pattern {
 #[derive(Clone, Debug)]
 pub struct Any {
     pub identifier: InternId,
-    pub unique_name_id: UniqueNameMetadataId,
+    pub unique_name_id: UniqueNameDataId,
 }
 
 #[derive(Clone, Debug)]
 pub struct Structure {
     pub parts: Located<Vec<InternId>>,
     pub arguments: Vec<Located<Pattern>>,
-    pub structure_pattern_id: StructurePatternMetadataId,
+    pub structure_pattern_id: StructurePatternDataId,
 }
 
 impl Pattern {

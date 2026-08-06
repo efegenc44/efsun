@@ -1,7 +1,7 @@
 use crate::{
+    data_table::PathDataId,
     interner::InternId,
     location::{Located, Span},
-    metadata::PathMetadataId,
     parse::{expression::Expression, type_expression::TypeExpression},
 };
 
@@ -30,20 +30,20 @@ pub enum Subimport {
 pub struct Name {
     pub identifier: Located<InternId>,
     pub expression: Located<Expression>,
-    pub path_id: PathMetadataId,
+    pub path_id: PathDataId,
 }
 
 pub struct Structure {
     pub name: Located<InternId>,
     pub variables: Vec<Located<InternId>>,
     pub constructors: Vec<Located<Constructor>>,
-    pub path_id: PathMetadataId,
+    pub path_id: PathDataId,
 }
 
 pub struct Constructor {
     pub name: Located<InternId>,
     pub arguments: Vec<Located<TypeExpression>>,
-    pub path_id: PathMetadataId,
+    pub path_id: PathDataId,
 }
 
 pub struct Module {

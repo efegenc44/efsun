@@ -12,8 +12,8 @@ use definition::{self as anf_definition};
 use expression::{self as anf_expression};
 
 use crate::{
+    data_table::{ANFIndicies, Generator},
     interner::{InternId, WithInterner},
-    metadata::{Generator, Indicies, Metadata},
     parse::{
         definition::{
             self as ast_definition, Definition as ASTDefinition, Module as ASTModule,
@@ -22,8 +22,9 @@ use crate::{
         expression::{self as ast_expression, Expression as ASTExpression},
     },
     resolution::{
+        ResolutionData,
         bound::Bound,
-        renamer::{Renamed, UniqueName},
+        renamer::{RenameData, UniqueName},
     },
 };
 
@@ -93,21 +94,27 @@ impl<'interner> Display for WithInterner<'interner, &Path> {
 pub type Continuation<'a> = Box<dyn FnOnce(Atom) -> Expression + 'a>;
 
 /// AST to ANF Transformer
-pub struct Transformer<'metadata> {
+pub struct Transformer<'resolution_data, 'rename_data> {
     /// State for ANF-introduced local variables and jump labels
     counter: Cell<usize>,
-    /// Metadata
-    metadata: &'metadata Metadata<Renamed>,
+    /// Resolution produced data
+    resolution_data: &'resolution_data ResolutionData,
+    /// Resolution produced data
+    rename_data: &'rename_data RenameData,
     /// Indicies for metadata
-    indicies: RefCell<Indicies>,
+    indicies: RefCell<ANFIndicies>,
 }
 
-impl<'metadata> Transformer<'metadata> {
-    pub fn new(metadata: &'metadata Metadata<Renamed>, indicies: Indicies) -> Self {
+impl<'resolution_data, 'rename_data> Transformer<'resolution_data, 'rename_data> {
+    pub fn new(
+        resolution_data: &'resolution_data ResolutionData,
+        rename_data: &'rename_data RenameData,
+    ) -> Self {
         Self {
             counter: Cell::new(0),
-            metadata,
-            indicies: RefCell::new(indicies),
+            resolution_data,
+            rename_data,
+            indicies: RefCell::new(ANFIndicies::default()),
         }
     }
 
@@ -219,15 +226,15 @@ impl<'metadata> Transformer<'metadata> {
             unique_name_id,
         } = path;
 
-        let bound = &self.metadata[bound_id];
+        let bound = self.resolution_data.bounds.get(&bound_id);
         let bound = match bound {
             Bound::Absolute(_) => Some(bound.clone()),
             Bound::Local(_) | Bound::Capture(_) => None,
         };
 
-        let unique_name = self.metadata[unique_name_id];
+        let unique_name = self.rename_data.path_unique_names.get(&unique_name_id);
         let path = match unique_name {
-            Some(unique_name) => Path::Local(unique_name),
+            Some(unique_name) => Path::Local(*unique_name),
             None => Path::Absolute(parts.data),
         };
 
@@ -301,9 +308,14 @@ impl<'metadata> Transformer<'metadata> {
             ..
         } = lambda;
 
-        let mut variables = vec![self.metadata[unique_name_id]];
+        let mut variables = vec![*self.rename_data.unique_names.get(&unique_name_id)];
         while let ASTExpression::Lambda(successive) = expression.data {
-            variables.push(self.metadata[successive.unique_name_id]);
+            let unique_name = *self
+                .rename_data
+                .unique_names
+                .get(&successive.unique_name_id);
+
+            variables.push(unique_name);
             expression = successive.expression;
         }
 
@@ -311,7 +323,11 @@ impl<'metadata> Transformer<'metadata> {
             variables,
             expression: Box::new(self.transform(expression.data)),
             anf_capture_id: self.indicies.borrow_mut().get(),
-            self_capture: self.metadata[self_capture_id],
+            self_capture: self
+                .resolution_data
+                .self_captures
+                .get(&self_capture_id)
+                .copied(),
         };
 
         k(Atom::Lambda(lambda))
@@ -328,7 +344,7 @@ impl<'metadata> Transformer<'metadata> {
         #[rustfmt::skip]
         let result = self.expression(variable_expression.data, Box::new(|variable_expression| {
             let letin = anf_expression::LetIn {
-                variable: self.metadata[unique_name_id],
+                variable: *self.rename_data.unique_names.get(&unique_name_id),
                 variable_expression,
                 return_expression: Box::new(self.expression(return_expression.data, k)),
             };

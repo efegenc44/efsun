@@ -9,17 +9,21 @@ use std::{
 
 use crate::{
     compilation::anf::{self, Local},
+    data_table::{
+        ANFBoundDataId, ANFCaptureDataId, BoundDataId, CaptureDataId, DataTable,
+        OptionalDataTable, PathDataId, SelfCaptureDataId, StructurePatternDataId,
+        TailCallDataId,
+    },
     error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
-    metadata::{self, Metadata, Setter, SetterFlag, Unresolved},
     parse::{
         definition::{self, Definition, Module, Program},
         expression::{self, Expression},
         pattern::{self, Pattern},
         type_expression::{self, TypeExpression},
     },
-    resolution::{bound::Capture, renamer::Renamed},
+    resolution::{bound::Capture, renamer::RenameData},
 };
 
 use bound::{Bound, BoundId, Module as ModuleBound, Path};
@@ -48,10 +52,6 @@ enum LetInVariableReference {
     Irrelevant,
 }
 
-/// Proof of resolution step
-///   Can only be constructed from here
-pub struct Resolved(());
-
 pub type Graph<N> = HashMap<N, Vec<(N, bool)>>;
 pub type Edge<N> = (N, N);
 
@@ -69,8 +69,6 @@ pub struct Resolver {
     modules: HashMap<Path, ModuleBound>,
     /// Path of the current module
     current_module_path: Option<Path>,
-    /// Dependency graph
-    dependencies: Graph<Path>,
     /// Current node in the dependency graph
     current_name_definition: Option<Path>,
     /// True if currently resolving a lambda expression.
@@ -79,12 +77,12 @@ pub struct Resolver {
     /// State of allowance for referencing let in expression's variable
     ///   in variable expression of let in
     letin_reference: LetInVariableReference,
-    /// Metadata
-    metadata: Metadata<Unresolved>,
+    /// Resoluiton produced data
+    data: ResolutionData,
 }
 
 impl Resolver {
-    pub fn new(metadata: Metadata<Unresolved>) -> Self {
+    pub fn new() -> Self {
         Resolver {
             stack: ResolutionStack::new(),
             type_variables: Vec::new(),
@@ -92,11 +90,10 @@ impl Resolver {
             types: HashMap::new(),
             modules: HashMap::new(),
             current_module_path: None,
-            dependencies: HashMap::new(),
             current_name_definition: None,
             in_lambda: false,
             letin_reference: LetInVariableReference::Irrelevant,
-            metadata,
+            data: ResolutionData::default(),
         }
     }
 
@@ -150,14 +147,15 @@ impl Resolver {
 
         let current_name = self.current_name_definition.as_ref().unwrap();
         if &path != current_name && !is_constructor {
-            self.dependencies
+            self.data
+                .dependencies
                 .get_mut(current_name)
                 .unwrap()
                 .push((path.clone(), self.in_lambda));
         }
     }
 
-    pub fn expression(&mut self, expression: &Located<Expression>) -> Result<()> {
+    fn expression(&mut self, expression: &Located<Expression>) -> Result<()> {
         let span = expression.span;
 
         match &expression.data {
@@ -170,6 +168,12 @@ impl Resolver {
         }
 
         Ok(())
+    }
+
+    pub fn expression_repl(mut self, expression: &Located<Expression>) -> Result<ResolutionData> {
+        self.expression(expression)?;
+
+        Ok(self.data)
     }
 
     fn absolute_path(&self, base: &InternId, namespace: Namespace) -> Path {
@@ -251,7 +255,7 @@ impl Resolver {
             }
         };
 
-        self.metadata.set(path.bound_id, bound);
+        self.data.bounds.set(path.bound_id, bound);
 
         Ok(())
     }
@@ -267,19 +271,18 @@ impl Resolver {
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
-        self.metadata.set(lambda.self_capture_id, None);
         if let LetInVariableReference::Allowed = self.letin_reference {
             for (index, capture) in capture.iter().enumerate() {
                 // NOTE: It is guaranteed that the let in variable sits on top of the frame.
                 if let Capture::Local(id) = capture
                     && id.value() == self.stack.len() - 1
                 {
-                    self.metadata.set(lambda.self_capture_id, Some(index));
+                    self.data.self_captures.set(lambda.self_capture_id, index);
                 }
             }
         }
 
-        self.metadata.set(lambda.capture_id, capture);
+        self.data.captures.set(lambda.capture_id, capture);
 
         Ok(())
     }
@@ -287,7 +290,7 @@ impl Resolver {
     fn resolve_tail_call(&mut self, expression: &Expression) {
         match expression {
             Expression::Application(application) => {
-                self.metadata.set_flag(application.tail_call_id);
+                self.data.tail_calls.set(application.tail_call_id, ());
             }
             Expression::LetIn(letin) => self.resolve_tail_call(&letin.return_expression.data),
             Expression::MatchAs(matchas) => {
@@ -406,8 +409,9 @@ impl Resolver {
             }
         };
 
-        let structure_pattern = metadata::StructurePattern { type_path, tag };
-        self.metadata
+        let structure_pattern = StructurePattern { type_path, tag };
+        self.data
+            .structure_patterns
             .set(structure.structure_pattern_id, structure_pattern);
 
         Ok(())
@@ -470,7 +474,7 @@ impl Resolver {
             }
         };
 
-        self.metadata.set(path.bound_id, bound);
+        self.data.bounds.set(path.bound_id, bound);
 
         Ok(())
     }
@@ -485,7 +489,7 @@ impl Resolver {
         Ok(())
     }
 
-    pub fn program(&mut self, program: &Program) -> Result<()> {
+    pub fn program(mut self, program: &Program) -> Result<ResolutionData> {
         let module_paths = program
             .modules
             .iter()
@@ -503,7 +507,7 @@ impl Resolver {
             self.module(module)?;
         }
 
-        Ok(())
+        Ok(self.data)
     }
 
     pub fn module(&mut self, module: &Module) -> Result<()> {
@@ -545,7 +549,7 @@ impl Resolver {
 
                 let path = self.append_current_path(name.identifier.data);
                 self.names.insert(path.clone());
-                self.dependencies.insert(path, vec![]);
+                self.data.dependencies.insert(path, vec![]);
             }
 
             if let Definition::Structure(structure) = definition {
@@ -709,7 +713,7 @@ impl Resolver {
         self.expression(&name_definition.expression)?;
         let path = self.current_name_definition.take().unwrap();
 
-        self.metadata.set(name_definition.path_id, path);
+        self.data.paths.set(name_definition.path_id, path);
 
         Ok(())
     }
@@ -726,7 +730,7 @@ impl Resolver {
 
         self.type_variables.clear();
 
-        self.metadata.set(structure_definition.path_id, path);
+        self.data.paths.set(structure_definition.path_id, path);
 
         Ok(())
     }
@@ -742,7 +746,7 @@ impl Resolver {
 
         let path = type_path.append([constructor.name.data]);
 
-        self.metadata.set(constructor.path_id, path);
+        self.data.paths.set(constructor.path_id, path);
 
         Ok(())
     }
@@ -754,42 +758,30 @@ impl Resolver {
             span,
         }))
     }
-
-    pub fn finish<T>(
-        mut self,
-        f: fn(&mut Self, T) -> Result<()>,
-        argument: T,
-    ) -> Result<(Metadata<Resolved>, Graph<Path>)> {
-        f(&mut self, argument)?;
-        let metadata = self.metadata.transition(Resolved(()));
-        let dependencies = self.dependencies;
-        Ok((metadata, dependencies))
-    }
 }
-
-/// Proof of ANF resolution
-///   Can only be constructed from here
-pub struct ANFResolved(());
 
 /// ANF Name Resolver
 /// ANF only affects local variables so ANFResolver only
 /// re-resolves local variables
-pub struct ANFResolver {
+pub struct ANFResolver<'rename_data> {
     /// Stack for local variables
     stack: ResolutionStack<anf::Local>,
-    /// Metadata
-    metadata: Metadata<Renamed>,
+    /// Rename produced data
+    rename_data: &'rename_data RenameData,
+    /// ANF Resolution produced data
+    data: ANFResolutionData,
 }
 
-impl ANFResolver {
-    pub fn new(metadata: Metadata<Renamed>) -> Self {
+impl<'rename_data> ANFResolver<'rename_data> {
+    pub fn new(rename_data: &'rename_data RenameData) -> Self {
         ANFResolver {
             stack: ResolutionStack::new(),
-            metadata,
+            rename_data,
+            data: ANFResolutionData::default(),
         }
     }
 
-    pub fn expression(&mut self, anf: &anf::Expression) {
+    fn expression(&mut self, anf: &anf::Expression) {
         match anf {
             anf::Expression::LetIn(letin) => self.letin(letin),
             anf::Expression::Application(application) => self.application(application),
@@ -798,6 +790,12 @@ impl ANFResolver {
             anf::Expression::Jump(jump) => self.jump(jump),
             anf::Expression::Atom(atom) => self.atom(atom),
         }
+    }
+
+    pub fn expression_repl(mut self, anf: &anf::Expression) -> ANFResolutionData {
+        self.expression(anf);
+
+        self.data
     }
 
     fn atom(&mut self, atom: &anf::Atom) {
@@ -819,7 +817,7 @@ impl ANFResolver {
             }
         };
 
-        self.metadata.set(path.anf_bound_id, bound);
+        self.data.bounds.set(path.anf_bound_id, bound);
     }
 
     fn identifier(&mut self, identifier: Local) -> Bound {
@@ -837,7 +835,7 @@ impl ANFResolver {
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
-        self.metadata.set(lambda.anf_capture_id, capture);
+        self.data.captures.set(lambda.anf_capture_id, capture);
     }
 
     fn letin(&mut self, letin: &anf::expression::LetIn) {
@@ -877,7 +875,7 @@ impl ANFResolver {
     fn define_pattern_locals(&mut self, pattern: &Pattern) {
         match pattern {
             Pattern::Any(any) => {
-                let unique_name = &self.metadata[any.unique_name_id];
+                let unique_name = self.rename_data.unique_names.get(&any.unique_name_id);
                 self.stack.push_local(Local::Standard(*unique_name));
             }
             pattern::Pattern::String(_) => (),
@@ -900,10 +898,12 @@ impl ANFResolver {
         self.atom(&jump.expression);
     }
 
-    pub fn program(&mut self, program: &anf::Program) {
+    pub fn program(mut self, program: &anf::Program) -> ANFResolutionData {
         for module in program.modules() {
             self.module(module);
         }
+
+        self.data
     }
 
     pub fn module(&mut self, module: &anf::Module) {
@@ -922,11 +922,6 @@ impl ANFResolver {
     fn name_definition(&mut self, name_definition: &anf::definition::Name) {
         self.expression(&name_definition.expression);
     }
-
-    pub fn finish<T>(mut self, f: fn(&mut Self, T), argument: T) -> Metadata<ANFResolved> {
-        f(&mut self, argument);
-        self.metadata.transition(ANFResolved(()))
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -935,4 +930,27 @@ pub enum ResolutionError {
     MissingModuleDefinition,
     UnresolvedImport(Path),
     RejectedLetInSelfReference,
+}
+
+#[derive(Default)]
+pub struct ResolutionData {
+    pub bounds: DataTable<BoundDataId, Bound>,
+    pub captures: DataTable<CaptureDataId, Vec<Capture>>,
+    pub structure_patterns: DataTable<StructurePatternDataId, StructurePattern>,
+    pub paths: DataTable<PathDataId, Path>,
+    pub tail_calls: OptionalDataTable<TailCallDataId, ()>,
+    pub self_captures: OptionalDataTable<SelfCaptureDataId, usize>,
+    /// Dependency graph for name definitions
+    pub dependencies: Graph<Path>,
+}
+
+pub struct StructurePattern {
+    pub type_path: Path,
+    pub tag: usize,
+}
+
+#[derive(Default)]
+pub struct ANFResolutionData {
+    pub bounds: DataTable<ANFBoundDataId, Bound>,
+    pub captures: DataTable<ANFCaptureDataId, Vec<Capture>>,
 }

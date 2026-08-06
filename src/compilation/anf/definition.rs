@@ -1,4 +1,4 @@
-use crate::{compilation::anf, interner::InternId, metadata::PathMetadataId};
+use crate::{compilation::anf, data_table::PathDataId, interner::InternId};
 
 pub enum Definition {
     Name(Name),
@@ -7,7 +7,7 @@ pub enum Definition {
 
 pub struct Name {
     pub expression: anf::Expression,
-    pub path_id: PathMetadataId,
+    pub path_id: PathDataId,
 }
 
 pub struct Structure {
@@ -17,7 +17,7 @@ pub struct Structure {
 pub struct Constructor {
     pub name: InternId,
     pub arity: usize,
-    pub path_id: PathMetadataId,
+    pub path_id: PathDataId,
 }
 
 pub struct Module {

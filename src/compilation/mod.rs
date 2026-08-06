@@ -5,12 +5,12 @@ use core::slice;
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    check::TypeCheckData,
     compilation::instruction::{Placeholder, PreInstruction},
     interner::{InternId, Interner},
-    metadata::{CheckFlag, Metadata},
     parse::pattern::Pattern,
     resolution::{
-        ANFResolved, Edge, Graph,
+        ANFResolutionData, Edge, ResolutionData,
         bound::{Bound, Path},
     },
 };
@@ -35,7 +35,10 @@ macro_rules! scoped_expression {
 }
 
 /// Compiles ANF to high-level VM instructions
-pub struct Compiler<'interner, 'anf, 'metadata, 'dependencies, 'cycles> {
+pub struct Compiler<'interner, 'anf, 'resolution_data, 'type_check_data, 'anf_resolution_data>
+where
+    'resolution_data: 'anf,
+{
     /// Local interned string ordering because in the global
     ///   ordering strings does not have to be sequantial
     ///   because of identifiers
@@ -46,13 +49,13 @@ pub struct Compiler<'interner, 'anf, 'metadata, 'dependencies, 'cycles> {
     lambdas: Vec<Vec<PreInstruction>>,
     /// Map from global names to their ANF expression
     ///   Used for compiling cyclic references
-    name_definition_anfs: HashMap<&'metadata Path, &'anf anf::definition::Name>,
+    name_definition_anfs: HashMap<&'resolution_data Path, &'anf anf::definition::Name>,
     /// Global names and their instructions
-    names: HashMap<&'metadata Path, Vec<PreInstruction>>,
+    names: HashMap<&'resolution_data Path, Vec<PreInstruction>>,
     /// Compilation order for global names
     ///   Order is determined at compile time because language
     ///   does not require strict lexical definition order
-    globals: Globals<'metadata>,
+    globals: Globals<'resolution_data>,
     /// Current output to emit into
     out: Option<Vec<PreInstruction>>,
     /// Interner to retrieve strings
@@ -61,27 +64,26 @@ pub struct Compiler<'interner, 'anf, 'metadata, 'dependencies, 'cycles> {
     ///   Used for popping the scope of the branching path when jumping
     ///   to a join point
     local_count: usize,
-    /// Dependency graph
-    dependencies: &'dependencies Graph<Path>,
-    /// Allowed cycles due to lambdas
-    allowed_cycles: &'cycles HashSet<Edge<Path>>,
+    /// Resolution produced data
+    resolution_data: &'resolution_data ResolutionData,
+    /// Type check produced data
+    type_check_data: &'type_check_data TypeCheckData,
+    /// ANF Resolution produced data
+    anf_resolution_data: &'anf_resolution_data ANFResolutionData,
     /// Crossed allowed cycles
-    crossed_cycles: HashSet<Edge<&'dependencies Path>>,
-    /// Metadata
-    metadata: &'metadata Metadata<ANFResolved>,
+    crossed_cycles: HashSet<Edge<&'resolution_data Path>>,
 }
 
-impl<'interner, 'anf, 'metadata, 'dependencies, 'cycles>
-    Compiler<'interner, 'anf, 'metadata, 'dependencies, 'cycles>
+impl<'interner, 'anf, 'resolution_data, 'type_check_data, 'anf_resolution_data>
+    Compiler<'interner, 'anf, 'resolution_data, 'type_check_data, 'anf_resolution_data>
 where
-    'metadata: 'anf,
-    'metadata: 'dependencies,
+    'resolution_data: 'anf,
 {
     pub fn new(
         interner: &'interner Interner,
-        metadata: &'metadata Metadata<ANFResolved>,
-        dependencies: &'dependencies Graph<Path>,
-        allowed_cycles: &'cycles HashSet<Edge<Path>>,
+        resolution_data: &'resolution_data ResolutionData,
+        type_check_data: &'type_check_data TypeCheckData,
+        anf_resolution_data: &'anf_resolution_data ANFResolutionData,
     ) -> Self {
         Self {
             interns: Vec::new(),
@@ -93,10 +95,10 @@ where
             out: None,
             interner,
             local_count: 0,
-            dependencies,
-            allowed_cycles,
+            resolution_data,
+            type_check_data,
+            anf_resolution_data,
             crossed_cycles: HashSet::new(),
-            metadata,
         }
     }
 
@@ -225,7 +227,7 @@ where
     fn collect_names(&mut self, module: &'anf anf::Module) {
         for definition in module.definitions() {
             if let anf::Definition::Name(name) = definition {
-                let path = &self.metadata[name.path_id];
+                let path = &self.resolution_data.paths.get(&name.path_id);
                 self.name_definition_anfs.insert(path, name);
             }
 
@@ -246,7 +248,7 @@ where
                         Placeholder::MakeLambda(id, constructor.arity).into()
                     };
 
-                    let path = &self.metadata[constructor.path_id];
+                    let path = &self.resolution_data.paths.get(&constructor.path_id);
 
                     self.names.insert(path, vec![instruction]);
                     self.globals.push(path);
@@ -264,7 +266,7 @@ where
     }
 
     fn name_definition(&mut self, name_definition: &'anf anf::definition::Name) {
-        let path = &self.metadata[name_definition.path_id];
+        let path = &self.resolution_data.paths.get(&name_definition.path_id);
 
         self.visit_dependencies(path);
 
@@ -280,11 +282,12 @@ where
         }
     }
 
-    fn visit_dependencies(&mut self, path: &'metadata Path) {
-        for (dependency, _) in &self.dependencies[path] {
+    fn visit_dependencies(&mut self, path: &'resolution_data Path) {
+        for (dependency, _) in &self.resolution_data.dependencies[path] {
             // TODO: Path interning
             if self
-                .allowed_cycles
+                .type_check_data
+                .cycles
                 .contains(&(path.clone(), dependency.clone()))
             {
                 let not_crossed = self.crossed_cycles.insert((path, dependency));
@@ -297,11 +300,14 @@ where
         }
     }
 
-    pub fn compile(
+    pub fn expression_repl(
         mut self,
         expression: &'anf anf::Expression,
     ) -> (Vec<Instruction>, ConstantPool) {
-        let code = seperate!(self, self.expression(expression));
+        let code = seperate!(self, {
+            self.expression(expression);
+            self.emit(Instruction::Halt.into());
+        });
         let (code, lambda_addresses) = Self::merge_lambdas(code, self.lambdas);
 
         (
@@ -348,7 +354,7 @@ where
     }
 
     fn path(&mut self, path: &'anf anf::atom::Path) {
-        let bound = &self.metadata[path.anf_bound_id];
+        let bound = self.anf_resolution_data.bounds.get(&path.anf_bound_id);
 
         let instruction = match bound {
             Bound::Local(id) => Instruction::GetLocal(id.value()).into(),
@@ -360,7 +366,11 @@ where
     }
 
     fn application(&mut self, application: &'anf anf::expression::Application) {
-        let is_tail_call = self.metadata.check(application.tail_call_id);
+        let is_tail_call = self
+            .resolution_data
+            .tail_calls
+            .get(&application.tail_call_id)
+            .is_some();
 
         let code = seperate!(self, {
             // NOTE: Reverse is to preserve left associative application
@@ -429,7 +439,11 @@ where
             Pattern::Structure(structure) => {
                 self.extend(matched.iter().cloned());
 
-                let tag = self.metadata[structure.structure_pattern_id].tag;
+                let tag = self
+                    .resolution_data
+                    .structure_patterns
+                    .get(&structure.structure_pattern_id)
+                    .tag;
 
                 self.emit(Instruction::TagEquals(tag).into());
 
@@ -496,7 +510,10 @@ where
         self.lambdas.push(lambda_code);
 
         let artiy = lambda.variables.len();
-        let capture = &self.metadata[lambda.anf_capture_id];
+        let capture = self
+            .anf_resolution_data
+            .captures
+            .get(&lambda.anf_capture_id);
 
         self.emit(Placeholder::MakeLambda(id, artiy).into());
 

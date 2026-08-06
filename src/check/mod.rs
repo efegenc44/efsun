@@ -9,7 +9,6 @@ use crate::{
     error::{ReportableError, Result},
     interner::Interner,
     location::{Located, Span},
-    metadata::Metadata,
     parse::{
         definition::{self, Definition, Module, Program},
         expression::{self, Expression},
@@ -17,7 +16,7 @@ use crate::{
         type_expression::{self, TypeExpression},
     },
     resolution::{
-        Edge, Graph, Resolved,
+        Edge, ResolutionData,
         bound::{Bound, Path},
         frame::CheckStack,
     },
@@ -25,46 +24,37 @@ use crate::{
 
 use typ::{ArrowType, MonoType, StructureType, Type};
 
-pub struct TypeChecker<'ast, 'metadata, 'dependencies>
+pub struct TypeChecker<'ast, 'resolution_data>
 where
-    'ast: 'metadata,
-    'ast: 'dependencies,
+    'resolution_data: 'ast,
 {
     /// Stack for local variables
     stack: CheckStack<Type>,
     /// Stack for type variables in structure definitions
     type_variables: Vec<MonoType>,
     /// Map for accesing name definitions and keeping track of cylic definitions
-    name_definitions: NameDefinitionMap<'metadata, 'ast>,
+    name_definitions: NameDefinitionMap<'resolution_data, 'ast>,
     /// Map from path of the let definition to its type
-    names: HashMap<&'metadata Path, Type>,
+    names: HashMap<&'resolution_data Path, Type>,
     /// Map from path of the structure definition to its corresponding type
-    types: HashMap<&'metadata Path, Type>,
+    types: HashMap<&'resolution_data Path, Type>,
     /// Map from structure types to their constructors paths' and
     ///     constructurs argument counts'
-    constructors: HashMap<&'metadata Path, Vec<(&'metadata Path, usize)>>,
+    constructors: HashMap<&'resolution_data Path, Vec<(&'resolution_data Path, usize)>>,
     /// Counter for generating fresh type variables
     newvar_counter: usize,
     /// Map from type variable id (usize) to its substitution (MonoType)
     unification_table: HashMap<usize, MonoType>,
     /// Source file name of the current module for error reporting
-    current_source_name: Option<&'metadata str>,
-    /// Dependency graph
-    dependencies: &'dependencies Graph<Path>,
-    /// Allowed cycles in dependency graph due to lambdas
-    allowed_cycles: HashSet<Edge<Path>>,
-    /// Metadata
-    metadata: &'metadata Metadata<Resolved>,
+    current_source_name: Option<&'resolution_data str>,
+    /// Resoluiton produced data
+    resolution_data: &'resolution_data ResolutionData,
+    /// Type check produced data
+    data: TypeCheckData,
 }
 
-impl<'ast, 'metadata, 'dependencies> TypeChecker<'metadata, 'ast, 'dependencies>
-where
-    'ast: 'metadata,
-{
-    pub fn new(
-        metadata: &'metadata Metadata<Resolved>,
-        dependencies: &'dependencies Graph<Path>,
-    ) -> Self {
+impl<'ast, 'resolution_data> TypeChecker<'ast, 'resolution_data> {
+    pub fn new(resolution_data: &'resolution_data ResolutionData) -> Self {
         Self {
             stack: CheckStack::new(),
             type_variables: Vec::new(),
@@ -75,9 +65,8 @@ where
             newvar_counter: 0,
             unification_table: HashMap::default(),
             current_source_name: None,
-            dependencies,
-            allowed_cycles: HashSet::new(),
-            metadata,
+            resolution_data,
+            data: TypeCheckData::default(),
         }
     }
 
@@ -126,7 +115,7 @@ where
     }
 
     fn evaluate_type_path(&mut self, path: &type_expression::Path) -> Result<MonoType> {
-        let bound = &self.metadata[path.bound_id];
+        let bound = self.resolution_data.bounds.get(&path.bound_id);
 
         let t = match bound {
             Bound::Capture(_) => unreachable!(),
@@ -169,7 +158,7 @@ where
         Ok(MonoType::Structure(structure))
     }
 
-    pub fn infer(&mut self, expression: &Located<Expression>) -> Result<MonoType> {
+    fn infer(&mut self, expression: &Located<Expression>) -> Result<MonoType> {
         match &expression.data {
             Expression::String(_) => Ok(MonoType::String),
             Expression::Path(path) => self.path(path),
@@ -178,6 +167,13 @@ where
             Expression::LetIn(letin) => self.letin(letin),
             Expression::MatchAs(matchlet) => self.matchas(matchlet),
         }
+    }
+
+    pub fn infer_repl(mut self, expression: &Located<Expression>) -> Result<(Type, TypeCheckData)> {
+        let m = self.infer(expression)?;
+        let t = self.substitute(m).generalize();
+
+        Ok((t, self.data))
     }
 
     fn substitute(&self, t: MonoType) -> MonoType {
@@ -238,7 +234,7 @@ where
     }
 
     fn path(&mut self, path: &expression::Path) -> Result<MonoType> {
-        let t = match &self.metadata[path.bound_id] {
+        let t = match self.resolution_data.bounds.get(&path.bound_id) {
             Bound::Local(id) => self.stack.get_local(*id),
             Bound::Capture(id) => self.stack.get_capture(*id),
             Bound::Absolute(path) => self.names[path].clone(),
@@ -271,7 +267,7 @@ where
     fn lambda(&mut self, lambda: &expression::Lambda) -> Result<MonoType> {
         let argument = self.newvar();
 
-        let captures = &self.metadata[lambda.capture_id];
+        let captures = self.resolution_data.captures.get(&lambda.capture_id);
 
         self.stack.push_frame(captures.to_vec());
         self.stack.push_local(Type::Mono(argument.clone()));
@@ -359,7 +355,10 @@ where
                 unreachable!("Type checking guarantees only-all structure patterns a this point");
             };
 
-            let structure_pattern = &self.metadata[pattern.structure_pattern_id];
+            let structure_pattern = &self
+                .resolution_data
+                .structure_patterns
+                .get(&pattern.structure_pattern_id);
             constructor_branches[structure_pattern.tag].push(&pattern.arguments);
         }
 
@@ -405,7 +404,11 @@ where
                 (HashMap::new(), Vec::new()),
                 |(mut branches, mut anys), arguments| {
                     if let Pattern::Structure(structure) = &arguments.as_ref()[0].data {
-                        let branch = self.metadata[structure.structure_pattern_id].tag;
+                        let branch = self
+                            .resolution_data
+                            .structure_patterns
+                            .get(&structure.structure_pattern_id)
+                            .tag;
                         branches
                             .entry(branch)
                             .or_insert(vec![])
@@ -454,7 +457,10 @@ where
                 };
             }
             Pattern::Structure(structure) => {
-                let structure_pattern = &self.metadata[structure.structure_pattern_id];
+                let structure_pattern = &self
+                    .resolution_data
+                    .structure_patterns
+                    .get(&structure.structure_pattern_id);
 
                 let structure_type =
                     self.instantiate(self.types[&structure_pattern.type_path].clone());
@@ -522,7 +528,7 @@ where
         mut self,
         program: &'ast Program,
         interner: &Interner,
-    ) -> Result<(Type, HashSet<Edge<Path>>)> {
+    ) -> Result<(Type, TypeCheckData)> {
         for module in &program.modules {
             self.collect_definitions(module)?;
         }
@@ -536,10 +542,7 @@ where
             .map(|s| interner.intern_id(s))
             .collect::<Vec<_>>();
 
-        Ok((
-            self.names[&Path::from_parts(parts)].clone(),
-            self.allowed_cycles,
-        ))
+        Ok((self.names[&Path::from_parts(parts)].clone(), self.data))
     }
 
     fn module(&mut self, module: &'ast Module) -> Result<()> {
@@ -558,14 +561,14 @@ where
         for definition in &module.definitions {
             match definition {
                 Definition::Name(name) => {
-                    let path = &self.metadata[name.path_id];
+                    let path = self.resolution_data.paths.get(&name.path_id);
 
                     let newvar = self.newvar();
                     self.names.insert(path, Type::Mono(newvar));
                     self.name_definitions.add(path, name);
                 }
                 Definition::Structure(structure) => {
-                    let path = &self.metadata[structure.path_id];
+                    let path = self.resolution_data.paths.get(&structure.path_id);
 
                     let t = self.initialize_structure_type(path.clone(), structure.variables.len());
 
@@ -576,7 +579,7 @@ where
                         .iter()
                         .map(|constructor| {
                             (
-                                &self.metadata[constructor.data.path_id],
+                                self.resolution_data.paths.get(&constructor.data.path_id),
                                 constructor.data.arguments.len(),
                             )
                         })
@@ -591,7 +594,7 @@ where
         // Type constructors
         for definition in &module.definitions {
             if let Definition::Structure(structure) = definition {
-                let path = &self.metadata[structure.path_id];
+                let path = self.resolution_data.paths.get(&structure.path_id);
 
                 let structure_type = self.instantiate(self.types[path].clone());
                 let variables = structure_type.variables();
@@ -611,7 +614,7 @@ where
                         t = MonoType::Arrow(arrow);
                     }
 
-                    let path = &self.metadata[constructor.data.path_id];
+                    let path = self.resolution_data.paths.get(&constructor.data.path_id);
 
                     let t = Type::Poly(variables.clone(), t);
                     self.names.insert(path, t);
@@ -625,7 +628,7 @@ where
     }
 
     fn name_definition(&mut self, name_definition: &definition::Name) -> Result<()> {
-        let path = &self.metadata[name_definition.path_id];
+        let path = self.resolution_data.paths.get(&name_definition.path_id);
 
         // If the type is not a variable then it is already type checked
         if !matches!(&self.names[path], Type::Mono(MonoType::Variable(_))) {
@@ -652,8 +655,8 @@ where
         Ok(())
     }
 
-    pub fn visit_dependencies(&mut self, path: &'metadata Path, span: Span) -> Result<()> {
-        for (dependency, in_lambda) in &self.dependencies[path] {
+    pub fn visit_dependencies(&mut self, path: &'resolution_data Path, span: Span) -> Result<()> {
+        for (dependency, in_lambda) in &self.resolution_data.dependencies[path] {
             match (self.name_definitions.is_visiting(dependency), in_lambda) {
                 (true, false) => {
                     return self.error(TypeCheckError::CyclicDefinition(path.clone()), span);
@@ -661,9 +664,7 @@ where
                 (false, _) => self.name_definition(self.name_definitions.get(dependency))?,
                 (true, true) => {
                     // TODO: Path interning
-                    let not_crossed = self
-                        .allowed_cycles
-                        .insert((path.clone(), dependency.clone()));
+                    let not_crossed = self.data.cycles.insert((path.clone(), dependency.clone()));
                     if not_crossed {
                         self.name_definition(self.name_definitions.get(dependency))?
                     }
@@ -726,4 +727,10 @@ pub enum TypeCheckError {
     TypeArityMismatch { expected: usize, found: usize },
     UnexhaustivePatternMatching,
     StructurePatternArityMismatch { expected: usize, found: usize },
+}
+
+#[derive(Default)]
+pub struct TypeCheckData {
+    /// Allowed cycles in the dependency graph due to lambdas
+    pub cycles: HashSet<Edge<Path>>,
 }

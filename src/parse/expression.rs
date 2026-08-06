@@ -1,10 +1,10 @@
 use crate::{
+    data_table::{
+        BoundDataId, CaptureDataId, PathUniqueNameDataId, SelfCaptureDataId,
+        TailCallDataId, UniqueNameDataId,
+    },
     interner::InternId,
     location::Located,
-    metadata::{
-        BoundMetadataId, CaptureMetadataId, PathUniqueNameMetadataId, SelfCaptureMetadataId,
-        TailCallMetadataId, UniqueNameMetadataId,
-    },
     parse::pattern::Pattern,
 };
 
@@ -19,29 +19,29 @@ pub enum Expression {
 
 pub struct Path {
     pub parts: Located<Vec<InternId>>,
-    pub bound_id: BoundMetadataId,
-    pub unique_name_id: PathUniqueNameMetadataId,
+    pub bound_id: BoundDataId,
+    pub unique_name_id: PathUniqueNameDataId,
 }
 
 pub struct Application {
     pub function: Box<Located<Expression>>,
     pub argument: Box<Located<Expression>>,
-    pub tail_call_id: TailCallMetadataId,
+    pub tail_call_id: TailCallDataId,
 }
 
 pub struct Lambda {
     pub variable: Located<InternId>,
     pub expression: Box<Located<Expression>>,
-    pub capture_id: CaptureMetadataId,
-    pub unique_name_id: UniqueNameMetadataId,
-    pub self_capture_id: SelfCaptureMetadataId,
+    pub capture_id: CaptureDataId,
+    pub unique_name_id: UniqueNameDataId,
+    pub self_capture_id: SelfCaptureDataId,
 }
 
 pub struct LetIn {
     pub variable: Located<InternId>,
     pub variable_expression: Box<Located<Expression>>,
     pub return_expression: Box<Located<Expression>>,
-    pub unique_name_id: UniqueNameMetadataId,
+    pub unique_name_id: UniqueNameDataId,
 }
 
 pub struct MatchAs {

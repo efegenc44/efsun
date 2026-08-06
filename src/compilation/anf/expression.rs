@@ -1,6 +1,6 @@
 use crate::{
     compilation::anf::{self, atom},
-    metadata::TailCallMetadataId,
+    data_table::TailCallDataId,
     parse::pattern::Pattern,
     resolution::renamer::UniqueName,
 };
@@ -18,7 +18,7 @@ pub struct Application {
     pub variable: anf::Local,
     pub function: anf::Atom,
     pub arguments: Vec<anf::Atom>,
-    pub tail_call_id: TailCallMetadataId,
+    pub tail_call_id: TailCallDataId,
     pub expression: Box<anf::Expression>,
 }
 

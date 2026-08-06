@@ -1,6 +1,6 @@
 mod check;
 mod compilation;
-mod metadata;
+mod data_table;
 mod parse;
 mod resolution;
 

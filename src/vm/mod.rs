@@ -268,7 +268,7 @@ impl VM {
                                 address,
                                 remaining,
                                 parital: Rc::new(partial),
-                                captures: captures,
+                                captures,
                             }));
 
                             let return_value = self.pop();

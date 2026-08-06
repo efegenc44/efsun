@@ -1,7 +1,7 @@
 use crate::{
     compilation::anf,
+    data_table::{ANFBoundDataId, ANFCaptureDataId},
     interner::InternId,
-    metadata::{BoundMetadataId, CaptureMetadataId},
     resolution::{bound::Bound, renamer::UniqueName},
 };
 
@@ -14,12 +14,12 @@ pub enum Atom {
 pub struct Path {
     pub path: anf::Path,
     pub bound: Option<Bound>,
-    pub anf_bound_id: BoundMetadataId,
+    pub anf_bound_id: ANFBoundDataId,
 }
 
 pub struct Lambda {
     pub variables: Vec<UniqueName>,
     pub expression: Box<anf::Expression>,
-    pub anf_capture_id: CaptureMetadataId,
+    pub anf_capture_id: ANFCaptureDataId,
     pub self_capture: Option<usize>,
 }

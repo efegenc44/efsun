@@ -1,4 +1,4 @@
-use crate::{interner::InternId, location::Located, metadata::BoundMetadataId};
+use crate::{data_table::BoundDataId, interner::InternId, location::Located};
 
 pub enum TypeExpression {
     Path(Path),
@@ -7,7 +7,7 @@ pub enum TypeExpression {
 
 pub struct Path {
     pub parts: Located<Vec<InternId>>,
-    pub bound_id: BoundMetadataId,
+    pub bound_id: BoundDataId,
 }
 
 pub struct Application {

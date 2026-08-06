@@ -1,18 +1,14 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     fs,
     io::{self, Write},
 };
 
 use crate::{
-    check::{
-        TypeChecker,
-        typ::{MonoType, Type},
-    },
+    check::{TypeChecker, typ::Type},
     compilation::{Compiler, ConstantPool, anf},
     error::Result,
     interner::{Interner, WithInterner},
-    metadata::{Indicies, Metadata},
     parse::{Parser, ProgramParser},
     resolution::{ANFResolver, Resolver, renamer::Renamer},
     vm::{VM, value::Value},
@@ -22,19 +18,23 @@ fn expression(
     source: &str,
     vm: &mut VM,
     interner: &mut Interner,
-) -> Result<(Value, MonoType, ConstantPool)> {
-    let (expression, indicies) =
-        Parser::from_source("<interactive>", source, Indicies::default(), interner)
-            .parse(Parser::expression_repl)?;
-    let (metadata, dependencies) = Resolver::new(Metadata::new())
+) -> Result<(Value, Type, ConstantPool)> {
+    let expression = Parser::from_source("<interactive>", source, interner).expression_repl()?;
+    let resolution_data = Resolver::new()
         .set_interactive_module(interner)
-        .finish(Resolver::expression, &expression)?;
-    let t = TypeChecker::new(&metadata, &dependencies).infer(&expression)?;
-    let metadata = Renamer::new(metadata).finish(Renamer::expression, &expression);
-    let anf_expression = anf::Transformer::new(&metadata, indicies).transform(expression.data);
-    let metadata = ANFResolver::new(metadata).finish(ANFResolver::expression, &anf_expression);
-    let (code, pool) =
-        Compiler::new(interner, &metadata, &dependencies, &HashSet::new()).compile(&anf_expression);
+        .expression_repl(&expression)?;
+    let (t, type_check_data) = TypeChecker::new(&resolution_data).infer_repl(&expression)?;
+    let rename_data = Renamer::new(&resolution_data).expression_repl(&expression);
+    let anf_expression =
+        anf::Transformer::new(&resolution_data, &rename_data).transform(expression.data);
+    let anf_resolution_data = ANFResolver::new(&rename_data).expression_repl(&anf_expression);
+    let (code, pool) = Compiler::new(
+        interner,
+        &resolution_data,
+        &type_check_data,
+        &anf_resolution_data,
+    )
+    .expression_repl(&anf_expression);
     let result = vm.run(&code, &pool, false);
 
     Ok((result, t, pool))
@@ -45,16 +45,19 @@ fn program(
     vm: &mut VM,
     interner: &mut Interner,
 ) -> Result<(Value, Type, ConstantPool)> {
-    let (program, indicies) = ProgramParser::new(sources, interner, Indicies::default()).parse()?;
-    let (metadata, dependencies) =
-        Resolver::new(Metadata::new()).finish(Resolver::program, &program)?;
-    let (t, allowed_cycles) =
-        TypeChecker::new(&metadata, &dependencies).program(&program, interner)?;
-    let metadata = Renamer::new(metadata).finish(Renamer::program, &program);
-    let anf_program = anf::Transformer::new(&metadata, indicies).program(program);
-    let metadata = ANFResolver::new(metadata).finish(ANFResolver::program, &anf_program);
-    let (code, pool) =
-        Compiler::new(interner, &metadata, &dependencies, &allowed_cycles).program(&anf_program);
+    let program = ProgramParser::new(sources, interner).parse()?;
+    let resolution_data = Resolver::new().program(&program)?;
+    let (t, type_check_data) = TypeChecker::new(&resolution_data).program(&program, interner)?;
+    let rename_data = Renamer::new(&resolution_data).program(&program);
+    let anf_program = anf::Transformer::new(&resolution_data, &rename_data).program(program);
+    let anf_resolution_data = ANFResolver::new(&rename_data).program(&anf_program);
+    let (code, pool) = Compiler::new(
+        interner,
+        &resolution_data,
+        &type_check_data,
+        &anf_resolution_data,
+    )
+    .program(&anf_program);
     let result = vm.run(&code, &pool, false);
 
     Ok((result, t, pool))

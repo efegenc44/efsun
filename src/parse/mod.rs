@@ -7,10 +7,10 @@ pub mod type_expression;
 use std::{collections::HashMap, iter::Peekable};
 
 use crate::{
+    data_table::{Generator, Indicies},
     error::{ReportableError, Result},
     interner::{InternId, Interner},
     location::{Located, Span},
-    metadata::{Generator, Indicies},
     parse::definition::{Module, Program},
 };
 
@@ -54,30 +54,27 @@ impl<'source, 'interner> ProgramParser<'source, 'interner> {
     pub fn new(
         sources: &'source HashMap<String, String>,
         interner: &'interner mut Interner,
-        indicies: Indicies,
     ) -> Self {
         Self {
             sources,
             interner,
-            indicies,
+            indicies: Indicies::default(),
         }
     }
 
-    pub fn parse(self) -> Result<(Program, Indicies)> {
+    pub fn parse(self) -> Result<Program> {
         let mut indicies = self.indicies;
 
-        let modules = self
-            .sources
-            .iter()
-            .map(|(source_name, source)| {
-                let mut parser = Parser::from_source(source_name, source, indicies, self.interner);
-                let module = parser.module();
-                indicies = parser.indicies;
-                module
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let mut modules = Vec::with_capacity(self.sources.len());
+        for (source_name, source) in self.sources {
+            let mut parser =
+                Parser::from_source_with_indicies(source_name, source, indicies, self.interner);
+            let module = parser.module()?;
+            indicies = parser.indicies;
+            modules.push(module)
+        }
 
-        Ok((Program { modules }, indicies))
+        Ok(Program { modules })
     }
 }
 
@@ -89,6 +86,14 @@ pub struct Parser<'source, 'interner> {
 
 impl<'source, 'interner> Parser<'source, 'interner> {
     pub fn from_source(
+        source_name: &'source str,
+        source: &'source str,
+        interner: &'interner mut Interner,
+    ) -> Self {
+        Self::from_source_with_indicies(source_name, source, Indicies::default(), interner)
+    }
+
+    fn from_source_with_indicies(
         source_name: &'source str,
         source: &'source str,
         indicies: Indicies,
@@ -679,11 +684,6 @@ impl<'source, 'interner> Parser<'source, 'interner> {
         };
 
         Ok(constructor)
-    }
-
-    pub fn parse<T>(mut self, f: fn(&mut Self) -> Result<T>) -> Result<(T, Indicies)> {
-        let ast = f(&mut self)?;
-        Ok((ast, self.indicies))
     }
 
     fn error<T>(&self, error: ParseError, span: Option<Span>) -> Result<T> {
