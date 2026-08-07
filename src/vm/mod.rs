@@ -81,8 +81,8 @@ impl VM {
                     let mut closure = Vec::with_capacity(captures.len());
                     for capture in captures {
                         let value = match capture {
-                            Capture::Local(id) => self.stack[self.base + id.value()].clone(),
-                            Capture::Outer(id) => {
+                            Capture::Local(id, _) => self.stack[self.base + id.value()].clone(),
+                            Capture::Outer(id, _) => {
                                 self.closure.as_ref().unwrap().borrow()[id.value()].clone()
                             }
                         };
@@ -113,10 +113,17 @@ impl VM {
                     let value = self.stack[self.base + id].clone();
                     self.push(value);
                 }
-                Instruction::CopyIntoLocal(id) => {
-                    self.stack[self.base + id] = self.stack.last().unwrap().clone();
+                Instruction::SetLocal(id) => {
+                    self.stack[self.base + id] = self.pop();
                 }
                 Instruction::TruncateFrame(n) => {
+                    self.stack.truncate(self.base + n);
+                }
+                Instruction::SlideToFrame(n) => {
+                    let step = self.stack.len() - n - self.base;
+                    for i in 0..n {
+                        self.stack[self.base + i] = self.stack[self.base + i + step].clone();
+                    }
                     self.stack.truncate(self.base + n);
                 }
                 Instruction::GetAbsolute(id) => {

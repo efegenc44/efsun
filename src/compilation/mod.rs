@@ -10,7 +10,7 @@ use crate::{
     interner::{InternId, Interner},
     parse::pattern::Pattern,
     resolution::{
-        ANFResolutionData, Edge, ResolutionData,
+        ANFResolutionData, Edge, ResolutionData, TailCallKind,
         bound::{Bound, Path},
     },
 };
@@ -366,48 +366,50 @@ where
     }
 
     fn application(&mut self, application: &'anf anf::expression::Application) {
-        let is_tail_call = self
-            .resolution_data
-            .tail_calls
-            .get(&application.tail_call_id)
-            .is_some();
-
         let code = seperate!(self, {
             // NOTE: Reverse is to preserve left associative application
             //   semantics that is forced by previous pipline steps
-            for (i, argument) in application.arguments.iter().rev().enumerate() {
+            for argument in application.arguments.iter().rev() {
                 self.atom(argument);
-                if is_tail_call {
-                    // NOTE: CopyIntoLocal does not pop so we will always have enough
-                    //   stack size if tail call needs larger frame
-                    self.emit(Instruction::CopyIntoLocal(i).into());
-                }
             }
 
-            if is_tail_call {
-                // NOTE: General tail call elimitination may require adjusting the frame size
-                //   and by copying (not popping) new arguments into old frame, stack size
-                //   never becomes less but always _at least one_ more. This trick eliminates
-                //   the need for a runtime check to either allocate or truncate stack frame
-                //   because only truncation is possible
+            match application.tail_call {
+                // NOTE: When direct it is certain that existing frame size will be enough
+                Some(TailCallKind::Direct) => {
+                    for i in (0..application.arguments.len()).rev() {
+                        self.emit(Instruction::SetLocal(i).into());
+                    }
+                }
+                // NOTE: When indirect it is not certaion if the frame size will be enough
+                //   so new arguments are slid back to start of the frame
+                Some(TailCallKind::Indirect) => {
+                    self.emit(Instruction::SlideToFrame(application.arguments.len()).into());
+                }
+                None => (),
+            }
+
+            if application.tail_call.is_some() {
+                // NOTE: General tail call elimination may require truncating the frame size
+                //   because of local variables and in the case of indirect tail call different
+                //   function arity
                 self.emit(Instruction::TruncateFrame(application.arguments.len()).into());
             }
 
             self.atom(&application.function);
-            if !is_tail_call {
+            if application.tail_call.is_none() {
                 self.emit(Instruction::SetBase(application.arguments.len() + 1).into());
             }
             self.emit(Instruction::Call(application.arguments.len()).into());
         });
 
-        if !is_tail_call {
+        if application.tail_call.is_none() {
             self.emit(Placeholder::PushFrame(code.len()).into());
         }
 
         self.extend(code.into_iter());
 
         // TODO: Generalize optimization for immediate return of last produced local
-        if !is_tail_call {
+        if application.tail_call.is_none() {
             scoped_expression!(1, self, &application.expression);
         }
     }
@@ -518,7 +520,12 @@ where
         self.emit(Placeholder::MakeLambda(id, artiy).into());
 
         if !capture.is_empty() {
-            self.emit(Instruction::CaptureIntoLambda(capture.to_vec(), lambda.self_capture).into())
+            let self_capture = self
+                .anf_resolution_data
+                .self_captures
+                .get(&lambda.self_capture_id)
+                .copied();
+            self.emit(Instruction::CaptureIntoLambda(capture.to_vec(), self_capture).into())
         }
     }
 

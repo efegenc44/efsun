@@ -47,17 +47,33 @@ impl BoundId {
     }
 }
 
+/// Hint for self capturing local let in definition
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SelfCaptureHint {
+    Possible,
+    No,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Capture {
-    Local(BoundId),
-    Outer(BoundId),
+    Local(BoundId, SelfCaptureHint),
+    Outer(BoundId, SelfCaptureHint),
+}
+
+impl Capture {
+    pub fn self_capture_hint(&self) -> SelfCaptureHint {
+        match self {
+            Capture::Local(_, hint) => *hint,
+            Capture::Outer(_, hint) => *hint,
+        }
+    }
 }
 
 impl Display for Capture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Local(id) => write!(f, "local({})", id.0),
-            Self::Outer(id) => write!(f, "outer({})", id.0),
+            Self::Local(id, _) => write!(f, "local({})", id.0),
+            Self::Outer(id, _) => write!(f, "outer({})", id.0),
         }
     }
 }

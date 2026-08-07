@@ -37,15 +37,15 @@ indicies! {
         StructurePatternDataId,
         PathDataId,
         UniqueNameDataId,
-        SelfCaptureDataId,
-        TailCallDataId,
         PathUniqueNameDataId,
+        TailCallDataId,
 }
 
 indicies! {
     ANFIndicies:
         ANFBoundDataId,
         ANFCaptureDataId,
+        SelfCaptureDataId,
 }
 
 pub struct DataTable<I, V> {

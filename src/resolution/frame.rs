@@ -1,4 +1,4 @@
-use crate::resolution::bound::{Bound, BoundId, Capture};
+use crate::resolution::bound::{Bound, BoundId, Capture, SelfCaptureHint};
 
 pub struct Frame<T> {
     locals: Vec<T>,
@@ -90,7 +90,15 @@ impl<T: Eq + Clone> ResolutionStack<T> {
         let current_frame = &self.0[index];
 
         let capture = match current_frame.resolve(value.clone()) {
-            Some(id) => Capture::Local(id),
+            Some(id) => {
+                let self_capture_hint = if id.value() == current_frame.locals.len() - 1 {
+                    SelfCaptureHint::Possible
+                } else {
+                    SelfCaptureHint::No
+                };
+
+                Capture::Local(id, self_capture_hint)
+            }
             None => {
                 let capture = self.capture_in_frame(value, frame_depth + 1)?;
                 let frame_captures = &mut self.0[index].captures;
@@ -103,7 +111,7 @@ impl<T: Eq + Clone> ResolutionStack<T> {
                     }
                 };
 
-                Capture::Outer(BoundId::new(id))
+                Capture::Outer(BoundId::new(id), capture.self_capture_hint())
             }
         };
 
@@ -170,8 +178,8 @@ impl<T: Clone> CheckStack<T> {
         let current_frame = &self.0[index];
 
         match capture {
-            Capture::Local(id) => current_frame.locals[id.value()].clone(),
-            Capture::Outer(id) => {
+            Capture::Local(id, _) => current_frame.locals[id.value()].clone(),
+            Capture::Outer(id, _) => {
                 let capture = current_frame.captures[id.value()];
                 self.get_capture_in_frame(capture, frame_depth + 1)
             }

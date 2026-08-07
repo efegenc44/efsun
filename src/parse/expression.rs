@@ -1,7 +1,6 @@
 use crate::{
     data_table::{
-        BoundDataId, CaptureDataId, PathUniqueNameDataId, SelfCaptureDataId,
-        TailCallDataId, UniqueNameDataId,
+        BoundDataId, CaptureDataId, PathUniqueNameDataId, TailCallDataId, UniqueNameDataId,
     },
     interner::InternId,
     location::Located,
@@ -34,7 +33,6 @@ pub struct Lambda {
     pub expression: Box<Located<Expression>>,
     pub capture_id: CaptureDataId,
     pub unique_name_id: UniqueNameDataId,
-    pub self_capture_id: SelfCaptureDataId,
 }
 
 pub struct LetIn {

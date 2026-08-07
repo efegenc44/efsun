@@ -1,8 +1,7 @@
 use crate::{
     compilation::anf::{self, atom},
-    data_table::TailCallDataId,
     parse::pattern::Pattern,
-    resolution::renamer::UniqueName,
+    resolution::{TailCallKind, renamer::UniqueName},
 };
 
 pub enum Expression {
@@ -18,7 +17,7 @@ pub struct Application {
     pub variable: anf::Local,
     pub function: anf::Atom,
     pub arguments: Vec<anf::Atom>,
-    pub tail_call_id: TailCallDataId,
+    pub tail_call: Option<TailCallKind>,
     pub expression: Box<anf::Expression>,
 }
 

@@ -10,9 +10,8 @@ use std::{
 use crate::{
     compilation::anf::{self, Local},
     data_table::{
-        ANFBoundDataId, ANFCaptureDataId, BoundDataId, CaptureDataId, DataTable,
-        OptionalDataTable, PathDataId, SelfCaptureDataId, StructurePatternDataId,
-        TailCallDataId,
+        ANFBoundDataId, ANFCaptureDataId, BoundDataId, CaptureDataId, DataTable, OptionalDataTable,
+        PathDataId, SelfCaptureDataId, StructurePatternDataId, TailCallDataId,
     },
     error::{ReportableError, Result},
     interner::{InternId, Interner},
@@ -23,7 +22,10 @@ use crate::{
         pattern::{self, Pattern},
         type_expression::{self, TypeExpression},
     },
-    resolution::{bound::Capture, renamer::RenameData},
+    resolution::{
+        bound::{Capture, SelfCaptureHint},
+        renamer::RenameData,
+    },
 };
 
 use bound::{Bound, BoundId, Module as ModuleBound, Path};
@@ -50,6 +52,15 @@ enum LetInVariableReference {
     Allowed,
     Rejected,
     Irrelevant,
+}
+
+/// Tail call kind
+///   Direct means defintion calls itself
+///   Indirect means defitnition calls another function
+#[derive(Copy, Clone)]
+pub enum TailCallKind {
+    Direct,
+    Indirect,
 }
 
 pub type Graph<N> = HashMap<N, Vec<(N, bool)>>;
@@ -261,8 +272,6 @@ impl Resolver {
     }
 
     fn lambda(&mut self, lambda: &expression::Lambda) -> Result<()> {
-        self.resolve_tail_call(&lambda.expression.data);
-
         self.stack.push_frame();
         self.stack.push_local(lambda.variable.data);
         let before = self.replace_in_lambda(true);
@@ -271,34 +280,65 @@ impl Resolver {
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
-        if let LetInVariableReference::Allowed = self.letin_reference {
-            for (index, capture) in capture.iter().enumerate() {
-                // NOTE: It is guaranteed that the let in variable sits on top of the frame.
-                if let Capture::Local(id) = capture
-                    && id.value() == self.stack.len() - 1
-                {
-                    self.data.self_captures.set(lambda.self_capture_id, index);
-                }
-            }
-        }
+        self.resolve_tail_call(&lambda.expression.data, &capture);
 
         self.data.captures.set(lambda.capture_id, capture);
 
         Ok(())
     }
 
-    fn resolve_tail_call(&mut self, expression: &Expression) {
+    fn resolve_tail_call(&mut self, expression: &Expression, capture: &[Capture]) {
         match expression {
             Expression::Application(application) => {
-                self.data.tail_calls.set(application.tail_call_id, ());
+                let kind = self.resolve_tail_call_kind(application, capture);
+                self.data.tail_calls.set(application.tail_call_id, kind);
             }
-            Expression::LetIn(letin) => self.resolve_tail_call(&letin.return_expression.data),
+            Expression::LetIn(letin) => {
+                self.resolve_tail_call(&letin.return_expression.data, capture)
+            }
             Expression::MatchAs(matchas) => {
                 for branch in &matchas.branches {
-                    self.resolve_tail_call(&branch.data.expression.data);
+                    self.resolve_tail_call(&branch.data.expression.data, capture);
                 }
             }
-            Expression::String(_) | Expression::Lambda(_) | Expression::Path(_) => (),
+            Expression::String(_) | Expression::Path(_) | Expression::Lambda(_) => (),
+        }
+    }
+
+    fn resolve_tail_call_kind(
+        &self,
+        application: &expression::Application,
+        capture: &[Capture],
+    ) -> TailCallKind {
+        let is_direct = match &application.function.data {
+            Expression::Path(path) => match self.data.bounds.get(&path.bound_id) {
+                Bound::Local(_) => false,
+                Bound::Capture(id) => {
+                    matches!(self.letin_reference, LetInVariableReference::Allowed)
+                        && matches!(
+                            capture[id.value()].self_capture_hint(),
+                            SelfCaptureHint::Possible
+                        )
+                }
+                Bound::Absolute(path) => self
+                    .current_name_definition
+                    .as_ref()
+                    .map(|name| name == path)
+                    .unwrap_or(false),
+            },
+            Expression::Application(application) => {
+                matches!(
+                    self.resolve_tail_call_kind(application, capture),
+                    TailCallKind::Direct
+                )
+            }
+            _ => false,
+        };
+
+        if is_direct {
+            TailCallKind::Direct
+        } else {
+            TailCallKind::Indirect
         }
     }
 
@@ -766,6 +806,9 @@ impl Resolver {
 pub struct ANFResolver<'rename_data> {
     /// Stack for local variables
     stack: ResolutionStack<anf::Local>,
+    /// State of allowance for referencing let in expression's variable
+    ///   in variable expression of let in
+    letin_reference: LetInVariableReference,
     /// Rename produced data
     rename_data: &'rename_data RenameData,
     /// ANF Resolution produced data
@@ -776,9 +819,16 @@ impl<'rename_data> ANFResolver<'rename_data> {
     pub fn new(rename_data: &'rename_data RenameData) -> Self {
         ANFResolver {
             stack: ResolutionStack::new(),
+            letin_reference: LetInVariableReference::Irrelevant,
             rename_data,
             data: ANFResolutionData::default(),
         }
+    }
+
+    fn replace_letin_reference(&mut self, value: LetInVariableReference) -> LetInVariableReference {
+        let before = self.letin_reference;
+        self.letin_reference = value;
+        before
     }
 
     fn expression(&mut self, anf: &anf::Expression) {
@@ -835,14 +885,31 @@ impl<'rename_data> ANFResolver<'rename_data> {
         self.stack.pop_local();
         let capture = self.stack.pop_frame();
 
+        if let LetInVariableReference::Allowed = self.letin_reference {
+            for (index, capture) in capture.iter().enumerate() {
+                if let Capture::Local(_, SelfCaptureHint::Possible) = capture {
+                    self.data.self_captures.set(lambda.self_capture_id, index);
+                }
+            }
+        }
+
         self.data.captures.set(lambda.anf_capture_id, capture);
     }
 
     fn letin(&mut self, letin: &anf::expression::LetIn) {
+        let allowance = if let anf::Atom::Lambda(_) = &letin.variable_expression {
+            LetInVariableReference::Allowed
+        } else {
+            LetInVariableReference::Rejected
+        };
+
+        let old = self.replace_letin_reference(allowance);
         self.stack.push_local(Local::Standard(letin.variable));
         self.atom(&letin.variable_expression);
+        self.replace_letin_reference(LetInVariableReference::Irrelevant);
         self.expression(&letin.return_expression);
         self.stack.pop_local();
+        self.replace_letin_reference(old);
     }
 
     fn application(&mut self, application: &anf::expression::Application) {
@@ -938,8 +1005,7 @@ pub struct ResolutionData {
     pub captures: DataTable<CaptureDataId, Vec<Capture>>,
     pub structure_patterns: DataTable<StructurePatternDataId, StructurePattern>,
     pub paths: DataTable<PathDataId, Path>,
-    pub tail_calls: OptionalDataTable<TailCallDataId, ()>,
-    pub self_captures: OptionalDataTable<SelfCaptureDataId, usize>,
+    pub tail_calls: OptionalDataTable<TailCallDataId, TailCallKind>,
     /// Dependency graph for name definitions
     pub dependencies: Graph<Path>,
 }
@@ -953,4 +1019,5 @@ pub struct StructurePattern {
 pub struct ANFResolutionData {
     pub bounds: DataTable<ANFBoundDataId, Bound>,
     pub captures: DataTable<ANFCaptureDataId, Vec<Capture>>,
+    pub self_captures: OptionalDataTable<SelfCaptureDataId, usize>,
 }

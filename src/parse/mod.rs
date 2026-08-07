@@ -210,7 +210,6 @@ impl<'source, 'interner> Parser<'source, 'interner> {
             expression: Box::new(expression),
             capture_id: self.indicies.get(),
             unique_name_id: self.indicies.get(),
-            self_capture_id: self.indicies.get(),
         };
 
         let expression = Located {

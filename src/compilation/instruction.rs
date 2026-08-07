@@ -44,7 +44,7 @@ pub enum Instruction {
     CaptureIntoLambda(Vec<Capture>, Option<usize>),
     GetCapture(usize),
     GetLocal(usize),
-    CopyIntoLocal(usize),
+    SetLocal(usize),
     GetAbsolute(usize),
     GetArgument(usize),
     StringEquals,
@@ -54,6 +54,7 @@ pub enum Instruction {
     PopScope(usize),
     PushFrame(usize),
     TruncateFrame(usize),
+    SlideToFrame(usize),
     SetBase(usize),
     Call(usize),
     Return,
@@ -74,6 +75,7 @@ impl Display for Instruction {
             Self::PopBase => write!(f, "POP_BASE"),
             Self::PushFrame(address) => write!(f, "PUSH_FRAME {address}"),
             Self::TruncateFrame(n) => write!(f, "TRUNCATE_FRAME {n}"),
+            Self::SlideToFrame(n) => write!(f, "SLIDE_TO_FRAME {n}"),
             Self::SetBase(n) => write!(f, "SET_BASE {n}"),
             Self::MakeLambda(address, arity) => write!(f, "MAKE_LAMBDA {address:#>05x} {arity}"),
             Self::CaptureIntoLambda(captures, _self_capture) => {
@@ -81,8 +83,8 @@ impl Display for Instruction {
                 for capture in captures {
                     write!(f, "\n            CAPTURE_")?;
                     match capture {
-                        Capture::Local(id) => write!(f, "LOCAL {}", id.value())?,
-                        Capture::Outer(id) => write!(f, "OUTER {}", id.value())?,
+                        Capture::Local(id, _) => write!(f, "LOCAL {}", id.value())?,
+                        Capture::Outer(id, _) => write!(f, "OUTER {}", id.value())?,
                     }
                 }
 
@@ -90,7 +92,7 @@ impl Display for Instruction {
             }
             Self::GetCapture(id) => write!(f, "GET_CAPTURE {id}"),
             Self::GetLocal(id) => write!(f, "GET_LOCAL {id}"),
-            Self::CopyIntoLocal(id) => write!(f, "COPY_INTO_LOCAL {id}"),
+            Self::SetLocal(id) => write!(f, "SET_LOCAL {id}"),
             Self::GetAbsolute(id) => write!(f, "GET_ABSOLUTE {id}"),
             Self::GetArgument(nth) => write!(f, "GET_ARGUMENT {nth}"),
             Self::StringEquals => write!(f, "STRING_EQUALS"),

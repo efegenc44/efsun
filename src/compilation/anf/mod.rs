@@ -22,7 +22,7 @@ use crate::{
         expression::{self as ast_expression, Expression as ASTExpression},
     },
     resolution::{
-        ResolutionData,
+        ResolutionData, TailCallKind,
         bound::Bound,
         renamer::{RenameData, UniqueName},
     },
@@ -254,14 +254,28 @@ impl<'resolution_data, 'rename_data> Transformer<'resolution_data, 'rename_data>
             tail_call_id,
         } = application;
 
-        // NOTE: Multiple argument lambdas does not pose a problem for `tail_call_id`s
-        //  since if there is a tail call then it is the most outer (first one) (by left-association)
-        //  so the first `tail_call_id` is used as the multiple argument lambda's `tail_call_id`
+        let mut most_inner_tail_call_id = tail_call_id;
+
         let mut arguments = vec![argument.data];
         while let ASTExpression::Application(successive) = function.data {
             arguments.push(successive.argument.data);
             function = successive.function;
+            most_inner_tail_call_id = successive.tail_call_id;
         }
+
+        let tail_call = if let Some(tail_call) = self
+            .resolution_data
+            .tail_calls
+            .get(&most_inner_tail_call_id)
+        {
+            assert!(
+                !matches!(tail_call, TailCallKind::Direct)
+                    || most_inner_tail_call_id == tail_call_id
+            );
+            Some(tail_call).copied()
+        } else {
+            self.resolution_data.tail_calls.get(&tail_call_id).copied()
+        };
 
         #[rustfmt::skip]
         let result = self.expression(function.data, Box::new(|function| {
@@ -276,7 +290,7 @@ impl<'resolution_data, 'rename_data> Transformer<'resolution_data, 'rename_data>
                     variable,
                     function,
                     arguments,
-                    tail_call_id,
+                    tail_call,
                     expression: Box::new(k(Atom::Path(path))),
                 })
             });
@@ -304,7 +318,6 @@ impl<'resolution_data, 'rename_data> Transformer<'resolution_data, 'rename_data>
         let ast_expression::Lambda {
             mut expression,
             unique_name_id,
-            self_capture_id,
             ..
         } = lambda;
 
@@ -319,15 +332,16 @@ impl<'resolution_data, 'rename_data> Transformer<'resolution_data, 'rename_data>
             expression = successive.expression;
         }
 
+        let mut indicies = self.indicies.borrow_mut();
+        let anf_capture_id = indicies.get();
+        let self_capture_id = indicies.get();
+        drop(indicies);
+
         let lambda = atom::Lambda {
             variables,
             expression: Box::new(self.transform(expression.data)),
-            anf_capture_id: self.indicies.borrow_mut().get(),
-            self_capture: self
-                .resolution_data
-                .self_captures
-                .get(&self_capture_id)
-                .copied(),
+            anf_capture_id,
+            self_capture_id,
         };
 
         k(Atom::Lambda(lambda))

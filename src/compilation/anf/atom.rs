@@ -1,6 +1,6 @@
 use crate::{
     compilation::anf,
-    data_table::{ANFBoundDataId, ANFCaptureDataId},
+    data_table::{ANFBoundDataId, ANFCaptureDataId, SelfCaptureDataId},
     interner::InternId,
     resolution::{bound::Bound, renamer::UniqueName},
 };
@@ -21,5 +21,5 @@ pub struct Lambda {
     pub variables: Vec<UniqueName>,
     pub expression: Box<anf::Expression>,
     pub anf_capture_id: ANFCaptureDataId,
-    pub self_capture: Option<usize>,
+    pub self_capture_id: SelfCaptureDataId,
 }
